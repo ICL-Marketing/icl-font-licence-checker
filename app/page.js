@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DEFAULT_SITES } from "@/data/sites";
 import { buildFontEmail, buildImageEmail, isFreeLib } from "@/lib/email";
-import { shortFix } from "@/lib/scanner";
 
 const ORDER = { PROBLEM: 4, CHECK: 3, UNREACHABLE: 2, OK: 1, SYSTEM: 0 };
 const LABEL = { PROBLEM: "PROBLEM", CHECK: "CHECK", UNREACHABLE: "COULDN'T CHECK", OK: "OK", SYSTEM: "NO WEB FONTS", RUNNING: "SCANNING" };
@@ -370,7 +369,7 @@ function SiteCard({ r, open, toggle, rerun, running }) {
     : r.error
       ? r.error
       : todo.length
-        ? todo.map((f) => `${f.family} → ${shortFix(f)}`).join("  ·  ")
+        ? [...new Set(todo.map((f) => f.family))].join(", ")
         : fonts.length ? `${oks.length} font${oks.length === 1 ? "" : "s"} OK` : r.ignoredFonts?.length ? "Only icon/UI fonts (ignored)" : "No web fonts found";
 
   return (
