@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DEFAULT_SITES } from "@/data/sites";
+import { buildClientEmail } from "@/lib/email";
+import { shortFix } from "@/lib/scanner";
 
 const ORDER = { PROBLEM: 4, CHECK: 3, UNREACHABLE: 2, OK: 1, SYSTEM: 0 };
 const LABEL = { PROBLEM: "PROBLEM", CHECK: "CHECK", UNREACHABLE: "COULDN'T CHECK", OK: "OK", SYSTEM: "NO WEB FONTS", RUNNING: "SCANNING" };
@@ -33,13 +35,11 @@ function imageStatus(r) {
 
 export default function Home() {
   const [text, setText] = useState(DEFAULT_SITES.join("\n"));
-  const [pages, setPages] = useState(4);
   const [parallel, setParallel] = useState(4);
   const [results, setResults] = useState({});
   const [running, setRunning] = useState(false);
   const [tab, setTab] = useState("fonts");
   const [filter, setFilter] = useState("ALL");
-  const [imgFilter, setImgFilter] = useState("ALL");
   const [open, setOpen] = useState({});
   const [exporting, setExporting] = useState(false);
   const [showList, setShowList] = useState(true);
@@ -66,16 +66,56 @@ export default function Home() {
   const sites = useMemo(() => [...new Set(text.split(/\r?\n|,/).map(normalise).filter((s) => s.includes(".")))], [text]);
 
   async function scanOne(site) {
-    setResults((r) => ({ ...r, [site]: { site, status: "RUNNING", fonts: [], images: [] } }));
+    setResults((r) => ({ ...r, [site]: { site, status: "RUNNING", fonts: [], images: [], progress: "fonts + sitemap" } }));
     try {
       const r = await fetch("/api/scan", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ site, pages }),
+        body: JSON.stringify({ site, pages: 4 }),
       });
       if (r.status === 401) { stopRef.current = true; router.push("/login"); return; }
       const data = await r.json();
-      setResults((prev) => ({ ...prev, [site]: data }));
+      if (data.status === "UNREACHABLE" || !data.pageQueue?.length) {
+        setResults((prev) => ({ ...prev, [site]: { ...data, pageQueue: undefined } }));
+        return;
+      }
+      // Sweep every remaining page for images, in batches, until the queue is empty.
+      const MAX_PAGES = 500;
+      const queue = [...data.pageQueue];
+      const visited = new Set([...(data.pages || []), ...queue].map((u) => u.replace(/\/$/, "")));
+      const images = [...(data.images || [])];
+      const seenImg = new Set(images.map((i) => i.url.split("?")[0]));
+      let scanned = data.pages?.length || 0;
+      let imagesChecked = data.imagesChecked || 0;
+      let total = scanned + queue.length;
+      const show = () => setResults((prev) => ({ ...prev, [site]: { ...data, status: "RUNNING", pageQueue: undefined, progress: `images: page ${scanned} of ${total}` } }));
+      show();
+      while (queue.length && !stopRef.current) {
+        const batch = queue.splice(0, 10);
+        const pr = await fetch("/api/scan-pages", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ site, urls: batch }),
+        });
+        if (pr.status === 401) { stopRef.current = true; router.push("/login"); return; }
+        const out = await pr.json();
+        scanned += (out.done || []).length;
+        imagesChecked += out.imagesChecked || 0;
+        for (const i of out.images || []) {
+          const k = i.url.split("?")[0];
+          if (!seenImg.has(k)) { seenImg.add(k); images.push(i); }
+        }
+        if (out.remaining?.length) queue.unshift(...out.remaining);
+        if (!data.hasSitemap) {
+          for (const l of out.links || []) {
+            const k = l.replace(/\/$/, "");
+            if (!visited.has(k) && visited.size < MAX_PAGES) { visited.add(k); queue.push(l); }
+          }
+        }
+        total = scanned + queue.length;
+        show();
+      }
+      setResults((prev) => ({ ...prev, [site]: { ...data, pageQueue: undefined, images, imagesChecked, pagesScanned: scanned, pagesTotal: total, progress: undefined } }));
     } catch (e) {
       setResults((prev) => ({ ...prev, [site]: { site, status: "UNREACHABLE", fonts: [], images: [], error: `Request failed: ${e.message}` } }));
     }
@@ -148,10 +188,14 @@ export default function Home() {
     return c;
   }, [imgOrdered]);
 
+  const emails = useMemo(() => ordered.map(buildClientEmail).filter(Boolean), [ordered]);
+
   const done = ordered.filter((r) => r.status !== "RUNNING").length;
   const total = running ? sites.length : ordered.length;
-  const visible = ordered.filter((r) => filter === "ALL" || r.status === filter);
-  const imgVisible = imgOrdered.filter((x) => imgFilter === "ALL" ? x.s !== "CLEAN" : x.s === imgFilter);
+  const fineSites = counts.OK + counts.SYSTEM;
+  const visible = ordered.filter((r) => r.status !== "OK" && r.status !== "SYSTEM" && (filter === "ALL" || r.status === filter));
+  const imgVisible = imgOrdered.filter((x) => x.s === "PAID");
+  const imgFine = imgOrdered.length - imgCounts.PAID;
 
   const tabBtn = (id, label, count) => (
     <button
@@ -201,14 +245,9 @@ export default function Home() {
               className="w-full rounded-md border border-zinc-300 p-2 font-mono text-xs" placeholder="one domain per line" />
             <div className="space-y-3 text-sm">
               <label className="block">
-                <span className="text-zinc-600">Pages per site</span>
-                <input type="number" min={1} max={10} value={pages} onChange={(e) => setPages(Number(e.target.value))} disabled={running} className="mt-1 w-full rounded-md border border-zinc-300 px-2 py-1" />
-                <span className="text-xs text-zinc-400">Homepage plus this many internal links</span>
-              </label>
-              <label className="block">
                 <span className="text-zinc-600">Sites at once</span>
                 <input type="number" min={1} max={8} value={parallel} onChange={(e) => setParallel(Number(e.target.value))} disabled={running} className="mt-1 w-full rounded-md border border-zinc-300 px-2 py-1" />
-                <span className="text-xs text-zinc-400">4 is a good default. About 5 to 15s per site.</span>
+                <span className="text-xs text-zinc-400">4 is a good default. Fonts: homepage + 4 pages. Images: every page in the sitemap (up to 500).</span>
               </label>
               <button onClick={() => setText(DEFAULT_SITES.join("\n"))} disabled={running} className="text-xs text-zinc-500 underline">Reset to default list</button>
             </div>
@@ -226,14 +265,15 @@ export default function Home() {
           </p>
 
           <div className="mt-5 flex gap-1 border-b border-zinc-300">
-            {tabBtn("fonts", "Task 1 · Fonts", counts.PROBLEM + counts.CHECK)}
-            {tabBtn("images", "Task 2 · Stock images", imgCounts.PAID)}
+            {tabBtn("fonts", "Fonts", counts.PROBLEM + counts.CHECK)}
+            {tabBtn("images", "Stock images", imgCounts.PAID)}
+            {tabBtn("emails", "Client emails", emails.length)}
           </div>
 
           {tab === "fonts" && (
             <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-                {["PROBLEM", "CHECK", "UNREACHABLE", "OK", "SYSTEM"].map((s) => (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {["PROBLEM", "CHECK", "UNREACHABLE"].map((s) => (
                   <button key={s} onClick={() => setFilter(filter === s ? "ALL" : s)}
                     className={`rounded-xl border p-3 text-left ${COLOUR[s].bg} ${filter === s ? COLOUR[s].border : "border-transparent"}`}>
                     <div className={`text-3xl font-semibold ${COLOUR[s].text}`}>{counts[s]}</div>
@@ -242,48 +282,51 @@ export default function Home() {
                       {s === "PROBLEM" && "Commercial font on our own server"}
                       {s === "CHECK" && "Needs a human: subscription or unknown file"}
                       {s === "UNREACHABLE" && "Site down, blocking the scanner, or timed out"}
-                      {s === "OK" && "Google Fonts, Adobe Fonts kit or open licence"}
-                      {s === "SYSTEM" && "System fonts only"}
                     </div>
                   </button>
                 ))}
               </div>
-              <div className="mt-5 space-y-3">
+              <p className="mt-3 text-sm text-zinc-600">
+                <span className="font-semibold text-green-700">{fineSites}</span> site{fineSites === 1 ? "" : "s"} fine: fonts are Google Fonts, Adobe Fonts kits, open licence, or system fonts only.
+              </p>
+              <div className="mt-4 space-y-3">
                 {visible.map((r) => (
                   <SiteCard key={r.site} r={r} open={!!open["f:" + r.site]} toggle={() => setOpen((o) => ({ ...o, ["f:" + r.site]: !o["f:" + r.site] }))} rerun={() => rerun(r.site)} running={running} />
                 ))}
-                {!visible.length && <p className="text-sm text-zinc-500">Nothing in this group.</p>}
+                {!visible.length && <p className="text-sm text-zinc-500">{filter === "ALL" ? "Nothing outstanding." : "Nothing in this group."}</p>}
               </div>
             </div>
           )}
 
           {tab === "images" && (
             <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {[
-                  ["PAID", "Sites with paid-library images", "Shutterstock, iStock, Getty, Adobe Stock… find the licence or replace"],
-                  ["FREE", "Free-library images only", "Unsplash, Pexels, Pixabay: no licence needed"],
-                  ["CLEAN", "No stock flags", "Nothing matched on the pages scanned"],
-                ].map(([s, title, sub]) => (
-                  <button key={s} onClick={() => setImgFilter(imgFilter === s ? "ALL" : s)}
-                    className={`rounded-xl border p-3 text-left ${COLOUR[s].bg} ${imgFilter === s ? COLOUR[s].border : "border-transparent"}`}>
-                    <div className={`text-3xl font-semibold ${COLOUR[s].text}`}>{imgCounts[s]}</div>
-                    <div className={`text-xs font-medium ${COLOUR[s].text}`}>{title}</div>
-                    <div className="mt-1 text-[11px] leading-tight text-zinc-500">{sub}</div>
-                  </button>
-                ))}
-                <div className="rounded-xl border border-transparent bg-zinc-50 p-3 text-left">
-                  <div className="text-3xl font-semibold text-zinc-700">{imgCounts.images}</div>
-                  <div className="text-xs font-medium text-zinc-700">Paid-library images found</div>
-                  <div className="mt-1 text-[11px] leading-tight text-zinc-500">Across all scanned sites</div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className={`rounded-xl border border-transparent p-3 text-left ${COLOUR.PAID.bg}`}>
+                  <div className={`text-3xl font-semibold ${COLOUR.PAID.text}`}>{imgCounts.PAID}</div>
+                  <div className={`text-xs font-medium ${COLOUR.PAID.text}`}>Sites with paid-library images</div>
+                  <div className="mt-1 text-[11px] leading-tight text-zinc-500">Shutterstock, iStock, Getty, Adobe Stock… find the licence or replace</div>
                 </div>
               </div>
+              <p className="mt-3 text-sm text-zinc-600">
+                <span className="font-semibold text-green-700">{imgFine}</span> site{imgFine === 1 ? "" : "s"} fine: no paid stock-library images found (free libraries like Unsplash and Pexels need no licence).
+              </p>
               <p className="mt-3 text-xs text-zinc-500">Flags come from file names (e.g. shutterstock_123.jpg) and embedded copyright / credit tags. The scanner cannot tell whether an image was paid for, so treat this as a list to check against purchase records.</p>
               <div className="mt-4 space-y-3">
                 {imgVisible.map(({ r, s, flagged }) => (
                   <ImageCard key={r.site} r={r} s={s} flagged={flagged} open={!!open["i:" + r.site]} toggle={() => setOpen((o) => ({ ...o, ["i:" + r.site]: !o["i:" + r.site] }))} />
                 ))}
-                {!imgVisible.length && <p className="text-sm text-zinc-500">{imgFilter === "ALL" ? "No stock-image flags on any scanned site." : "Nothing in this group."}</p>}
+                {!imgVisible.length && <p className="text-sm text-zinc-500">No paid stock-library images found on any scanned site.</p>}
+              </div>
+            </div>
+          )}
+          {tab === "emails" && (
+            <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
+              <p className="text-sm text-zinc-600">
+                One ready-to-send email per site that has something to confirm. Fonts and stock images are combined and numbered so the client can reply by number. Replace <b>[Client name]</b> and <b>[Your name]</b>, then paste into your email client. Sites with no issues get no email.
+              </p>
+              <div className="mt-4 space-y-4">
+                {emails.map((e) => <EmailCard key={e.site} e={e} />)}
+                {!emails.length && <p className="text-sm text-zinc-500">No sites need a client email.</p>}
               </div>
             </div>
           )}
@@ -303,15 +346,14 @@ function SiteCard({ r, open, toggle, rerun, running }) {
   const problems = fonts.filter((f) => f.status === "PROBLEM");
   const checks = fonts.filter((f) => f.status === "CHECK");
   const oks = fonts.filter((f) => f.status === "OK");
+  const todo = [...problems, ...checks];
   const headline = r.status === "RUNNING"
-    ? "Scanning…"
+    ? `Scanning… ${r.progress || ""}`
     : r.error
       ? r.error
-      : problems.length
-        ? [...new Set(problems.map((f) => f.family))].join(", ")
-        : checks.length
-          ? [...new Set(checks.map((f) => f.family))].join(", ")
-          : fonts.length
+      : todo.length
+        ? todo.map((f) => `${f.family} → ${shortFix(f)}`).join("  ·  ")
+        : fonts.length
             ? `${oks.length} font${oks.length === 1 ? "" : "s"} OK`
             : r.ignoredFonts?.length
               ? "Only icon/UI fonts (ignored)"
@@ -323,14 +365,14 @@ function SiteCard({ r, open, toggle, rerun, running }) {
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${c.chip}`}>{LABEL[r.status] || r.status}</span>
         <span className="font-medium">{r.site}</span>
         {r.platform && <span className="text-xs text-zinc-400">{r.platform}</span>}
-        <span className="basis-full text-sm text-zinc-600 sm:basis-auto sm:flex-1 sm:truncate">{headline}</span>
+        <span className="basis-full text-sm text-zinc-700 sm:basis-auto sm:flex-1">{headline}</span>
         {r.status !== "RUNNING" && <span className="text-xs text-zinc-400">{open ? "▲" : "▼"}</span>}
       </button>
       {open && r.status !== "RUNNING" && (
         <div className="border-t border-zinc-100 px-4 py-3 text-sm">
           {r.error && <p className={`mb-2 ${r.status === "UNREACHABLE" ? "text-purple-700" : "text-red-700"}`}>{r.error}</p>}
           {r.fix && <p className="mb-2 text-sm"><b>Suggested fix:</b> {r.fix}</p>}
-          {fonts.length > 0 && (
+          {todo.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
@@ -345,7 +387,7 @@ function SiteCard({ r, open, toggle, rerun, running }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {[...fonts].sort((a, b) => ORDER[b.status] - ORDER[a.status]).map((f, i) => {
+                  {todo.sort((a, b) => ORDER[b.status] - ORDER[a.status]).map((f, i) => {
                     const fc = COLOUR[f.status] || COLOUR.PENDING;
                     return (
                       <tr key={i} className={`border-t border-zinc-100 align-top ${fc.bg}`}>
@@ -354,7 +396,7 @@ function SiteCard({ r, open, toggle, rerun, running }) {
                         <td className="py-1.5 pr-2 whitespace-nowrap">{f.kind}{f.hostedOn ? ` / ${f.hostedOn}` : ""}</td>
                         <td className="py-1.5 pr-2">{f.note}</td>
                         <td className="py-1.5 pr-2 whitespace-nowrap">
-                          {f.status !== "OK" && f.adobe && (
+                          {f.status === "PROBLEM" && f.adobe && (
                             <>
                               <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${f.adobe === "yes" ? "bg-green-100 text-green-800" : f.adobe === "no" ? "bg-red-100 text-red-800" : "bg-zinc-100 text-zinc-600"}`}>
                                 {f.adobe === "yes" ? "Yes" : f.adobe === "no" ? "No" : "Not sure"}
@@ -380,8 +422,9 @@ function SiteCard({ r, open, toggle, rerun, running }) {
           )}
           <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-zinc-400">
             {r.finalUrl && <span>Fetched {r.finalUrl}</span>}
-            {r.pages?.length > 0 && <span>{r.pages.length} page{r.pages.length === 1 ? "" : "s"}</span>}
+            {r.pagesScanned > 0 && <span>{r.pagesScanned} page{r.pagesScanned === 1 ? "" : "s"} checked for images{r.hasSitemap ? " (sitemap)" : ""}</span>}
             {r.cssCount > 0 && <span>{r.cssCount} stylesheets</span>}
+            {oks.length > 0 && <span title={[...new Set(oks.map((f) => f.family))].join(", ")} className="text-green-700">{oks.length} font{oks.length === 1 ? "" : "s"} fine</span>}
             {r.ignoredFonts?.length > 0 && <span title={r.ignoredFonts.join(", ")}>{r.ignoredFonts.length} icon/UI font{r.ignoredFonts.length === 1 ? "" : "s"} ignored</span>}
             {r.seconds != null && <span>{r.seconds}s</span>}
             {!running && <button onClick={rerun} className="underline">Re-scan</button>}
@@ -394,7 +437,9 @@ function SiteCard({ r, open, toggle, rerun, running }) {
 
 function ImageCard({ r, s, flagged, open, toggle }) {
   const c = COLOUR[s];
-  const libs = [...new Set(flagged.map((i) => i.flag))];
+  const paid = flagged.filter((i) => !isFreeLib(i.flag));
+  const freeCount = flagged.length - paid.length;
+  const libs = [...new Set(paid.map((i) => i.flag))];
   const label = s === "PAID" ? "PAID LIBRARY" : s === "FREE" ? "FREE LIBRARY" : "NO FLAGS";
   return (
     <div className={`rounded-xl border-l-4 bg-white shadow-sm ring-1 ring-zinc-100 ${c.border}`}>
@@ -402,11 +447,12 @@ function ImageCard({ r, s, flagged, open, toggle }) {
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${c.chip}`}>{label}</span>
         <span className="font-medium">{r.site}</span>
         <span className="basis-full text-sm text-zinc-600 sm:basis-auto sm:flex-1 sm:truncate">
-          {flagged.length ? `${flagged.length} image${flagged.length === 1 ? "" : "s"} · ${libs.join(", ")}` : `${r.imagesChecked || 0} images seen, none flagged`}
+          {paid.length ? `${paid.length} image${paid.length === 1 ? "" : "s"} · ${libs.join(", ")} → find the purchase record, or replace` : `${r.imagesChecked || 0} images seen, none flagged`}
+          {r.pagesScanned > 0 && <span className="ml-2 text-xs text-zinc-400">{r.pagesScanned} pages</span>}
         </span>
         <span className="text-xs text-zinc-400">{open ? "▲" : "▼"}</span>
       </button>
-      {open && flagged.length > 0 && (
+      {open && paid.length > 0 && (
         <div className="border-t border-zinc-100 px-4 py-3 text-sm">
           <table className="w-full text-xs">
             <thead>
@@ -418,14 +464,17 @@ function ImageCard({ r, s, flagged, open, toggle }) {
               </tr>
             </thead>
             <tbody>
-              {flagged.slice(0, 60).map((i, k) => {
+              {paid.slice(0, 60).map((i, k) => {
                 let name = i.url;
                 try { name = decodeURIComponent(new URL(i.url).pathname.split("/").pop()); } catch {}
                 const free = isFreeLib(i.flag);
                 return (
                   <tr key={k} className={`border-t border-zinc-100 align-top ${free ? "bg-green-50" : "bg-red-50"}`}>
                     <td className={`py-1.5 pr-2 font-semibold ${free ? "text-green-700" : "text-red-700"}`}>{i.flag}</td>
-                    <td className="py-1.5 pr-2"><a href={i.url} target="_blank" rel="noreferrer" className="break-all font-mono text-[11px] text-blue-700 underline">{name.slice(0, 80)}</a></td>
+                    <td className="py-1.5 pr-2">
+                      <a href={i.url} target="_blank" rel="noreferrer" className="break-all font-mono text-[11px] text-blue-700 underline">{name.slice(0, 80)}</a>
+                      {i.page && <div className="text-[11px] text-zinc-400">on {(() => { try { return new URL(i.page).pathname || "/"; } catch { return i.page; } })()}</div>}
+                    </td>
                     <td className="py-1.5 pr-2 text-zinc-600">{i.meta ? i.meta.slice(0, 160) : "—"}</td>
                     <td className="py-1.5 font-medium">{free ? "Free library: no licence needed, check attribution rules." : "Find the purchase record / licence. If none, replace the image or buy a licence."}</td>
                   </tr>
@@ -433,6 +482,42 @@ function ImageCard({ r, s, flagged, open, toggle }) {
               })}
             </tbody>
           </table>
+          {freeCount > 0 && <p className="mt-2 text-[11px] text-green-700">{freeCount} free-library image{freeCount === 1 ? "" : "s"} (Unsplash / Pexels / Pixabay) also found: no licence needed.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EmailCard({ e }) {
+  const [copied, setCopied] = useState("");
+  const [open, setOpen] = useState(false);
+  async function copy(what, text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(what);
+      setTimeout(() => setCopied(""), 1500);
+    } catch {}
+  }
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+        <button onClick={() => setOpen((v) => !v)} className="flex-1 text-left">
+          <span className="font-medium">{e.site}</span>
+          <span className="ml-2 text-xs text-zinc-500">{e.count} item{e.count === 1 ? "" : "s"}</span>
+          <span className="ml-2 text-xs text-zinc-400">{open ? "▲" : "▼"}</span>
+        </button>
+        <button onClick={() => copy("subject", e.subject)} className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs hover:bg-zinc-100">
+          {copied === "subject" ? "Copied" : "Copy subject"}
+        </button>
+        <button onClick={() => copy("body", e.body)} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">
+          {copied === "body" ? "Copied" : "Copy email"}
+        </button>
+      </div>
+      {open && (
+        <div className="border-t border-zinc-100 px-4 py-3">
+          <p className="mb-2 text-xs text-zinc-500">Subject: <span className="text-zinc-800">{e.subject}</span></p>
+          <textarea readOnly value={e.body} rows={Math.min(30, e.body.split("\n").length + 1)} className="w-full rounded-md border border-zinc-200 bg-zinc-50 p-3 font-mono text-xs leading-relaxed" />
         </div>
       )}
     </div>
