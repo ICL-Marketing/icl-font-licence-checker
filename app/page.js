@@ -309,7 +309,7 @@ export default function Home() {
         {tab === "emails" && (
           <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
             <p className="text-sm text-zinc-600">
-              One ready-to-send email per site that has something to confirm. Replace <b>[Your name]</b>, then paste into your email client. Sites with no issues get no email.
+              One ready-to-send email per site that has something to confirm. Copy, paste into your email client, and your signature does the rest. Sites with no issues get no email.
             </p>
             <div className="mt-3 flex gap-2">
               {[["fonts", "Font emails", fontEmails.length], ["images", "Image emails", imageEmails.length]].map(([id, label, n]) => (
@@ -387,13 +387,11 @@ function SiteCard({ r, open, toggle, rerun, running }) {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-left text-zinc-500">
-                    <th className="py-1 pr-2">Status</th>
                     <th className="py-1 pr-2">Font</th>
                     <th className="py-1 pr-2">How loaded</th>
                     <th className="py-1 pr-2">Why</th>
-                    <th className="py-1 pr-2">On Adobe Fonts?</th>
                     <th className="py-1 pr-2">Suggested fix</th>
-                    <th className="py-1">Evidence</th>
+                    <th className="py-1">Font file</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -401,27 +399,22 @@ function SiteCard({ r, open, toggle, rerun, running }) {
                     const fc = COLOUR[f.status] || COLOUR.PENDING;
                     return (
                       <tr key={i} className={`border-t border-zinc-100 align-top ${fc.bg}`}>
-                        <td className={`py-1.5 pr-2 font-semibold ${fc.text}`}>{f.status}</td>
-                        <td className="py-1.5 pr-2">{f.family}{f.otherFiles > 0 && <span className="text-zinc-400"> +{f.otherFiles} more file{f.otherFiles === 1 ? "" : "s"}</span>}</td>
+                        <td className={`py-1.5 pr-2 font-semibold ${fc.text}`}>{f.family}{f.otherFiles > 0 && <span className="text-zinc-400"> +{f.otherFiles} more file{f.otherFiles === 1 ? "" : "s"}</span>}</td>
                         <td className="py-1.5 pr-2 whitespace-nowrap">{f.kind}{f.hostedOn ? ` / ${f.hostedOn}` : ""}</td>
                         <td className="py-1.5 pr-2">{f.note}</td>
-                        <td className="py-1.5 pr-2 whitespace-nowrap">
+                        <td className="py-1.5 pr-2 font-medium">
                           {f.status === "PROBLEM" && f.adobe && (
-                            <>
-                              <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${f.adobe === "yes" ? "bg-green-100 text-green-800" : f.adobe === "no" ? "bg-red-100 text-red-800" : "bg-zinc-100 text-zinc-600"}`}>
-                                {f.adobe === "yes" ? "Yes" : f.adobe === "no" ? "No" : "Not sure"}
+                            <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px]">
+                              <span className={`rounded px-1.5 py-0.5 font-semibold ${f.adobe === "yes" ? "bg-green-100 text-green-800" : f.adobe === "no" ? "bg-red-100 text-red-800" : "bg-zinc-100 text-zinc-600"}`}>
+                                {f.adobe === "yes" ? "On Adobe Fonts" : f.adobe === "no" ? "Not on Adobe Fonts" : "Adobe Fonts: not sure"}
                               </span>
-                              <br />
-                              <a href={f.adobeSearch} target="_blank" rel="noreferrer" className="text-[11px] text-blue-700 underline">Search Adobe Fonts</a>
-                            </>
+                              {f.adobe !== "yes" && <a href={f.adobeSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Search Adobe Fonts</a>}
+                            </div>
                           )}
+                          {f.fix}
                         </td>
-                        <td className="py-1.5 pr-2 font-medium">{f.fix}</td>
                         <td className="py-1.5">
-                          {f.meta?.copyright && <div><i>copyright:</i> {f.meta.copyright.slice(0, 140)}</div>}
-                          {f.meta?.manufacturer && <div><i>manufacturer:</i> {f.meta.manufacturer.slice(0, 100)}</div>}
-                          {f.meta?.licence && <div><i>licence:</i> {f.meta.licence.slice(0, 140)}</div>}
-                          <a href={f.source} target="_blank" rel="noreferrer" className="break-all font-mono text-[11px] text-blue-700 underline">{f.source.slice(0, 160)}</a>
+                          <a href={f.source} target="_blank" rel="noreferrer" title={[f.meta?.copyright, f.meta?.manufacturer, f.meta?.licence].filter(Boolean).join("\n")} className="break-all font-mono text-[11px] text-blue-700 underline">{f.source.slice(0, 160)}</a>
                         </td>
                       </tr>
                     );
