@@ -48,8 +48,8 @@ npm run dev        # http://localhost:3000
 | Status | Meaning |
 |--------|---------|
 | **PROBLEM** | Font file on our own server whose metadata names a commercial foundry (Paratype, Monotype, Hoefler, Fontsmith...) or Adobe/Typekit, or whose family is a known commercial typeface (Circe, Proxima Nova, Gotham, Gilroy, Avenir...). Raw `.otf`/`.ttf` on the server makes it worse: desktop font, not web font. |
-| **CHECK** | Needs a human: Adobe Fonts / fonts.com / cloud.typography kits (is the subscription still active and ours?), Font Awesome kits (Free or Pro?), font files with no licence text, base64-embedded fonts, or sites that could not be fetched. |
-| **OK** | Google Fonts / Bunny Fonts, or a file carrying an open licence (OFL, Apache, MIT, GPL), or a known free family / icon set. |
+| **CHECK** | Needs a human: fonts.com / cloud.typography kits (is the subscription still active and ours?), Font Awesome kits (Free or Pro?), font files with no licence text, base64-embedded fonts, or sites that could not be fetched. |
+| **OK** | Google Fonts / Bunny Fonts, fonts loaded through an Adobe Fonts (Typekit) kit (covered by ICL's long-standing Creative Cloud account), a file carrying an open licence (OFL, Apache, MIT, GPL), or a known free family / icon set. |
 | **NO WEB FONTS** | Only system fonts. |
 
 Site status = worst font on the site.

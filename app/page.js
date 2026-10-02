@@ -214,7 +214,7 @@ export default function Home() {
                 <div className="mt-1 text-[11px] leading-tight text-zinc-500">
                   {s === "PROBLEM" && "Commercial font on our own server"}
                   {s === "CHECK" && "Needs a human: subscription or unknown file"}
-                  {s === "OK" && "Google Fonts or open licence"}
+                  {s === "OK" && "Google Fonts, Adobe Fonts kit or open licence"}
                   {s === "SYSTEM" && "System fonts only"}
                 </div>
               </button>
