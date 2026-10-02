@@ -334,6 +334,10 @@ export default function Home() {
   );
 }
 
+function Badge({ ok, bad, label }) {
+  return <span className={`rounded px-1.5 py-0.5 font-semibold ${ok ? "bg-green-100 text-green-800" : bad ? "bg-red-100 text-red-800" : "bg-zinc-100 text-zinc-600"}`}>{label}</span>;
+}
+
 function RunBar({ kind, done, total, label, running, sites, onRun, onStop }) {
   return (
     <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -404,11 +408,16 @@ function SiteCard({ r, open, toggle, rerun, running }) {
                         <td className="py-1.5 pr-2">{f.note}</td>
                         <td className="py-1.5 pr-2 font-medium">
                           {f.status === "PROBLEM" && f.adobe && (
-                            <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px]">
-                              <span className={`rounded px-1.5 py-0.5 font-semibold ${f.adobe === "yes" ? "bg-green-100 text-green-800" : f.adobe === "no" ? "bg-red-100 text-red-800" : "bg-zinc-100 text-zinc-600"}`}>
-                                {f.adobe === "yes" ? "On Adobe Fonts" : f.adobe === "no" ? "Not on Adobe Fonts" : "Adobe Fonts: not sure"}
-                              </span>
-                              {f.adobe !== "yes" && <a href={f.adobeSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Search Adobe Fonts</a>}
+                            <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+                              <Badge ok={f.adobe === "yes"} bad={f.adobe === "no"} label={f.adobe === "yes" ? "On Adobe Fonts" : f.adobe === "no" ? "Not on Adobe Fonts" : "Adobe: not sure"} />
+                              {f.adobe !== "yes" && <Badge ok={f.google === "yes"} bad={f.google === "no"} label={f.google === "yes" ? "On Google Fonts" : f.google === "no" ? "Not on Google Fonts" : "Google: not sure"} />}
+                              {f.adobe !== "yes" && f.google !== "yes" && f.freeVersion && <Badge ok={f.freeVersion.isFree} bad={!f.freeVersion.isFree} label={f.freeVersion.isFree ? "Free version exists" : "No free version"} />}
+                              {f.freeRoute === "none" && (
+                                <span className="text-zinc-500">
+                                  Search: <a href={f.adobeSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Adobe</a> · <a href={f.googleSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Google</a> · <a href={f.squirrelSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Font Squirrel</a>
+                                </span>
+                              )}
+                              {f.freeVersion?.url && f.adobe !== "yes" && f.google !== "yes" && <a href={f.freeVersion.url} target="_blank" rel="noreferrer" className="text-blue-700 underline">Free version link</a>}
                             </div>
                           )}
                           {f.fix}

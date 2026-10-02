@@ -51,7 +51,7 @@ export async function POST(request) {
     for (const f of r.fonts || []) {
       if (f.status !== "PROBLEM" && f.status !== "CHECK") continue;
       fontRows.push({ site: r.site, status: f.status, font: f.family, why: f.note || "",
-        adobe: f.adobe === "yes" ? "Yes" : f.adobe === "no" ? "No" : f.adobe ? "Not sure" : "",
+        free: f.status !== "PROBLEM" ? "" : f.adobe === "yes" ? "Adobe Fonts (covered by ICL's subscription)" : f.google === "yes" ? "Google Fonts (free)" : f.freeVersion?.isFree ? `Free version: ${f.freeVersion.note}` : f.adobe === "no" ? "None found: licence or swap" : "Not sure: check Adobe / Google / Font Squirrel",
         fix: f.fix || "", task: "To do", owner: "", notes: "", done: "" });
     }
   }
@@ -64,7 +64,7 @@ export async function POST(request) {
     { header: "Status", key: "status", width: 15 },
     { header: "Font", key: "font", width: 26 },
     { header: "Why", key: "why", width: 48 },
-    { header: "On Adobe Fonts?", key: "adobe", width: 14 },
+    { header: "Free route", key: "free", width: 40 },
     { header: "Suggested fix", key: "fix", width: 60 },
     { header: "Task status", key: "task", width: 14 },
     { header: "Owner", key: "owner", width: 14 },
