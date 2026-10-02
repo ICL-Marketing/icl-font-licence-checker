@@ -42,6 +42,7 @@ export async function POST(request) {
   // ---- Sheet 1: fonts to fix. One row per outstanding font, plus one per site that couldn't be checked.
   const fontRows = [];
   for (const r of results) {
+    if (!r.status) continue;
     if (r.status === "UNREACHABLE") {
       fontRows.push({ site: r.site, status: "UNREACHABLE", font: "(site could not be scanned)", why: r.error || "",
         adobe: "", fix: r.fix || "Check the site by hand.", task: "To do", owner: "", notes: "", done: "" });
@@ -75,8 +76,13 @@ export async function POST(request) {
   // ---- Sheet 2: stock images to check. Only flagged images.
   const imgRows = [];
   for (const r of results) {
+    if (r.imgStatus === "UNREACHABLE") {
+      imgRows.push({ site: r.site, flag: "COULDN'T CHECK", image: "(site could not be scanned)", meta: r.imgError || "", fix: r.imgFix || "Check the site by hand.", task: "To do", owner: "", notes: "", done: "" });
+      continue;
+    }
+    if (r.imgStatus !== "DONE") continue;
     for (const i of r.images || []) {
-      if (!i.flag) continue;
+      if (!i.flag || /free/i.test(i.flag)) continue;
       let name = i.url;
       try { name = decodeURIComponent(new URL(i.url).pathname.split("/").pop()); } catch {}
       imgRows.push({ site: r.site, flag: i.flag, image: name, meta: i.meta || "",

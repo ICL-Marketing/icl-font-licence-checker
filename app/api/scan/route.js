@@ -8,6 +8,7 @@ export async function POST(request) {
   const body = await request.json().catch(() => ({}));
   const site = normaliseSite(body.site);
   const pages = Math.min(Math.max(Number(body.pages) || 4, 1), 10);
+  const mode = ["fonts", "images"].includes(body.mode) ? body.mode : "both";
   if (!site || !site.includes(".")) {
     return Response.json({ error: "Invalid site" }, { status: 400 });
   }
@@ -15,7 +16,7 @@ export async function POST(request) {
   try {
     // Hard stop a little under maxDuration so the client always gets a row back.
     const result = await Promise.race([
-      scanSite(site, { pages }),
+      scanSite(site, { pages, mode }),
       new Promise((_, rej) => setTimeout(() => rej(new Error("Scan timed out after 50s")), 50_000)),
     ]);
     result.seconds = Math.round((Date.now() - started) / 10) / 100;
