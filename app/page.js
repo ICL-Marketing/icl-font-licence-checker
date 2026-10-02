@@ -14,11 +14,21 @@ const COLOUR = {
   SYSTEM: { text: "text-zinc-500", bg: "bg-zinc-100", border: "border-zinc-400", chip: "bg-zinc-500" },
   PENDING: { text: "text-zinc-400", bg: "bg-white", border: "border-zinc-200", chip: "bg-zinc-300" },
   RUNNING: { text: "text-blue-700", bg: "bg-blue-50", border: "border-blue-400", chip: "bg-blue-500" },
+  // image tab
+  PAID: { text: "text-red-700", bg: "bg-red-50", border: "border-red-500", chip: "bg-red-600" },
+  FREE: { text: "text-green-700", bg: "bg-green-50", border: "border-green-500", chip: "bg-green-600" },
+  CLEAN: { text: "text-zinc-500", bg: "bg-zinc-100", border: "border-zinc-400", chip: "bg-zinc-500" },
 };
 const STORAGE_KEY = "flc-results-v1";
 
 function normalise(s) {
   return s.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+}
+const isFreeLib = (flag) => /free/i.test(flag || "");
+function imageStatus(r) {
+  const flagged = (r.images || []).filter((i) => i.flag);
+  if (!flagged.length) return "CLEAN";
+  return flagged.some((i) => !isFreeLib(i.flag)) ? "PAID" : "FREE";
 }
 
 export default function Home() {
@@ -27,7 +37,9 @@ export default function Home() {
   const [parallel, setParallel] = useState(4);
   const [results, setResults] = useState({});
   const [running, setRunning] = useState(false);
+  const [tab, setTab] = useState("fonts");
   const [filter, setFilter] = useState("ALL");
+  const [imgFilter, setImgFilter] = useState("ALL");
   const [open, setOpen] = useState({});
   const [exporting, setExporting] = useState(false);
   const [showList, setShowList] = useState(true);
@@ -65,7 +77,7 @@ export default function Home() {
       const data = await r.json();
       setResults((prev) => ({ ...prev, [site]: data }));
     } catch (e) {
-      setResults((prev) => ({ ...prev, [site]: { site, status: "CHECK", fonts: [], images: [], error: `Request failed: ${e.message}` } }));
+      setResults((prev) => ({ ...prev, [site]: { site, status: "UNREACHABLE", fonts: [], images: [], error: `Request failed: ${e.message}` } }));
     }
   }
 
@@ -84,16 +96,9 @@ export default function Home() {
     setRunning(false);
   }
 
-  function runAll() {
-    setResults({});
-    run(sites);
-  }
-  function rerun(site) {
-    run([site]);
-  }
-  function stop() {
-    stopRef.current = true;
-  }
+  function runAll() { setResults({}); run(sites); }
+  function rerun(site) { run([site]); }
+  function stop() { stopRef.current = true; }
   function clearAll() {
     setResults({});
     try { localStorage.removeItem(STORAGE_KEY); } catch {}
@@ -111,7 +116,7 @@ export default function Home() {
       const blob = await r.blob();
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `font-licence-report-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.download = `font-licence-tasks-${new Date().toISOString().slice(0, 10)}.xlsx`;
       a.click();
       URL.revokeObjectURL(a.href);
     } finally {
@@ -130,23 +135,46 @@ export default function Home() {
     return c;
   }, [ordered]);
 
+  const imgOrdered = useMemo(() => {
+    const rank = { PAID: 2, FREE: 1, CLEAN: 0 };
+    return ordered
+      .filter((r) => r.status !== "RUNNING" && r.status !== "UNREACHABLE")
+      .map((r) => ({ r, s: imageStatus(r), flagged: (r.images || []).filter((i) => i.flag) }))
+      .sort((a, b) => rank[b.s] - rank[a.s] || b.flagged.length - a.flagged.length || a.r.site.localeCompare(b.r.site));
+  }, [ordered]);
+  const imgCounts = useMemo(() => {
+    const c = { PAID: 0, FREE: 0, CLEAN: 0, images: 0 };
+    for (const x of imgOrdered) { c[x.s]++; c.images += x.flagged.filter((i) => !isFreeLib(i.flag)).length; }
+    return c;
+  }, [imgOrdered]);
+
   const done = ordered.filter((r) => r.status !== "RUNNING").length;
   const total = running ? sites.length : ordered.length;
   const visible = ordered.filter((r) => filter === "ALL" || r.status === filter);
+  const imgVisible = imgOrdered.filter((x) => imgFilter === "ALL" ? x.s !== "CLEAN" : x.s === imgFilter);
+
+  const tabBtn = (id, label, count) => (
+    <button
+      onClick={() => setTab(id)}
+      className={`rounded-t-lg border border-b-0 px-4 py-2 text-sm font-medium ${tab === id ? "border-zinc-300 bg-white text-zinc-900" : "border-transparent bg-transparent text-zinc-500 hover:text-zinc-800"}`}
+    >
+      {label}{count != null && <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] text-zinc-700">{count}</span>}
+    </button>
+  );
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Font licence checker</h1>
+          <h1 className="text-2xl font-semibold">Font &amp; image licence checker</h1>
           <p className="text-sm text-zinc-500">
-            Finds commercial fonts self-hosted on our sites (the Glosrose / Paratype pattern), kits that need a subscription check, and stock-image flags.
+            One scan, two separate tasks: fonts (commercial fonts self-hosted on our sites, the Glosrose / Paratype pattern) and stock images.
           </p>
         </div>
         <div className="flex gap-2">
           {ordered.length > 0 && (
             <button onClick={exportXlsx} disabled={exporting} className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100 disabled:opacity-50">
-              {exporting ? "Building…" : "Download Excel"}
+              {exporting ? "Building…" : "Download task tracker (Excel)"}
             </button>
           )}
           {ordered.length > 0 && !running && (
@@ -169,15 +197,8 @@ export default function Home() {
         </button>
         {showList && (
           <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_220px]">
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              disabled={running}
-              rows={10}
-              spellCheck={false}
-              className="w-full rounded-md border border-zinc-300 p-2 font-mono text-xs"
-              placeholder="one domain per line"
-            />
+            <textarea value={text} onChange={(e) => setText(e.target.value)} disabled={running} rows={10} spellCheck={false}
+              className="w-full rounded-md border border-zinc-300 p-2 font-mono text-xs" placeholder="one domain per line" />
             <div className="space-y-3 text-sm">
               <label className="block">
                 <span className="text-zinc-600">Pages per site</span>
@@ -204,32 +225,68 @@ export default function Home() {
             {running ? `Scanning… ${done} of ${total} done` : `${done} site${done === 1 ? "" : "s"} scanned`}
           </p>
 
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
-            {["PROBLEM", "CHECK", "UNREACHABLE", "OK", "SYSTEM"].map((s) => (
-              <button
-                key={s}
-                onClick={() => setFilter(filter === s ? "ALL" : s)}
-                className={`rounded-xl border p-3 text-left ${COLOUR[s].bg} ${filter === s ? COLOUR[s].border : "border-transparent"}`}
-              >
-                <div className={`text-3xl font-semibold ${COLOUR[s].text}`}>{counts[s]}</div>
-                <div className={`text-xs font-medium ${COLOUR[s].text}`}>{LABEL[s]}</div>
-                <div className="mt-1 text-[11px] leading-tight text-zinc-500">
-                  {s === "PROBLEM" && "Commercial font on our own server"}
-                  {s === "CHECK" && "Needs a human: subscription or unknown file"}
-                  {s === "UNREACHABLE" && "Site down, blocking the scanner, or timed out"}
-                  {s === "OK" && "Google Fonts, Adobe Fonts kit or open licence"}
-                  {s === "SYSTEM" && "System fonts only"}
-                </div>
-              </button>
-            ))}
+          <div className="mt-5 flex gap-1 border-b border-zinc-300">
+            {tabBtn("fonts", "Task 1 · Fonts", counts.PROBLEM + counts.CHECK)}
+            {tabBtn("images", "Task 2 · Stock images", imgCounts.PAID)}
           </div>
 
-          <div className="mt-5 space-y-3">
-            {visible.map((r) => (
-              <SiteCard key={r.site} r={r} open={!!open[r.site]} toggle={() => setOpen((o) => ({ ...o, [r.site]: !o[r.site] }))} rerun={() => rerun(r.site)} running={running} />
-            ))}
-            {!visible.length && <p className="text-sm text-zinc-500">Nothing in this group.</p>}
-          </div>
+          {tab === "fonts" && (
+            <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                {["PROBLEM", "CHECK", "UNREACHABLE", "OK", "SYSTEM"].map((s) => (
+                  <button key={s} onClick={() => setFilter(filter === s ? "ALL" : s)}
+                    className={`rounded-xl border p-3 text-left ${COLOUR[s].bg} ${filter === s ? COLOUR[s].border : "border-transparent"}`}>
+                    <div className={`text-3xl font-semibold ${COLOUR[s].text}`}>{counts[s]}</div>
+                    <div className={`text-xs font-medium ${COLOUR[s].text}`}>{LABEL[s]}</div>
+                    <div className="mt-1 text-[11px] leading-tight text-zinc-500">
+                      {s === "PROBLEM" && "Commercial font on our own server"}
+                      {s === "CHECK" && "Needs a human: subscription or unknown file"}
+                      {s === "UNREACHABLE" && "Site down, blocking the scanner, or timed out"}
+                      {s === "OK" && "Google Fonts, Adobe Fonts kit or open licence"}
+                      {s === "SYSTEM" && "System fonts only"}
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <div className="mt-5 space-y-3">
+                {visible.map((r) => (
+                  <SiteCard key={r.site} r={r} open={!!open["f:" + r.site]} toggle={() => setOpen((o) => ({ ...o, ["f:" + r.site]: !o["f:" + r.site] }))} rerun={() => rerun(r.site)} running={running} />
+                ))}
+                {!visible.length && <p className="text-sm text-zinc-500">Nothing in this group.</p>}
+              </div>
+            </div>
+          )}
+
+          {tab === "images" && (
+            <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[
+                  ["PAID", "Sites with paid-library images", "Shutterstock, iStock, Getty, Adobe Stock… find the licence or replace"],
+                  ["FREE", "Free-library images only", "Unsplash, Pexels, Pixabay: no licence needed"],
+                  ["CLEAN", "No stock flags", "Nothing matched on the pages scanned"],
+                ].map(([s, title, sub]) => (
+                  <button key={s} onClick={() => setImgFilter(imgFilter === s ? "ALL" : s)}
+                    className={`rounded-xl border p-3 text-left ${COLOUR[s].bg} ${imgFilter === s ? COLOUR[s].border : "border-transparent"}`}>
+                    <div className={`text-3xl font-semibold ${COLOUR[s].text}`}>{imgCounts[s]}</div>
+                    <div className={`text-xs font-medium ${COLOUR[s].text}`}>{title}</div>
+                    <div className="mt-1 text-[11px] leading-tight text-zinc-500">{sub}</div>
+                  </button>
+                ))}
+                <div className="rounded-xl border border-transparent bg-zinc-50 p-3 text-left">
+                  <div className="text-3xl font-semibold text-zinc-700">{imgCounts.images}</div>
+                  <div className="text-xs font-medium text-zinc-700">Paid-library images found</div>
+                  <div className="mt-1 text-[11px] leading-tight text-zinc-500">Across all scanned sites</div>
+                </div>
+              </div>
+              <p className="mt-3 text-xs text-zinc-500">Flags come from file names (e.g. shutterstock_123.jpg) and embedded copyright / credit tags. The scanner cannot tell whether an image was paid for, so treat this as a list to check against purchase records.</p>
+              <div className="mt-4 space-y-3">
+                {imgVisible.map(({ r, s, flagged }) => (
+                  <ImageCard key={r.site} r={r} s={s} flagged={flagged} open={!!open["i:" + r.site]} toggle={() => setOpen((o) => ({ ...o, ["i:" + r.site]: !o["i:" + r.site] }))} />
+                ))}
+                {!imgVisible.length && <p className="text-sm text-zinc-500">{imgFilter === "ALL" ? "No stock-image flags on any scanned site." : "Nothing in this group."}</p>}
+              </div>
+            </div>
+          )}
         </section>
       )}
 
@@ -246,7 +303,6 @@ function SiteCard({ r, open, toggle, rerun, running }) {
   const problems = fonts.filter((f) => f.status === "PROBLEM");
   const checks = fonts.filter((f) => f.status === "CHECK");
   const oks = fonts.filter((f) => f.status === "OK");
-  const stock = (r.images || []).filter((i) => i.flag);
   const headline = r.status === "RUNNING"
     ? "Scanning…"
     : r.error
@@ -262,13 +318,12 @@ function SiteCard({ r, open, toggle, rerun, running }) {
               : "No web fonts found";
 
   return (
-    <div className={`rounded-xl border-l-4 bg-white shadow-sm ${c.border}`}>
+    <div className={`rounded-xl border-l-4 bg-white shadow-sm ring-1 ring-zinc-100 ${c.border}`}>
       <button onClick={toggle} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-left">
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${c.chip}`}>{LABEL[r.status] || r.status}</span>
         <span className="font-medium">{r.site}</span>
         {r.platform && <span className="text-xs text-zinc-400">{r.platform}</span>}
         <span className="basis-full text-sm text-zinc-600 sm:basis-auto sm:flex-1 sm:truncate">{headline}</span>
-        {stock.length > 0 && <span className="text-xs text-zinc-500">📷 {stock.length} stock flag{stock.length === 1 ? "" : "s"}</span>}
         {r.status !== "RUNNING" && <span className="text-xs text-zinc-400">{open ? "▲" : "▼"}</span>}
       </button>
       {open && r.status !== "RUNNING" && (
@@ -284,6 +339,7 @@ function SiteCard({ r, open, toggle, rerun, running }) {
                     <th className="py-1 pr-2">Font</th>
                     <th className="py-1 pr-2">How loaded</th>
                     <th className="py-1 pr-2">Why</th>
+                    <th className="py-1 pr-2">On Adobe Fonts?</th>
                     <th className="py-1 pr-2">Suggested fix</th>
                     <th className="py-1">Evidence</th>
                   </tr>
@@ -297,6 +353,17 @@ function SiteCard({ r, open, toggle, rerun, running }) {
                         <td className="py-1.5 pr-2">{f.family}{f.otherFiles > 0 && <span className="text-zinc-400"> +{f.otherFiles} more file{f.otherFiles === 1 ? "" : "s"}</span>}</td>
                         <td className="py-1.5 pr-2 whitespace-nowrap">{f.kind}{f.hostedOn ? ` / ${f.hostedOn}` : ""}</td>
                         <td className="py-1.5 pr-2">{f.note}</td>
+                        <td className="py-1.5 pr-2 whitespace-nowrap">
+                          {f.status !== "OK" && f.adobe && (
+                            <>
+                              <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${f.adobe === "yes" ? "bg-green-100 text-green-800" : f.adobe === "no" ? "bg-red-100 text-red-800" : "bg-zinc-100 text-zinc-600"}`}>
+                                {f.adobe === "yes" ? "Yes" : f.adobe === "no" ? "No" : "Not sure"}
+                              </span>
+                              <br />
+                              <a href={f.adobeSearch} target="_blank" rel="noreferrer" className="text-[11px] text-blue-700 underline">Search Adobe Fonts</a>
+                            </>
+                          )}
+                        </td>
                         <td className={`py-1.5 pr-2 ${f.status === "OK" ? "text-zinc-400" : "font-medium"}`}>{f.fix}</td>
                         <td className="py-1.5">
                           {f.meta?.copyright && <div><i>copyright:</i> {f.meta.copyright.slice(0, 140)}</div>}
@@ -311,16 +378,6 @@ function SiteCard({ r, open, toggle, rerun, running }) {
               </table>
             </div>
           )}
-          {stock.length > 0 && (
-            <details className="mt-3">
-              <summary className="cursor-pointer text-xs text-zinc-600">{stock.length} image(s) flagged as possible stock / copyrighted</summary>
-              <ul className="mt-1 space-y-1 text-xs">
-                {stock.slice(0, 40).map((i, k) => (
-                  <li key={k}><b>{i.flag}</b> · <a className="break-all font-mono text-blue-700 underline" href={i.url} target="_blank" rel="noreferrer">{i.url.slice(0, 140)}</a>{i.meta && <span className="text-zinc-500"> · {i.meta.slice(0, 160)}</span>}</li>
-                ))}
-              </ul>
-            </details>
-          )}
           <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-zinc-400">
             {r.finalUrl && <span>Fetched {r.finalUrl}</span>}
             {r.pages?.length > 0 && <span>{r.pages.length} page{r.pages.length === 1 ? "" : "s"}</span>}
@@ -329,6 +386,53 @@ function SiteCard({ r, open, toggle, rerun, running }) {
             {r.seconds != null && <span>{r.seconds}s</span>}
             {!running && <button onClick={rerun} className="underline">Re-scan</button>}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ImageCard({ r, s, flagged, open, toggle }) {
+  const c = COLOUR[s];
+  const libs = [...new Set(flagged.map((i) => i.flag))];
+  const label = s === "PAID" ? "PAID LIBRARY" : s === "FREE" ? "FREE LIBRARY" : "NO FLAGS";
+  return (
+    <div className={`rounded-xl border-l-4 bg-white shadow-sm ring-1 ring-zinc-100 ${c.border}`}>
+      <button onClick={toggle} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-left">
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${c.chip}`}>{label}</span>
+        <span className="font-medium">{r.site}</span>
+        <span className="basis-full text-sm text-zinc-600 sm:basis-auto sm:flex-1 sm:truncate">
+          {flagged.length ? `${flagged.length} image${flagged.length === 1 ? "" : "s"} · ${libs.join(", ")}` : `${r.imagesChecked || 0} images seen, none flagged`}
+        </span>
+        <span className="text-xs text-zinc-400">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && flagged.length > 0 && (
+        <div className="border-t border-zinc-100 px-4 py-3 text-sm">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-zinc-500">
+                <th className="py-1 pr-2">Library</th>
+                <th className="py-1 pr-2">Image</th>
+                <th className="py-1 pr-2">Embedded credit / copyright</th>
+                <th className="py-1">Suggested fix</th>
+              </tr>
+            </thead>
+            <tbody>
+              {flagged.slice(0, 60).map((i, k) => {
+                let name = i.url;
+                try { name = decodeURIComponent(new URL(i.url).pathname.split("/").pop()); } catch {}
+                const free = isFreeLib(i.flag);
+                return (
+                  <tr key={k} className={`border-t border-zinc-100 align-top ${free ? "bg-green-50" : "bg-red-50"}`}>
+                    <td className={`py-1.5 pr-2 font-semibold ${free ? "text-green-700" : "text-red-700"}`}>{i.flag}</td>
+                    <td className="py-1.5 pr-2"><a href={i.url} target="_blank" rel="noreferrer" className="break-all font-mono text-[11px] text-blue-700 underline">{name.slice(0, 80)}</a></td>
+                    <td className="py-1.5 pr-2 text-zinc-600">{i.meta ? i.meta.slice(0, 160) : "—"}</td>
+                    <td className="py-1.5 font-medium">{free ? "Free library: no licence needed, check attribution rules." : "Find the purchase record / licence. If none, replace the image or buy a licence."}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
