@@ -62,6 +62,7 @@ export async function POST(request) {
     { header: "How loaded", key: "kind", width: 16 },
     { header: "Hosted on", key: "hostedOn", width: 18 },
     { header: "Font URL", key: "source", width: 50 },
+    { header: "Other files (same family)", key: "otherFiles", width: 10 },
     { header: "Why", key: "note", width: 45 },
     { header: "Suggested fix", key: "fix", width: 60 },
     { header: "Copyright (from file)", key: "copyright", width: 40 },
@@ -74,7 +75,7 @@ export async function POST(request) {
     { header: "Found on pages", key: "foundOn", width: 40 },
   ], results.flatMap((r) => (r.fonts || []).map((f) => ({
     site: r.site, status: f.status, family: f.family, kind: f.kind, hostedOn: f.hostedOn || "",
-    source: f.source, note: f.note || "", fix: f.fix || "",
+    source: f.source, otherFiles: f.otherFiles || 0, note: f.note || "", fix: f.fix || "",
     copyright: f.meta?.copyright || "", manufacturer: f.meta?.manufacturer || "", designer: f.meta?.designer || "",
     licence: f.meta?.licence || "", licenceUrl: f.meta?.licenceUrl || "", vendorId: f.meta?.vendorId || "",
     css: f.css || "", foundOn: (f.foundOn || []).slice(0, 3).join(", "),

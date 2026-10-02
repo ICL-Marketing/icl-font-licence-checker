@@ -53,6 +53,12 @@ npm run dev        # http://localhost:3000
 | **OK** | Google Fonts / Bunny Fonts, fonts loaded through an Adobe Fonts (Typekit) kit (covered by ICL's long-standing Creative Cloud account), a file carrying an open licence (OFL, Apache, MIT, GPL), or a known free family / icon set. |
 | **NO WEB FONTS** | Only system fonts, or only icon/UI fonts. |
 
+One row per font family: all weights and file formats of a family are
+folded into a single verdict.
+
+Font Awesome **Pro** is a paid product, so a self-hosted Pro kit shows as
+CHECK until the licence is confirmed. Font Awesome Free is ignored.
+
 Icon and UI-toolkit fonts (Font Awesome Free, Slick slider arrows, Dashicons,
 Elementor/Divi icons, Themify, IcoMoon and the like) are all free and need
 no licence check, so they are left out of the results. Each site card shows
