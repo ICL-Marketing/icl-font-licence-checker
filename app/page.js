@@ -4,10 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DEFAULT_SITES } from "@/data/sites";
 
-const ORDER = { PROBLEM: 3, CHECK: 2, OK: 1, SYSTEM: 0 };
+const ORDER = { PROBLEM: 4, CHECK: 3, UNREACHABLE: 2, OK: 1, SYSTEM: 0 };
+const LABEL = { PROBLEM: "PROBLEM", CHECK: "CHECK", UNREACHABLE: "COULDN'T CHECK", OK: "OK", SYSTEM: "NO WEB FONTS", RUNNING: "SCANNING" };
 const COLOUR = {
   PROBLEM: { text: "text-red-700", bg: "bg-red-50", border: "border-red-500", chip: "bg-red-600" },
   CHECK: { text: "text-amber-700", bg: "bg-amber-50", border: "border-amber-500", chip: "bg-amber-500" },
+  UNREACHABLE: { text: "text-purple-700", bg: "bg-purple-50", border: "border-purple-500", chip: "bg-purple-600" },
   OK: { text: "text-green-700", bg: "bg-green-50", border: "border-green-500", chip: "bg-green-600" },
   SYSTEM: { text: "text-zinc-500", bg: "bg-zinc-100", border: "border-zinc-400", chip: "bg-zinc-500" },
   PENDING: { text: "text-zinc-400", bg: "bg-white", border: "border-zinc-200", chip: "bg-zinc-300" },
@@ -123,7 +125,7 @@ export default function Home() {
   }, [results]);
 
   const counts = useMemo(() => {
-    const c = { PROBLEM: 0, CHECK: 0, OK: 0, SYSTEM: 0, RUNNING: 0 };
+    const c = { PROBLEM: 0, CHECK: 0, UNREACHABLE: 0, OK: 0, SYSTEM: 0, RUNNING: 0 };
     for (const r of ordered) if (c[r.status] != null) c[r.status]++;
     return c;
   }, [ordered]);
@@ -202,18 +204,19 @@ export default function Home() {
             {running ? `Scanning… ${done} of ${total} done` : `${done} site${done === 1 ? "" : "s"} scanned`}
           </p>
 
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {["PROBLEM", "CHECK", "OK", "SYSTEM"].map((s) => (
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+            {["PROBLEM", "CHECK", "UNREACHABLE", "OK", "SYSTEM"].map((s) => (
               <button
                 key={s}
                 onClick={() => setFilter(filter === s ? "ALL" : s)}
                 className={`rounded-xl border p-3 text-left ${COLOUR[s].bg} ${filter === s ? COLOUR[s].border : "border-transparent"}`}
               >
                 <div className={`text-3xl font-semibold ${COLOUR[s].text}`}>{counts[s]}</div>
-                <div className={`text-xs font-medium ${COLOUR[s].text}`}>{s === "SYSTEM" ? "NO WEB FONTS" : s}</div>
+                <div className={`text-xs font-medium ${COLOUR[s].text}`}>{LABEL[s]}</div>
                 <div className="mt-1 text-[11px] leading-tight text-zinc-500">
                   {s === "PROBLEM" && "Commercial font on our own server"}
                   {s === "CHECK" && "Needs a human: subscription or unknown file"}
+                  {s === "UNREACHABLE" && "Site down, blocking the scanner, or timed out"}
                   {s === "OK" && "Google Fonts, Adobe Fonts kit or open licence"}
                   {s === "SYSTEM" && "System fonts only"}
                 </div>
@@ -254,12 +257,14 @@ function SiteCard({ r, open, toggle, rerun, running }) {
           ? [...new Set(checks.map((f) => f.family))].join(", ")
           : fonts.length
             ? `${oks.length} font${oks.length === 1 ? "" : "s"} OK`
-            : "No web fonts found";
+            : r.ignoredFonts?.length
+              ? "Only icon/UI fonts (ignored)"
+              : "No web fonts found";
 
   return (
     <div className={`rounded-xl border-l-4 bg-white shadow-sm ${c.border}`}>
       <button onClick={toggle} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-left">
-        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${c.chip}`}>{r.status === "SYSTEM" ? "NO WEB FONTS" : r.status}</span>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${c.chip}`}>{LABEL[r.status] || r.status}</span>
         <span className="font-medium">{r.site}</span>
         {r.platform && <span className="text-xs text-zinc-400">{r.platform}</span>}
         <span className="basis-full text-sm text-zinc-600 sm:basis-auto sm:flex-1 sm:truncate">{headline}</span>
@@ -268,7 +273,8 @@ function SiteCard({ r, open, toggle, rerun, running }) {
       </button>
       {open && r.status !== "RUNNING" && (
         <div className="border-t border-zinc-100 px-4 py-3 text-sm">
-          {r.error && <p className="mb-2 text-red-700">{r.error}</p>}
+          {r.error && <p className={`mb-2 ${r.status === "UNREACHABLE" ? "text-purple-700" : "text-red-700"}`}>{r.error}</p>}
+          {r.fix && <p className="mb-2 text-sm"><b>Suggested fix:</b> {r.fix}</p>}
           {fonts.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -277,7 +283,8 @@ function SiteCard({ r, open, toggle, rerun, running }) {
                     <th className="py-1 pr-2">Status</th>
                     <th className="py-1 pr-2">Font</th>
                     <th className="py-1 pr-2">How loaded</th>
-                    <th className="py-1 pr-2">Why / action</th>
+                    <th className="py-1 pr-2">Why</th>
+                    <th className="py-1 pr-2">Suggested fix</th>
                     <th className="py-1">Evidence</th>
                   </tr>
                 </thead>
@@ -290,6 +297,7 @@ function SiteCard({ r, open, toggle, rerun, running }) {
                         <td className="py-1.5 pr-2">{f.family}</td>
                         <td className="py-1.5 pr-2 whitespace-nowrap">{f.kind}{f.hostedOn ? ` / ${f.hostedOn}` : ""}</td>
                         <td className="py-1.5 pr-2">{f.note}</td>
+                        <td className={`py-1.5 pr-2 ${f.status === "OK" ? "text-zinc-400" : "font-medium"}`}>{f.fix}</td>
                         <td className="py-1.5">
                           {f.meta?.copyright && <div><i>copyright:</i> {f.meta.copyright.slice(0, 140)}</div>}
                           {f.meta?.manufacturer && <div><i>manufacturer:</i> {f.meta.manufacturer.slice(0, 100)}</div>}
@@ -317,6 +325,7 @@ function SiteCard({ r, open, toggle, rerun, running }) {
             {r.finalUrl && <span>Fetched {r.finalUrl}</span>}
             {r.pages?.length > 0 && <span>{r.pages.length} page{r.pages.length === 1 ? "" : "s"}</span>}
             {r.cssCount > 0 && <span>{r.cssCount} stylesheets</span>}
+            {r.ignoredFonts?.length > 0 && <span title={r.ignoredFonts.join(", ")}>{r.ignoredFonts.length} icon/UI font{r.ignoredFonts.length === 1 ? "" : "s"} ignored</span>}
             {r.seconds != null && <span>{r.seconds}s</span>}
             {!running && <button onClick={rerun} className="underline">Re-scan</button>}
           </div>

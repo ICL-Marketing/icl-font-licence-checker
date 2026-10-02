@@ -3,7 +3,7 @@ import ExcelJS from "exceljs";
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
 
-const FILL = { PROBLEM: "FFF8D7DA", CHECK: "FFFFF3CD", OK: "FFD4EDDA", SYSTEM: "FFE2E3E5" };
+const FILL = { PROBLEM: "FFF8D7DA", CHECK: "FFFFF3CD", UNREACHABLE: "FFE8DAEF", OK: "FFD4EDDA", SYSTEM: "FFE2E3E5" };
 
 function addSheet(wb, name, columns, rows, statusKey) {
   const ws = wb.addWorksheet(name, { views: [{ state: "frozen", ySplit: 1 }] });
@@ -40,6 +40,7 @@ export async function POST(request) {
     { header: "Stock-image flags", key: "stock", width: 10 },
     { header: "Stock libraries", key: "stockLibs", width: 24 },
     { header: "Error", key: "error", width: 30 },
+    { header: "Suggested fix (site)", key: "fix", width: 60 },
   ], results.map((r) => {
     const by = (s) => (r.fonts || []).filter((f) => f.status === s);
     const stock = (r.images || []).filter((i) => i.flag);
@@ -50,6 +51,7 @@ export async function POST(request) {
       checkFonts: [...new Set(by("CHECK").map((f) => f.family))].join("; ").slice(0, 400),
       stock: stock.length, stockLibs: [...new Set(stock.map((i) => i.flag))].join("; ").slice(0, 200),
       error: r.error || "",
+      fix: r.fix || (by("PROBLEM")[0]?.fix) || (by("CHECK")[0]?.fix) || "",
     };
   }), "status");
 
@@ -60,7 +62,8 @@ export async function POST(request) {
     { header: "How loaded", key: "kind", width: 16 },
     { header: "Hosted on", key: "hostedOn", width: 18 },
     { header: "Font URL", key: "source", width: 50 },
-    { header: "Why / action", key: "note", width: 50 },
+    { header: "Why", key: "note", width: 45 },
+    { header: "Suggested fix", key: "fix", width: 60 },
     { header: "Copyright (from file)", key: "copyright", width: 40 },
     { header: "Manufacturer", key: "manufacturer", width: 22 },
     { header: "Designer", key: "designer", width: 22 },
@@ -71,7 +74,7 @@ export async function POST(request) {
     { header: "Found on pages", key: "foundOn", width: 40 },
   ], results.flatMap((r) => (r.fonts || []).map((f) => ({
     site: r.site, status: f.status, family: f.family, kind: f.kind, hostedOn: f.hostedOn || "",
-    source: f.source, note: f.note || "",
+    source: f.source, note: f.note || "", fix: f.fix || "",
     copyright: f.meta?.copyright || "", manufacturer: f.meta?.manufacturer || "", designer: f.meta?.designer || "",
     licence: f.meta?.licence || "", licenceUrl: f.meta?.licenceUrl || "", vendorId: f.meta?.vendorId || "",
     css: f.css || "", foundOn: (f.foundOn || []).slice(0, 3).join(", "),

@@ -48,9 +48,15 @@ npm run dev        # http://localhost:3000
 | Status | Meaning |
 |--------|---------|
 | **PROBLEM** | Font file on our own server whose metadata names a commercial foundry (Paratype, Monotype, Hoefler, Fontsmith...) or Adobe/Typekit, or whose family is a known commercial typeface (Circe, Proxima Nova, Gotham, Gilroy, Avenir...). Raw `.otf`/`.ttf` on the server makes it worse: desktop font, not web font. |
-| **CHECK** | Needs a human: fonts.com / cloud.typography kits (is the subscription still active and ours?), Font Awesome kits (Free or Pro?), font files with no licence text, base64-embedded fonts, or sites that could not be fetched. |
+| **CHECK** | Needs a human: fonts.com / cloud.typography kits (is the subscription still active and ours?), Font Awesome kits (Free or Pro?), font files with no licence text, base64-embedded fonts. |
+| **COULDN'T CHECK** | The site is down, blocked the scanner (bot protection, HTTP 403), or timed out. Check it by hand or press Re-scan. |
 | **OK** | Google Fonts / Bunny Fonts, fonts loaded through an Adobe Fonts (Typekit) kit (covered by ICL's long-standing Creative Cloud account), a file carrying an open licence (OFL, Apache, MIT, GPL), or a known free family / icon set. |
-| **NO WEB FONTS** | Only system fonts. |
+| **NO WEB FONTS** | Only system fonts, or only icon/UI fonts. |
+
+Icon and UI-toolkit fonts (Font Awesome Free, Slick slider arrows, Dashicons,
+Elementor/Divi icons, Themify, IcoMoon and the like) are all free and need
+no licence check, so they are left out of the results. Each site card shows
+how many were ignored.
 
 Site status = worst font on the site.
 

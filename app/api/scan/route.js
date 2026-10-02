@@ -1,4 +1,4 @@
-import { scanSite, normaliseSite, CHECK } from "@/lib/scanner";
+import { scanSite, normaliseSite, UNREACHABLE } from "@/lib/scanner";
 
 // One site per request so each call stays well inside serverless limits.
 export const maxDuration = 60;
@@ -22,8 +22,9 @@ export async function POST(request) {
     return Response.json(result);
   } catch (e) {
     return Response.json({
-      site, status: CHECK, http: 0, finalUrl: "", platform: "", fonts: [], images: [], pages: [],
-      familiesInCss: [], error: `Scanner error: ${e?.message || e}`,
+      site, status: UNREACHABLE, http: 0, finalUrl: "", platform: "", fonts: [], images: [], pages: [],
+      familiesInCss: [], error: /timed out/i.test(String(e?.message)) ? "Scan timed out (site very slow or very large). Try Re-scan with fewer pages." : `Scanner error: ${e?.message || e}`,
+      fix: "Press Re-scan with Pages per site set to 1. If it still times out, check the fonts by hand (DevTools → Network → Font).",
       seconds: Math.round((Date.now() - started) / 10) / 100, scannedAt: new Date().toISOString(),
     });
   }
