@@ -1,9 +1,10 @@
-<!-- BEGIN:nextjs-agent-rules -->
+# Notes for AI agents
 
-# This is NOT the Next.js you know
+This is Next.js 16 (App Router, JavaScript, Tailwind v4). APIs and conventions
+may differ from older versions: read the relevant guide in
+`node_modules/next/dist/docs/` before writing code. `proxy.js` is the Next 16
+name for middleware.
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
-
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
-
-<!-- END:nextjs-agent-rules -->
+The scanner logic lives in `lib/scanner.js` and runs server-side only
+(fontkit, cheerio, exifr). Keep one site per `/api/scan` request so each call
+stays inside the serverless time limit; the browser drives the queue.
