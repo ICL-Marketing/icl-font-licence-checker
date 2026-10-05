@@ -1,4 +1,4 @@
-import { fontLink, isEmbeddedIconFont, issueLabel, ISSUE_FILL, isFreeFontAwesome, freeRouteLabel, nextAction, mergeImageSizes, creditOnly, imageAdminLink } from "@/lib/fontlink";
+import { fontLink, isEmbeddedIconFont, issueLabel, ISSUE_FILL, isFreeFontAwesome, freeRouteLabel, nextAction, mergeImageSizes, creditOnly, imageAdminLink, stockLibraryLink } from "@/lib/fontlink";
 import ExcelJS from "exceljs";
 
 export const maxDuration = 30;
@@ -126,7 +126,7 @@ export async function POST(request) {
       let name = i.url;
       try { name = decodeURIComponent(new URL(i.url).pathname.split("/").pop()); } catch {}
       if (i.sizes > 1) name += ` (+${i.sizes - 1} other size${i.sizes === 2 ? "" : "s"})`;
-      imgRows.push({ site: r.site, siteUrl: r.finalUrl || `https://${r.site}`, imageUrl: imageAdminLink(i.url), flag: i.flag, image: name, meta: creditOnly(i.meta),
+      imgRows.push({ site: r.site, siteUrl: r.finalUrl || `https://${r.site}`, imageUrl: imageAdminLink(i.url), libUrl: stockLibraryLink(i.url, i.flag), flag: i.flag, image: name, meta: creditOnly(i.meta),
         pages: (i.pages || []).map((u) => { try { return new URL(u).pathname || "/"; } catch { return u; } }).join("\n"),
         fix: "Find the purchase record or licence for this image. If none, replace it or buy a licence.",
         task: "To do", owner: "" });
@@ -137,6 +137,7 @@ export async function POST(request) {
     { header: "Site", key: "site", width: 30 },
     { header: "Library", key: "flag", width: 24 },
     { header: "Image", key: "image", width: 40 },
+    { header: "Check on library", key: "lib", width: 20 },
     { header: "Found on", key: "pages", width: 36 },
     { header: "Credit / copyright", key: "meta", width: 28 },
     { header: "Next action", key: "fix", width: 48 },
@@ -152,6 +153,10 @@ export async function POST(request) {
     row.getCell("site").font = { color: { argb: "FF1F4E79" }, underline: true };
     row.getCell("image").value = { text: r.image, hyperlink: r.imageUrl };
     row.getCell("image").font = { color: { argb: "FF1F4E79" }, underline: true };
+    if (r.libUrl) {
+      row.getCell("lib").value = { text: `View on ${r.flag}`, hyperlink: r.libUrl };
+      row.getCell("lib").font = { color: { argb: "FF1F4E79" }, underline: true };
+    }
   });
 
   }
