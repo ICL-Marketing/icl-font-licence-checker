@@ -474,17 +474,18 @@ function LaunchCard({ k, r, mode, signed, log, shared, team, open, toggle, onSig
               </button>
               {showLog && (
                 <table className="w-full border-t border-zinc-100 text-xs">
-                  <thead><tr className="text-left text-zinc-500"><th className="px-3 py-1.5">When</th><th className="px-3 py-1.5">Check</th><th className="px-3 py-1.5">Action</th><th className="px-3 py-1.5">Name</th></tr></thead>
+                  <thead><tr className="text-left text-zinc-500"><th className="px-3 py-1.5">Check</th><th className="px-3 py-1.5">Date</th><th className="px-3 py-1.5">By</th></tr></thead>
                   <tbody>
                     {[...log].reverse().map((e, i) => (
                       <tr key={i} className="border-t border-zinc-100 align-top">
-                        <td className="whitespace-nowrap px-3 py-1.5">{new Date(e.at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</td>
                         <td className="px-3 py-1.5">{e.check}</td>
-                        <td className={`px-3 py-1.5 ${/removed/i.test(e.action) ? "text-red-700" : "text-green-700"}`}>{e.action}</td>
-                        <td className="px-3 py-1.5 font-medium">{e.name}</td>
+                        <td className="whitespace-nowrap px-3 py-1.5 text-zinc-600">{new Date(e.at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</td>
+                        <td className={`whitespace-nowrap px-3 py-1.5 font-medium ${/removed/i.test(e.action) ? "text-red-700" : /not required/i.test(e.action) ? "text-zinc-600" : "text-green-700"}`}>
+                          {/removed/i.test(e.action) ? `Removed – ${e.name}` : /not required/i.test(e.action) ? `Not required – ${e.name}` : /changed/i.test(e.action) ? `${e.name} (was ${e.action.replace(/^Changed from /, "")})` : e.name}
+                        </td>
                       </tr>
                     ))}
-                    {!log.length && <tr><td colSpan={4} className="px-3 py-2 text-zinc-500">No sign-offs yet.</td></tr>}
+                    {!log.length && <tr><td colSpan={3} className="px-3 py-2 text-zinc-500">No sign-offs yet.</td></tr>}
                   </tbody>
                 </table>
               )}
