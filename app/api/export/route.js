@@ -1,3 +1,4 @@
+import { fontLink } from "@/lib/fontlink";
 import ExcelJS from "exceljs";
 
 export const maxDuration = 30;
@@ -48,7 +49,7 @@ export async function POST(request) {
       fontRows.push({ site: r.site, status: f.status, font: f.family, why: f.note || "",
         free: f.status !== "PROBLEM" ? "" : f.adobe === "yes" ? "Adobe Fonts" : f.google === "yes" ? "Google Fonts" : f.freeVersion?.isFree ? `Free version: ${f.freeVersion.note}` : f.adobe === "no" ? "None found" : "Not sure: check Adobe / Google / Font Squirrel",
         freeOk: f.status === "PROBLEM" && (f.adobe === "yes" || f.google === "yes" || !!f.freeVersion?.isFree),
-        siteUrl: r.finalUrl || `https://${r.site}`, fontUrl: f.source || "",
+        siteUrl: r.finalUrl || `https://${r.site}`, fontUrl: fontLink(f),
         fix: f.fix || "", task: "To do", owner: "", notes: "", done: "" });
     }
   }
