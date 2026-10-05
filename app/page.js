@@ -35,6 +35,7 @@ export default function Home() {
   const [parallel, setParallel] = useState(4);
   const [results, setResults] = useState({});
   const [running, setRunning] = useState(null); // null | "fonts" | "images"
+  const [launchRunning, setLaunchRunning] = useState(false);
   const [area, setArea] = useState("fonts"); // "fonts" | "images" | "launch"
   const [view, setView] = useState({ fonts: "results", images: "results" }); // "results" | "emails" per area
   const [filter, setFilter] = useState("ALL");
@@ -69,6 +70,14 @@ export default function Home() {
       if (Object.keys(results).length) localStorage.setItem(STORAGE_KEY, JSON.stringify({ results, text }));
     } catch {}
   }, [results, text]);
+
+  // Warn before closing or reloading while a scan is in progress.
+  useEffect(() => {
+    if (!running && !launchRunning) return;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [running, launchRunning]);
 
   const sites = useMemo(() => [...new Set(text.split(/\r?\n|,/).map(normalise).filter((s) => s.includes(".")))], [text]);
 
@@ -266,14 +275,15 @@ export default function Home() {
           <button key={id} onClick={() => setArea(id)} aria-current={area === id ? "page" : undefined}
             className={`rounded-lg px-4 py-2 text-sm font-semibold ${area === id ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"}`}>
             {label}{n != null && <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] text-zinc-700">{n}</span>}
-            {running === id && <span className="ml-2 text-[11px] font-normal text-blue-600">scanning…</span>}
+            {(running === id || (id === "launch" && launchRunning)) && <span className="ml-2 text-[11px] font-normal text-blue-600">scanning…</span>}
           </button>
         ))}
       </nav>
 
-      {area === "launch" && <section className="mt-5"><LaunchArea post={post} /></section>}
+      {/* All areas stay mounted so a running scan carries on when you switch tabs. */}
+      <section className={`mt-5 ${area === "launch" ? "" : "hidden"}`}><LaunchArea post={post} onRunning={setLaunchRunning} /></section>
 
-      {area !== "launch" && <>
+      <div className={area !== "launch" ? "" : "hidden"}>
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
         <button onClick={() => setShowList((v) => !v)} className="flex w-full items-center justify-between text-left text-sm font-medium">
           <span>Sites to check ({sites.length})</span>
@@ -399,7 +409,7 @@ export default function Home() {
       <footer className="mt-10 text-xs text-zinc-400">
         <p>PROBLEM means investigate, not guilty. Fonts loaded only by JavaScript can be missed. Image flags are filename and metadata only; cross-check against purchase records.</p>
       </footer>
-      </>}
+      </div>
     </main>
   );
 }

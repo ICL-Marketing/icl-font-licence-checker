@@ -19,7 +19,7 @@ const hostOf = (u) => { try { return hostKey(new URL(u).host); } catch { return 
 const keyFor = (input) => { let s = String(input || "").trim(); if (!/^https?:\/\//i.test(s)) s = "https://" + s; return hostOf(s); };
 
 
-export default function LaunchArea({ post }) {
+export default function LaunchArea({ post, onRunning }) {
   const [url, setUrl] = useState("");
   const [runs, setRuns] = useState({});
   const [signoffs, setSignoffs] = useState({});
@@ -98,6 +98,7 @@ export default function LaunchArea({ post }) {
     if (!key) return;
     stopRef.current = false;
     setRunning(key);
+    onRunning?.(true);
     setOpenKey(key);
     patch(key, { input, status: "RUNNING", phase: "Reading the site", done: 0, total: 1, error: "" });
     try {
@@ -205,6 +206,7 @@ export default function LaunchArea({ post }) {
       patch(key, { status: "ERROR", error: `Request failed: ${e.message}` });
     } finally {
       setRunning(null);
+      onRunning?.(false);
       refreshSignoffs(key);
     }
   }
