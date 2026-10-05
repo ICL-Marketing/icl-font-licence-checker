@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DEFAULT_SITES } from "@/data/sites";
 import { buildFontEmail, buildImageEmail, isFreeLib } from "@/lib/email";
-import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, freeRouteLink } from "@/lib/fontlink";
+import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, freeRouteLink, isFreeFontAwesome, ISSUE_TONE } from "@/lib/fontlink";
 
 const ORDER = { PROBLEM: 4, CHECK: 3, UNREACHABLE: 2, OK: 1, SYSTEM: 0 };
 const LABEL = { PROBLEM: "PROBLEM", CHECK: "CHECK", UNREACHABLE: "COULDN'T CHECK", OK: "OK", SYSTEM: "NO WEB FONTS", RUNNING: "SCANNING" };
@@ -360,10 +360,19 @@ function RunBar({ kind, done, total, label, running, sites, onRun, onStop }) {
   );
 }
 
+const TONE_CHIP = { red: "bg-red-600", amber: "bg-amber-500", green: "bg-green-600" };
+const TONE_BORDER = { red: "border-red-500", amber: "border-amber-500", green: "border-green-500" };
+const TONE_RANK = { red: 3, amber: 2, green: 1 };
+
 function SiteCard({ r, open, toggle, rerun, running }) {
-  const c = COLOUR[r.status] || COLOUR.PENDING;
   const fonts = r.fonts || [];
-  const todo = fonts.filter((f) => (f.status === "PROBLEM" || f.status === "CHECK") && !isEmbeddedIconFont(f)).sort((a, b) => ORDER[b.status] - ORDER[a.status]);
+  const todo = fonts.filter((f) => (f.status === "PROBLEM" || f.status === "CHECK") && !isEmbeddedIconFont(f) && !isFreeFontAwesome(f))
+    .sort((a, b) => (TONE_RANK[ISSUE_TONE[issueLabel(b)]] || 0) - (TONE_RANK[ISSUE_TONE[issueLabel(a)]] || 0));
+  const labels = [...new Set(todo.map(issueLabel))];
+  const worst = labels.map((l) => ISSUE_TONE[l]).sort((a, b) => TONE_RANK[b] - TONE_RANK[a])[0];
+  const c = r.status === "RUNNING" || r.status === "UNREACHABLE" || !worst
+    ? (COLOUR[r.status] || COLOUR.PENDING)
+    : { ...COLOUR.PROBLEM, border: TONE_BORDER[worst] };
   const oks = fonts.filter((f) => f.status === "OK");
   const headline = r.status === "RUNNING"
     ? "Scanning…"
@@ -376,7 +385,9 @@ function SiteCard({ r, open, toggle, rerun, running }) {
   return (
     <div className={`rounded-xl border-l-4 bg-white shadow-sm ring-1 ring-zinc-100 ${c.border}`}>
       <button onClick={toggle} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-left">
-        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${c.chip}`}>{LABEL[r.status] || r.status}</span>
+        {labels.length && r.status !== "RUNNING"
+          ? labels.map((l) => <span key={l} className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${TONE_CHIP[ISSUE_TONE[l]] || "bg-zinc-500"}`}>{l}</span>)
+          : <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${c.chip}`}>{LABEL[r.status] || r.status}</span>}
         <span className="font-medium">{r.site}</span>
         {r.platform && <span className="text-xs text-zinc-400">{r.platform}</span>}
         <span className="basis-full text-sm text-zinc-700 sm:basis-auto sm:flex-1">{headline}</span>
@@ -404,7 +415,7 @@ function SiteCard({ r, open, toggle, rerun, running }) {
                     const fc = COLOUR[f.status] || COLOUR.PENDING;
                     return (
                       <tr key={i} className={`border-t border-zinc-100 align-top ${fc.bg}`}>
-                        <td className="py-1.5 pr-2 whitespace-nowrap font-semibold">{issueLabel(f)}</td>
+                        <td className="py-1.5 pr-2 whitespace-nowrap"><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${TONE_CHIP[ISSUE_TONE[issueLabel(f)]] || "bg-zinc-500"}`}>{issueLabel(f)}</span></td>
                         <td className={`py-1.5 pr-2 font-semibold ${fc.text}`}><a href={fontLink(f)} target="_blank" rel="noreferrer" title="Font foundry page" className="underline decoration-dotted underline-offset-2">{f.family}</a>{f.otherFiles > 0 && <span className="text-zinc-400"> +{f.otherFiles} more file{f.otherFiles === 1 ? "" : "s"}</span>}</td>
                         <td className="py-1.5 pr-2 whitespace-nowrap">{f.kind}{f.hostedOn ? ` / ${f.hostedOn}` : ""}</td>
                         <td className="py-1.5 pr-2">{f.note}</td>

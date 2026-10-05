@@ -1,4 +1,4 @@
-import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, ISSUE_FILL, freeRouteLink } from "@/lib/fontlink";
+import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, ISSUE_FILL, freeRouteLink, isFreeFontAwesome } from "@/lib/fontlink";
 import ExcelJS from "exceljs";
 
 export const maxDuration = 30;
@@ -27,11 +27,32 @@ function sheet(wb, name, columns, rows, statusKey) {
   return ws;
 }
 
+// Colours follow the chosen value, so they update when someone changes the dropdown.
+const TASK_COLOURS = {
+  "To do": { fill: "FFF8D7DA", font: "FF9B1C1C" },
+  "In progress": { fill: "FFFFF3CD", font: "FF8A5A00" },
+  "Done": { fill: "FFD4EDDA", font: "FF1E6B34" },
+  "Not an issue": { fill: "FFE5E7EB", font: "FF4B5563" },
+};
+
 function addTaskDropdown(ws, colKey, rowCount) {
   const col = ws.getColumn(colKey).number;
   for (let i = 2; i <= rowCount + 1; i++) {
     ws.getCell(i, col).dataValidation = { type: "list", allowBlank: false, formulae: [`"${TASK_STATES.join(",")}"`] };
   }
+  if (!rowCount) return;
+  const letter = ws.getColumn(colKey).letter;
+  const ref = `${letter}2:${letter}${rowCount + 1}`;
+  ws.addConditionalFormatting({
+    ref,
+    rules: Object.entries(TASK_COLOURS).map(([value, c], idx) => ({
+      type: "cellIs", operator: "equal", formulae: [`"${value}"`], priority: idx + 1,
+      style: {
+        fill: { type: "pattern", pattern: "solid", bgColor: { argb: c.fill } },
+        font: { bold: true, color: { argb: c.font } },
+      },
+    })),
+  });
 }
 
 export async function POST(request) {
@@ -46,7 +67,7 @@ export async function POST(request) {
     if (!r.status || r.status === "UNREACHABLE") continue;
     for (const f of r.fonts || []) {
       if (f.status !== "PROBLEM" && f.status !== "CHECK") continue;
-      if (isEmbeddedIconFont(f)) continue;
+      if (isEmbeddedIconFont(f) || isFreeFontAwesome(f)) continue;
       fontRows.push({ site: r.site, status: f.status, issue: issueLabel(f), font: f.family, why: f.note || "",
         free: f.status !== "PROBLEM" || f.kind === "Hosted service" ? "" : (f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) ? "Adobe Fonts" : f.google === "yes" ? "Google Fonts" : f.freeVersion?.isFree ? `Free version: ${f.freeVersion.note}` : f.adobe === "no" ? "None found" : "Not sure: check Adobe / Google / Font Squirrel",
         freeOk: f.status === "PROBLEM" && ((f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) || f.google === "yes" || !!f.freeVersion?.isFree),
