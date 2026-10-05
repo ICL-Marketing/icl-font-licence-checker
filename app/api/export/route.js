@@ -1,4 +1,4 @@
-import { fontLink, isEmbeddedIconFont, issueLabel, ISSUE_FILL, isFreeFontAwesome, freeRouteLabel, nextAction } from "@/lib/fontlink";
+import { fontLink, isEmbeddedIconFont, issueLabel, ISSUE_FILL, isFreeFontAwesome, freeRouteLabel, nextAction, mergeImageSizes } from "@/lib/fontlink";
 import ExcelJS from "exceljs";
 
 export const maxDuration = 30;
@@ -118,10 +118,10 @@ export async function POST(request) {
   const imgRows = [];
   for (const r of results) {
     if (r.imgStatus !== "DONE") continue;
-    for (const i of r.images || []) {
-      if (!i.flag || /free/i.test(i.flag)) continue;
+    for (const i of mergeImageSizes((r.images || []).filter((x) => x.flag && !/free/i.test(x.flag)))) {
       let name = i.url;
       try { name = decodeURIComponent(new URL(i.url).pathname.split("/").pop()); } catch {}
+      if (i.sizes > 1) name += ` (+${i.sizes - 1} other size${i.sizes === 2 ? "" : "s"})`;
       imgRows.push({ site: r.site, siteUrl: r.finalUrl || `https://${r.site}`, imageUrl: i.url, flag: i.flag, image: name, meta: i.meta || "",
         fix: /free/i.test(i.flag) ? "Free library: no licence needed, but check attribution rules." : "Find the purchase record / licence for this image. If none, replace it or buy a licence.",
         task: "To do", owner: "", notes: "", done: "" });

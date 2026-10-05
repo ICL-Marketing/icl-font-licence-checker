@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DEFAULT_SITES } from "@/data/sites";
-import { buildFontEmail, buildImageEmail, isFreeLib } from "@/lib/email";
-import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, freeRouteLink, isFreeFontAwesome, ISSUE_TONE } from "@/lib/fontlink";
+import { buildFontEmail, buildImageEmail, isFreeLib, segmentsToText, segmentsToHtml } from "@/lib/email";
+import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, freeRouteLink, isFreeFontAwesome, ISSUE_TONE, mergeImageSizes } from "@/lib/fontlink";
 
 const ORDER = { PROBLEM: 4, CHECK: 3, UNREACHABLE: 2, OK: 1, SYSTEM: 0 };
 const LABEL = { PROBLEM: "PROBLEM", CHECK: "CHECK", UNREACHABLE: "COULDN'T CHECK", OK: "OK", SYSTEM: "NO WEB FONTS", RUNNING: "SCANNING" };
@@ -25,7 +25,7 @@ function normalise(s) {
   return s.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
 }
 function paidImages(r) {
-  return (r.images || []).filter((i) => i.flag && !isFreeLib(i.flag));
+  return mergeImageSizes((r.images || []).filter((i) => i.flag && !isFreeLib(i.flag)));
 }
 
 export default function Home() {
@@ -40,6 +40,7 @@ export default function Home() {
   const [exporting, setExporting] = useState(false);
   const [showList, setShowList] = useState(true);
   const stopRef = useRef(false);
+  const cancelledRef = useRef(new Set());
   const router = useRouter();
 
   useEffect(() => {
@@ -61,7 +62,17 @@ export default function Home() {
 
   const sites = useMemo(() => [...new Set(text.split(/\r?\n|,/).map(normalise).filter((s) => s.includes(".")))], [text]);
 
-  const patch = (site, fields) => setResults((prev) => ({ ...prev, [site]: { ...(prev[site] || { site }), ...fields } }));
+  const patch = (site, fields) => {
+    if (cancelledRef.current.has(site)) return;
+    setResults((prev) => ({ ...prev, [site]: { ...(prev[site] || { site }), ...fields } }));
+  };
+
+  // Cancel any scan for this site, drop its results and take it off the site list.
+  function removeSite(site) {
+    cancelledRef.current.add(site);
+    setResults((prev) => { const next = { ...prev }; delete next[site]; return next; });
+    setText((t) => t.split(/\r?\n/).filter((l) => normalise(l) !== site).join("\n"));
+  }
 
   async function post(url, body) {
     const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -97,14 +108,16 @@ export default function Home() {
       let imagesChecked = d.imagesChecked || 0;
       let total = scanned + queue.length;
       patch(site, { imgProgress: `page ${scanned} of ${total}`, images });
-      while (queue.length && !stopRef.current) {
+      while (queue.length && !stopRef.current && !cancelledRef.current.has(site)) {
         const batch = queue.splice(0, 10);
         const out = await post("/api/scan-pages", { site, urls: batch });
         scanned += (out.done || []).length;
         imagesChecked += out.imagesChecked || 0;
         for (const i of out.images || []) {
           const k = i.url.split("?")[0];
-          if (!seenImg.has(k)) { seenImg.add(k); images.push(i); }
+          if (!seenImg.has(k)) { seenImg.add(k); images.push(i); continue; }
+          const prev = images.find((x) => x.url.split("?")[0] === k);
+          if (prev) prev.pages = [...new Set([...(prev.pages || (prev.page ? [prev.page] : [])), ...(i.pages || (i.page ? [i.page] : []))])];
         }
         if (out.remaining?.length) queue.unshift(...out.remaining);
         if (!d.hasSitemap) {
@@ -123,6 +136,7 @@ export default function Home() {
   }
 
   async function run(kind, list) {
+    cancelledRef.current = new Set();
     stopRef.current = false;
     setRunning(kind);
     setShowList(false);
@@ -130,7 +144,10 @@ export default function Home() {
     const queue = [...list];
     const fn = kind === "fonts" ? scanFonts : scanImages;
     const workers = Array.from({ length: Math.max(1, parallel) }, async () => {
-      while (queue.length && !stopRef.current) await fn(queue.shift());
+      while (queue.length && !stopRef.current) {
+        const next = queue.shift();
+        if (!cancelledRef.current.has(next)) await fn(next);
+      }
     });
     await Promise.all(workers);
     setRunning(null);
@@ -265,7 +282,7 @@ export default function Home() {
                 </p>
                 <div className="mt-4 space-y-3">
                   {fontVisible.map((r) => (
-                    <SiteCard key={r.site} r={r} open={!!open["f:" + r.site]} toggle={() => setOpen((o) => ({ ...o, ["f:" + r.site]: !o["f:" + r.site] }))} rerun={() => run("fonts", [r.site])} running={!!running} />
+                    <SiteCard key={r.site} r={r} open={!!open["f:" + r.site]} toggle={() => setOpen((o) => ({ ...o, ["f:" + r.site]: !o["f:" + r.site] }))} rerun={() => run("fonts", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} />
                   ))}
                   {!fontVisible.length && <p className="text-sm text-zinc-500">{filter === "ALL" ? "Nothing outstanding." : "Nothing in this group."}</p>}
                 </div>
@@ -297,7 +314,7 @@ export default function Home() {
                 <p className="mt-1 text-xs text-zinc-500">Flags come from file names (e.g. shutterstock_123.jpg) and embedded copyright / credit tags. The scanner cannot tell whether an image was paid for, so treat this as a list to check against purchase records.</p>
                 <div className="mt-4 space-y-3">
                   {imgVisible.map(({ r, paid }) => (
-                    <ImageCard key={r.site} r={r} paid={paid} open={!!open["i:" + r.site]} toggle={() => setOpen((o) => ({ ...o, ["i:" + r.site]: !o["i:" + r.site] }))} rerun={() => run("images", [r.site])} running={!!running} />
+                    <ImageCard key={r.site} r={r} paid={paid} open={!!open["i:" + r.site]} toggle={() => setOpen((o) => ({ ...o, ["i:" + r.site]: !o["i:" + r.site] }))} rerun={() => run("images", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} />
                   ))}
                   {!imgVisible.length && <p className="text-sm text-zinc-500">No paid stock-library images found on any scanned site.</p>}
                 </div>
@@ -309,7 +326,7 @@ export default function Home() {
         {tab === "emails" && (
           <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
             <p className="text-sm text-zinc-600">
-              One ready-to-send email per site that has something to confirm. Fonts with a free fix (Adobe Fonts relink, Google Fonts, free version, Font Awesome Free) are left out, since we fix those ourselves. Copy, paste into your email client, and your signature does the rest. Sites with no issues get no email.
+              One ready-to-send email per site, only for what the client has to answer: paid fonts with no licence found, demo fonts, font subscriptions to confirm, and fonts of unknown origin. Anything we can fix ourselves at no cost is left out. Copy, paste into your email client, and your signature does the rest. Sites with no issues get no email.
             </p>
             <div className="mt-3 flex gap-2">
               {[["fonts", "Font emails", fontEmails.length], ["images", "Image emails", imageEmails.length]].map(([id, label, n]) => (
@@ -365,6 +382,24 @@ function FaIconTable({ icons, pages, version }) {
   );
 }
 
+// "×" on the right of a card. Asks inline before cancelling and removing the site.
+function RemoveSite({ site, onRemove }) {
+  const [asking, setAsking] = useState(false);
+  if (asking) {
+    return (
+      <div className="flex shrink-0 items-center gap-2 py-2.5 pr-3 text-xs">
+        <span className="text-zinc-600">Remove {site} from the list?</span>
+        <button onClick={onRemove} className="rounded-md bg-red-600 px-2 py-1 font-medium text-white">Remove</button>
+        <button onClick={() => setAsking(false)} className="rounded-md border border-zinc-300 px-2 py-1 text-zinc-700 hover:bg-zinc-100">Keep</button>
+      </div>
+    );
+  }
+  return (
+    <button onClick={() => setAsking(true)} aria-label={`Remove ${site}`} title="Cancel and remove this site"
+      className="shrink-0 px-3 py-3 text-lg leading-none text-zinc-400 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500">×</button>
+  );
+}
+
 function RunBar({ kind, done, total, label, running, sites, onRun, onStop }) {
   return (
     <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -391,7 +426,7 @@ const TONE_CHIP = { red: "bg-red-600", amber: "bg-amber-500", green: "bg-green-6
 const TONE_BORDER = { red: "border-red-500", amber: "border-amber-500", green: "border-green-500" };
 const TONE_RANK = { red: 3, amber: 2, green: 1 };
 
-function SiteCard({ r, open, toggle, rerun, running }) {
+function SiteCard({ r, open, toggle, rerun, running, onRemove }) {
   const fonts = r.fonts || [];
   const todo = fonts.filter((f) => (f.status === "PROBLEM" || f.status === "CHECK") && !isEmbeddedIconFont(f) && !isFreeFontAwesome(f))
     .sort((a, b) => (TONE_RANK[ISSUE_TONE[issueLabel(b)]] || 0) - (TONE_RANK[ISSUE_TONE[issueLabel(a)]] || 0));
@@ -411,7 +446,8 @@ function SiteCard({ r, open, toggle, rerun, running }) {
 
   return (
     <div className={`rounded-xl border-l-4 bg-white shadow-sm ring-1 ring-zinc-100 ${c.border}`}>
-      <button onClick={toggle} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-left">
+      <div className="flex items-start">
+      <button onClick={toggle} className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 py-3 pl-4 pr-2 text-left">
         {labels.length && r.status !== "RUNNING"
           ? labels.map((l) => <span key={l} className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${TONE_CHIP[ISSUE_TONE[l]] || "bg-zinc-500"}`}>{l}</span>)
           : <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${c.chip}`}>{LABEL[r.status] || r.status}</span>}
@@ -420,6 +456,8 @@ function SiteCard({ r, open, toggle, rerun, running }) {
         <span className="basis-full text-sm text-zinc-700 sm:basis-auto sm:flex-1">{headline}</span>
         {r.status !== "RUNNING" && <span className="text-xs text-zinc-400">{open ? "▲" : "▼"}</span>}
       </button>
+      <RemoveSite site={r.site} onRemove={onRemove} />
+      </div>
       {open && r.status !== "RUNNING" && (
         <div className="border-t border-zinc-100 px-4 py-3 text-sm">
           {r.error && <p className={`mb-2 ${r.status === "UNREACHABLE" ? "text-purple-700" : "text-red-700"}`}>{r.error}</p>}
@@ -488,7 +526,7 @@ function SiteCard({ r, open, toggle, rerun, running }) {
   );
 }
 
-function ImageCard({ r, paid, open, toggle, rerun, running }) {
+function ImageCard({ r, paid, open, toggle, rerun, running, onRemove }) {
   const st = r.imgStatus === "RUNNING" ? "RUNNING" : r.imgStatus === "UNREACHABLE" ? "UNREACHABLE" : paid.length ? "PAID" : "OK";
   const c = COLOUR[st];
   const libs = [...new Set(paid.map((i) => i.flag))];
@@ -501,13 +539,16 @@ function ImageCard({ r, paid, open, toggle, rerun, running }) {
       : `${paid.length} image${paid.length === 1 ? "" : "s"} · ${libs.join(", ")} → find the purchase record, or replace`;
   return (
     <div className={`rounded-xl border-l-4 bg-white shadow-sm ring-1 ring-zinc-100 ${c.border}`}>
-      <button onClick={toggle} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-left">
+      <div className="flex items-start">
+      <button onClick={toggle} className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 py-3 pl-4 pr-2 text-left">
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${c.chip}`}>{label}</span>
         <span className="font-medium">{r.site}</span>
         <span className="basis-full text-sm text-zinc-700 sm:basis-auto sm:flex-1">{headline}</span>
         {r.pagesScanned > 0 && <span className="text-xs text-zinc-400">{r.pagesScanned} pages</span>}
         {st !== "RUNNING" && <span className="text-xs text-zinc-400">{open ? "▲" : "▼"}</span>}
       </button>
+      <RemoveSite site={r.site} onRemove={onRemove} />
+      </div>
       {open && st !== "RUNNING" && (
         <div className="border-t border-zinc-100 px-4 py-3 text-sm">
           {r.imgFix && st === "UNREACHABLE" && <p className="mb-2"><b>Suggested fix:</b> {r.imgFix}</p>}
@@ -530,7 +571,8 @@ function ImageCard({ r, paid, open, toggle, rerun, running }) {
                       <td className="py-1.5 pr-2 font-semibold text-red-700">{i.flag}</td>
                       <td className="py-1.5 pr-2">
                         <a href={i.url} target="_blank" rel="noreferrer" className="break-all font-mono text-[11px] text-blue-700 underline">{name.slice(0, 80)}</a>
-                        {i.page && <div className="text-[11px] text-zinc-400">on {(() => { try { return new URL(i.page).pathname || "/"; } catch { return i.page; } })()}</div>}
+                        {i.sizes > 1 && <span className="ml-1 text-[11px] text-zinc-400">+{i.sizes - 1} other size{i.sizes === 2 ? "" : "s"}</span>}
+                        {i.pages?.length > 0 && <div className="text-[11px] text-zinc-400">on {i.pages.slice(0, 3).map((p) => { try { return new URL(p).pathname || "/"; } catch { return p; } }).join(", ")}{i.pages.length > 3 ? ` +${i.pages.length - 3} more` : ""}</div>}
                       </td>
                       <td className="py-1.5 pr-2 text-zinc-600">{i.meta ? i.meta.slice(0, 160) : "—"}</td>
                       <td className="py-1.5 font-medium">Find the purchase record / licence. If none, replace the image or buy a licence.</td>
@@ -552,15 +594,42 @@ function ImageCard({ r, paid, open, toggle, rerun, running }) {
   );
 }
 
+const EDITS_KEY = "flc-email-edits-v1";
+function loadEdits() { try { return JSON.parse(localStorage.getItem(EDITS_KEY) || "{}"); } catch { return {}; } }
+function saveEdits(all) { try { localStorage.setItem(EDITS_KEY, JSON.stringify(all)); } catch {} }
+
 function EmailCard({ e }) {
-  const [copied, setCopied] = useState("");
+  const key = `${e.kind}|${e.site}`;
+  const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(false);
-  async function copy(what, text) {
+  const [edits, setEdits] = useState({});
+  useEffect(() => { const t = setTimeout(() => setEdits(loadEdits()[key] || {}), 0); return () => clearTimeout(t); }, [key]);
+  const text = segmentsToText(e.segments, edits);
+  const edited = Object.keys(edits).length > 0;
+
+  function update(id, value) {
+    setEdits((prev) => {
+      const next = { ...prev, [id]: value };
+      const all = loadEdits(); all[key] = next; saveEdits(all);
+      return next;
+    });
+  }
+  function reset() {
+    const all = loadEdits(); delete all[key]; saveEdits(all);
+    setEdits({});
+  }
+  async function copy() {
+    const html = segmentsToHtml(e.segments, edits);
     try {
-      await navigator.clipboard.writeText(text);
-      setCopied(what);
-      setTimeout(() => setCopied(""), 1500);
-    } catch {}
+      // Rich copy keeps image names as links when pasted into an email.
+      await navigator.clipboard.write([new ClipboardItem({
+        "text/html": new Blob([html], { type: "text/html" }),
+        "text/plain": new Blob([text], { type: "text/plain" }),
+      })]);
+    } catch {
+      try { await navigator.clipboard.writeText(text); } catch { return; }
+    }
+    setCopied(true); setTimeout(() => setCopied(false), 1500);
   }
   return (
     <div className="rounded-xl border border-zinc-200 bg-white shadow-sm">
@@ -568,14 +637,34 @@ function EmailCard({ e }) {
         <button onClick={() => setOpen((v) => !v)} className="flex-1 text-left">
           <span className="font-medium">{e.site}</span>
           <span className="ml-2 text-xs text-zinc-500">{e.count} {e.kind === "fonts" ? "font" : "image"}{e.count === 1 ? "" : "s"}</span>
+          {edited && <span className="ml-2 rounded bg-orange-100 px-1.5 py-0.5 text-[11px] font-semibold text-orange-800">Edited</span>}
           <span className="ml-2 text-xs text-zinc-400">{open ? "▲" : "▼"}</span>
         </button>
-        <button onClick={() => copy("body", e.body)} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{copied === "body" ? "Copied" : "Copy email"}</button>
+        <button onClick={copy} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{copied ? "Copied" : "Copy email"}</button>
       </div>
       {open && (
         <div className="border-t border-zinc-100 px-4 py-3">
           <p className="mb-2 text-xs text-zinc-500">Subject: <span className="text-zinc-800">{e.subject}</span></p>
-          <textarea readOnly value={e.body} rows={Math.min(30, e.body.split("\n").length + 1)} className="w-full rounded-md border border-zinc-200 bg-zinc-50 p-3 font-mono text-xs leading-relaxed" />
+          <p className="mb-2 text-[11px] text-zinc-500"><span className="rounded bg-orange-100 px-1 text-orange-900">Orange text</span> is specific to this site. Click it to edit; changes are saved in this browser and included when you copy.</p>
+          <div className="whitespace-pre-wrap rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm leading-relaxed text-zinc-800">
+            {e.segments.map((seg, i) => typeof seg === "string"
+              ? <span key={i}>{seg}</span>
+              : seg.href
+              ? <span key={seg.id}><span
+                  contentEditable
+                  suppressContentEditableWarning
+                  onBlur={(ev) => { const v = ev.currentTarget.innerText; if (v !== (edits[seg.id] ?? seg.v)) update(seg.id, v); }}
+                  className={`rounded px-0.5 underline outline-none focus:ring-2 focus:ring-orange-400 ${edits[seg.id] !== undefined ? "bg-orange-200 text-orange-950" : "bg-orange-100 text-orange-900"}`}
+                >{edits[seg.id] ?? seg.v}</span><a href={seg.href} target="_blank" rel="noreferrer" title="Open image" className="ml-0.5 text-blue-700 no-underline">↗</a></span>
+              : <span
+                  key={seg.id}
+                  contentEditable
+                  suppressContentEditableWarning
+                  onBlur={(ev) => { const v = ev.currentTarget.innerText; if (v !== (edits[seg.id] ?? seg.v)) update(seg.id, v); }}
+                  className={`rounded px-0.5 outline-none focus:ring-2 focus:ring-orange-400 ${seg.href ? "underline" : ""} ${edits[seg.id] !== undefined ? "bg-orange-200 text-orange-950" : "bg-orange-100 text-orange-900"}`}
+                >{edits[seg.id] ?? seg.v}</span>)}
+          </div>
+          {edited && <button onClick={reset} className="mt-2 text-xs text-zinc-500 underline">Reset to generated text</button>}
         </div>
       )}
     </div>
