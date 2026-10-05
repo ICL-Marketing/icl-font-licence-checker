@@ -544,7 +544,7 @@ function CheckRow({ c, s, team, onSign, site }) {
             {/* A passed check's summary is a tick; otherwise it is information. */}
             {auto
               ? <span aria-hidden className="w-4 shrink-0 text-center font-bold text-green-600">✓</span>
-              : <span aria-hidden className="flex w-4 shrink-0 justify-center pt-0.5 text-blue-600"><InfoIcon /></span>}
+              : <span aria-hidden className={`flex w-4 shrink-0 justify-center pt-0.5 ${c.state === "fail" ? "text-red-600" : c.state === "review" ? "text-amber-600" : "text-zinc-500"}`}><InfoIcon /></span>}
             <span>{c.summary}</span>
           </p>
         )}
