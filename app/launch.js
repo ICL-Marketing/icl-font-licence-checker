@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { loadTeam } from "@/app/team";
+import { loadTeam, normaliseTeam } from "@/app/team";
 import { evaluateLaunch } from "@/lib/launchChecks";
 
 const RUNS_KEY = "flc-launch-v1";
@@ -40,7 +40,7 @@ export default function LaunchArea({ post }) {
       setTeam(loadTeam());
     }, 0);
     // Shared store (when set up) wins over this browser's copy.
-    fetch("/api/team").then((r) => r.json()).then((j) => { if (j.shared && Array.isArray(j.team) && j.team.length) setTeam(j.team); }).catch(() => {});
+    fetch("/api/team").then((r) => r.json()).then((j) => { if (j.shared && Array.isArray(j.team) && j.team.length) setTeam(normaliseTeam(j.team)); }).catch(() => {});
     for (const key of Object.keys(load(RUNS_KEY, {}))) refreshSignoffs(key);
     return () => clearTimeout(t);
   }, []);
@@ -251,7 +251,7 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
       const res = await fetch(word ? "/api/signoff-log" : "/api/export", { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify(word
           ? { site: k, url: r.start?.finalUrl, scannedAt: r.scannedAt, checks: slim, signed, log }
-          : { kind: "launch", launch: { site: k, url: r.start?.finalUrl, scannedAt: r.scannedAt, checks: slim, signed, team } }) });
+          : { kind: "launch", launch: { site: k, url: r.start?.finalUrl, scannedAt: r.scannedAt, checks: slim, signed, team: team.map((m) => m.name) } }) });
       const blob = await res.blob();
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
@@ -262,7 +262,8 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
   }
 
   const pct = r.total ? Math.min(100, (r.done / r.total) * 100) : 0;
-  const sections = ["Launch checks", "Launch actions"];
+  // Grouped by who does them. Within a group: things to do first, launch-day actions marked.
+  const owners = ["Designer", "Developer", "Senior Developer", "Account Manager"];
   return (
     <div className="rounded-xl bg-white shadow-sm ring-1 ring-zinc-200">
       <div className="flex items-start">
@@ -309,21 +310,25 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
             )}
             {r.scannedAt && <span className="text-[11px] text-zinc-400">Scanned {new Date(r.scannedAt).toLocaleString("en-GB")}{r.stopped ? " (stopped early)" : ""}</span>}
           </div>
-          {r.status === "DONE" && sections.map((sec) => (
-            <div key={sec} className="mb-4">
-              <h3 className="mb-1 text-sm font-semibold">{sec}</h3>
-              <div className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
-                {checks.filter((c) => c.section === sec).map((c, i) => ({ c, i, done: c.state === "pass" || !!signed[c.id] }))
-                  .filter((x) => !(hideDone && x.done))
-                  .sort((a, b) => a.done - b.done || a.i - b.i).map(({ c }) => (
-                  <CheckRow key={c.id} c={c} s={signed[c.id]} team={team} onSign={(name) => onSign(c, name)} />
-                ))}
-                {hideDone && checks.filter((c) => c.section === sec).every((c) => c.state === "pass" || signed[c.id]) && (
-                  <p className="px-3 py-2.5 text-sm text-green-700">All {sec.toLowerCase()} are complete.</p>
-                )}
+          {r.status === "DONE" && owners.map((who) => {
+            const mine = checks.filter((c) => c.owner === who).map((c, i) => ({ c, i, done: c.state === "pass" || !!signed[c.id] }));
+            const left = mine.filter((x) => !x.done).length;
+            return (
+              <div key={who} className="mb-4">
+                <h3 className="mb-1 flex flex-wrap items-center gap-2 text-sm font-semibold">
+                  {who}
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${left ? "bg-red-600" : "bg-green-600"}`}>{left ? `${left} to sign off` : "All done"}</span>
+                  <span className="text-[11px] font-normal text-zinc-500">{mine.length - left} of {mine.length} complete</span>
+                </h3>
+                <div className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
+                  {mine.filter((x) => !(hideDone && x.done)).sort((a, b) => a.done - b.done || a.i - b.i).map(({ c }) => (
+                    <CheckRow key={c.id} c={c} s={signed[c.id]} team={team} onSign={(name) => onSign(c, name)} />
+                  ))}
+                  {hideDone && !left && <p className="px-3 py-2.5 text-sm text-green-700">All {who} checks are complete.</p>}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           {r.status === "DONE" && (
             <div className="rounded-lg border border-zinc-200">
               <button onClick={() => setShowLog((v) => !v)} className="flex w-full items-center justify-between px-3 py-2 text-left text-sm">
@@ -354,6 +359,9 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
   );
 }
 
+// Which team role each check owner maps to (people with that role are listed first).
+const OWNER_ROLE = { Designer: "Designer", Developer: "Development", "Senior Developer": "Development", "Account Manager": "Account Manager", Content: "Content" };
+
 // What the scan found, shown as a short note on rows still needing a person.
 const SCAN_NOTE = { fail: "Scan found problems", review: "Scan found things to look at", manual: "Manual check" };
 
@@ -361,13 +369,16 @@ function CheckRow({ c, s, team, onSign }) {
   const [more, setMore] = useState(false);
   const auto = c.state === "pass";
   const done = auto || !!s;
-  const names = s?.name && !team.includes(s.name) ? [...team, s.name] : team;
+  const role = OWNER_ROLE[c.owner] || "";
+  const all = s?.name && !team.some((m) => m.name === s.name) ? [...team, { name: s.name, role: "" }] : team;
+  const first = all.filter((m) => m.role === role);
+  const rest = all.filter((m) => m.role !== role);
   return (
     <div className={`grid gap-3 border-l-4 px-3 py-2.5 text-sm sm:grid-cols-[1fr_230px] ${done ? "border-green-500 bg-green-50/60" : "border-red-500 bg-red-50/70"}`}>
       <div className="min-w-0">
         <p className="font-medium">{c.title}</p>
         <p className="text-[11px] text-zinc-500">
-          {c.owner}
+          {c.section === "Launch actions" ? "On launch day" : "Before launch"}
           {!done && <span className={`ml-2 font-semibold ${c.state === "fail" ? "text-red-700" : c.state === "review" ? "text-amber-700" : "text-zinc-600"}`}>· {SCAN_NOTE[c.state]}</span>}
           {s && c.state === "fail" && <span className="ml-2 font-semibold text-red-700">· Scan still shows problems</span>}
         </p>
@@ -393,7 +404,8 @@ function CheckRow({ c, s, team, onSign }) {
             <select value={s?.name || ""} onChange={(e) => onSign(e.target.value || null)} aria-label={`Signed off by, ${c.title}`}
               className={`w-full cursor-pointer rounded-full border-0 px-3 py-1.5 font-semibold text-white ${s ? "bg-green-600" : "bg-red-600"}`}>
               <option value="" className="bg-white text-zinc-900">Not checked</option>
-              {names.map((n) => <option key={n} value={n} className="bg-white text-zinc-900">✓ Checked by {n}</option>)}
+              {first.length > 0 && <optgroup label={role} className="bg-white text-zinc-900">{first.map((m) => <option key={m.name} value={m.name} className="bg-white text-zinc-900">✓ Checked by {m.name}</option>)}</optgroup>}
+              {rest.length > 0 && <optgroup label={first.length ? "Everyone else" : "Team"} className="bg-white text-zinc-900">{rest.map((m) => <option key={m.name} value={m.name} className="bg-white text-zinc-900">✓ Checked by {m.name}</option>)}</optgroup>}
             </select>
             {s && <p className="mt-1 px-1 text-[11px] text-green-700">{new Date(s.at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</p>}
           </>

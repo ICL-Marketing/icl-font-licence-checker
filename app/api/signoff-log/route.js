@@ -43,10 +43,12 @@ export async function POST(request) {
   }
 
   const done = checks.filter((c) => c.state === "pass" || signed[c.id]).length;
-  const rows = checks.map((c) => {
+  const OWNERS = ["Designer", "Developer", "Senior Developer", "Account Manager"];
+  const ordered = [...checks].sort((x, y) => OWNERS.indexOf(x.owner) - OWNERS.indexOf(y.owner));
+  const rows = ordered.map((c) => {
     const s = c.state === "pass" ? { name: AUTO_SIGNER, at: b.scannedAt } : signed[c.id];
     return [
-      `${c.title}\n${c.section} · ${c.owner}`,
+      `${c.title}\n${c.owner} · ${c.section === "Launch actions" ? "On launch day" : "Before launch"}`,
       { text: STATE_LABEL[c.state] || c.state, fill: FILL[c.state] },
       s ? s.name : { text: "Not signed off", fill: "F8D7DA" },
       s ? fmt(s.at) : "",
@@ -69,7 +71,15 @@ export async function POST(request) {
         new Paragraph({ children: [new TextRun({ text: "Completed: ", bold: true }), new TextRun(`${done} of ${checks.length} checks${done === checks.length ? " – ready to launch" : ""}`)] }),
         new Paragraph({ text: "" }),
         new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun("Checklist")] }),
-        table(["Check", "Automatic result", "Signed off by", "Date and time"], rows, [52, 16, 18, 14]),
+        ...OWNERS.flatMap((who) => {
+          const mine = rows.filter((_, i) => ordered[i].owner === who);
+          const left = mine.filter((r) => typeof r[2] === "object").length;
+          return [
+            new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun(`${who} – ${left ? `${left} not signed off` : "all signed off"}`)] }),
+            table(["Check", "Automatic result", "Signed off by", "Date and time"], mine, [52, 16, 18, 14]),
+            new Paragraph({ text: "" }),
+          ];
+        }),
         new Paragraph({ text: "" }),
         new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun("Sign-off history")] }),
         new Paragraph({ children: [new TextRun({ text: "Every sign-off, change and removal, oldest first.", italics: true, size: 18 })] }),

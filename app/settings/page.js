@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { TeamEditor, loadTeam, saveTeam } from "@/app/team";
+import { TeamEditor, loadTeam, saveTeam, normaliseTeam } from "@/app/team";
 
 export default function Settings() {
   const [team, setTeam] = useState([]);
@@ -12,7 +12,7 @@ export default function Settings() {
     fetch("/api/team").then((r) => r.json()).then((j) => {
       if (!j.shared) return;
       setShared(true);
-      if (Array.isArray(j.team) && j.team.length) setTeam(j.team);
+      if (Array.isArray(j.team) && j.team.length) setTeam(normaliseTeam(j.team));
     }).catch(() => {});
     return () => clearTimeout(t);
   }, []);
@@ -21,7 +21,7 @@ export default function Settings() {
     setTeam(local);
     if (shared) {
       const j = await fetch("/api/team", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ team: local }) }).then((r) => r.json()).catch(() => ({}));
-      if (Array.isArray(j.team)) setTeam(j.team);
+      if (Array.isArray(j.team)) setTeam(normaliseTeam(j.team));
     }
   }
   return (
@@ -30,7 +30,7 @@ export default function Settings() {
       <h1 className="mt-3 text-2xl font-semibold">Settings</h1>
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
         <h2 className="font-semibold">Team names</h2>
-        <p className="mb-3 text-sm text-zinc-500">Names offered in the &quot;Checked by&quot; dropdowns on launch checks and in the Excel checklist.</p>
+        <p className="mb-3 text-sm text-zinc-500">Names and roles offered in the &quot;Checked by&quot; dropdowns on launch checks.</p>
         <TeamEditor team={team} onChange={change} shared={shared} />
       </section>
     </main>
