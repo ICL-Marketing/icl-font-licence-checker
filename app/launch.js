@@ -331,10 +331,9 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
               <div key={who} className="mb-4">
                 <h3 className="mb-1 flex flex-wrap items-center gap-2 text-sm font-semibold">
                   {who}
-                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${left ? "bg-red-600" : "bg-green-600"}`}>{left ? `${left} to sign off` : "All done"}</span>
-                  <span className="text-[11px] font-normal text-zinc-500">{mine.length - left} of {mine.length} complete</span>
+                  <span className={`text-[11px] font-normal ${left ? "text-zinc-500" : "text-green-700"}`}>{mine.length - left} of {mine.length} complete</span>
                 </h3>
-                <div className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
+                <div className="space-y-2">
                   {mine.filter((x) => !(hideDone && x.done)).sort((a, b) => a.done - b.done || a.i - b.i).map(({ c }) => (
                     <CheckRow key={c.id} c={c} s={signed[c.id]} team={team} onSign={(name) => onSign(c, name)} site={r.start?.finalUrl || `https://${k}`} marker={marker} />
                   ))}
@@ -402,7 +401,7 @@ function CheckRow({ c, s, team, onSign, site, marker }) {
   const first = all.filter((m) => m.role === role);
   const rest = all.filter((m) => m.role !== role);
   return (
-    <div className={`grid gap-3 border-l-4 px-3 py-2.5 text-sm sm:grid-cols-[1fr_230px] ${done ? "border-green-500 bg-green-50/60" : "border-red-500 bg-red-50/70"}`}>
+    <div className={`grid gap-3 rounded-lg px-3 py-3 text-sm sm:grid-cols-[1fr_230px] ${done ? "bg-green-50" : "bg-red-50"}`}>
       <div className="min-w-0">
         <p className="font-medium">{c.title}</p>
         <p className="text-[11px] text-zinc-500">
@@ -410,6 +409,17 @@ function CheckRow({ c, s, team, onSign, site, marker }) {
           {!done && <span className={`ml-2 font-semibold ${c.state === "fail" ? "text-red-700" : c.state === "review" ? "text-amber-700" : "text-zinc-600"}`}>· {SCAN_NOTE[c.state]}</span>}
           {s && c.state === "fail" && <span className="ml-2 font-semibold text-red-700">· Scan still shows problems</span>}
         </p>
+        {c.facts?.length > 0 && (
+          <ul className="mt-1 space-y-0.5 text-xs">
+            {c.facts.map((f, i) => (
+              <li key={i} className="flex gap-1.5">
+                <span aria-hidden className={`w-4 shrink-0 text-center font-bold ${f.ok === true ? "text-green-600" : f.ok === false ? "text-red-600" : "text-amber-600"}`}>{f.ok === true ? "✓" : f.ok === false ? "✗" : "?"}</span>
+                <span className="sr-only">{f.ok === true ? "Yes:" : f.ok === false ? "No:" : "Unsure:"}</span>
+                <span className="text-zinc-700">{f.text}</span>
+              </li>
+            ))}
+          </ul>
+        )}
         {/* The summary itself opens the details when there are any. */}
         {c.summary && (c.items.length
           ? <button onClick={() => setMore((v) => !v)} className="mt-0.5 text-left text-xs text-zinc-700 hover:text-blue-700" aria-expanded={more}>
@@ -425,9 +435,9 @@ function CheckRow({ c, s, team, onSign, site, marker }) {
               </button>
             )}
             {more && (
-              <ul className="mt-1 max-h-72 space-y-0.5 overflow-auto rounded bg-white/70 p-2 text-[11px] text-zinc-700">
-                {c.items.map((i, n) => <li key={n} className="break-words">{i.href ? <a href={i.href} target="_blank" rel="noreferrer" className="hover:underline">{i.text}</a> : i.text}</li>)}
-              </ul>
+              <ol className="mt-1 max-h-80 list-decimal space-y-1.5 overflow-auto rounded bg-white/70 py-2 pl-7 pr-2 text-[11px] text-zinc-700">
+                {c.items.map((i, n) => <li key={n} className="break-words pl-1">{i.href ? <a href={i.href} target="_blank" rel="noreferrer" className="hover:underline">{i.text}</a> : i.text}</li>)}
+              </ol>
             )}
           </div>
         )}
