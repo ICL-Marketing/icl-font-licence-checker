@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DEFAULT_SITES } from "@/data/sites";
 import { buildFontEmail, buildImageEmail, isFreeLib } from "@/lib/email";
-import { fontLink } from "@/lib/fontlink";
+import { fontLink, isEmbeddedIconFont, fixedFix } from "@/lib/fontlink";
 
 const ORDER = { PROBLEM: 4, CHECK: 3, UNREACHABLE: 2, OK: 1, SYSTEM: 0 };
 const LABEL = { PROBLEM: "PROBLEM", CHECK: "CHECK", UNREACHABLE: "COULDN'T CHECK", OK: "OK", SYSTEM: "NO WEB FONTS", RUNNING: "SCANNING" };
@@ -363,7 +363,7 @@ function RunBar({ kind, done, total, label, running, sites, onRun, onStop }) {
 function SiteCard({ r, open, toggle, rerun, running }) {
   const c = COLOUR[r.status] || COLOUR.PENDING;
   const fonts = r.fonts || [];
-  const todo = fonts.filter((f) => f.status === "PROBLEM" || f.status === "CHECK").sort((a, b) => ORDER[b.status] - ORDER[a.status]);
+  const todo = fonts.filter((f) => (f.status === "PROBLEM" || f.status === "CHECK") && !isEmbeddedIconFont(f)).sort((a, b) => ORDER[b.status] - ORDER[a.status]);
   const oks = fonts.filter((f) => f.status === "OK");
   const headline = r.status === "RUNNING"
     ? "Scanning…"
@@ -420,7 +420,7 @@ function SiteCard({ r, open, toggle, rerun, running }) {
                               {f.freeVersion?.url && !(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) && f.google !== "yes" && <a href={f.freeVersion.url} target="_blank" rel="noreferrer" className="text-blue-700 underline">Free version link</a>}
                             </div>
                           )}
-                          {f.fix}
+                          {fixedFix(f)}
                         </td>
                         <td className="py-1.5">
                           <a href={f.source} target="_blank" rel="noreferrer" title={[f.meta?.copyright, f.meta?.manufacturer, f.meta?.licence].filter(Boolean).join("\n")} className="break-all font-mono text-[11px] text-blue-700 underline">{f.source.slice(0, 160)}</a>
