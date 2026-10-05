@@ -47,8 +47,8 @@ export async function POST(request) {
     for (const f of r.fonts || []) {
       if (f.status !== "PROBLEM" && f.status !== "CHECK") continue;
       fontRows.push({ site: r.site, status: f.status, font: f.family, why: f.note || "",
-        free: f.status !== "PROBLEM" ? "" : f.adobe === "yes" ? "Adobe Fonts" : f.google === "yes" ? "Google Fonts" : f.freeVersion?.isFree ? `Free version: ${f.freeVersion.note}` : f.adobe === "no" ? "None found" : "Not sure: check Adobe / Google / Font Squirrel",
-        freeOk: f.status === "PROBLEM" && (f.adobe === "yes" || f.google === "yes" || !!f.freeVersion?.isFree),
+        free: f.status !== "PROBLEM" ? "" : (f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) ? "Adobe Fonts" : f.google === "yes" ? "Google Fonts" : f.freeVersion?.isFree ? `Free version: ${f.freeVersion.note}` : f.adobe === "no" ? "None found" : "Not sure: check Adobe / Google / Font Squirrel",
+        freeOk: f.status === "PROBLEM" && ((f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) || f.google === "yes" || !!f.freeVersion?.isFree),
         siteUrl: r.finalUrl || `https://${r.site}`, fontUrl: fontLink(f),
         fix: f.fix || "", task: "To do", owner: "", notes: "", done: "" });
     }

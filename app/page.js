@@ -409,7 +409,7 @@ function SiteCard({ r, open, toggle, rerun, running }) {
                         <td className="py-1.5 pr-2 font-medium">
                           {f.status === "PROBLEM" && f.adobe && (
                             <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-                              <Badge ok={f.adobe === "yes"} bad={f.adobe === "no"} label={f.adobe === "yes" ? "On Adobe Fonts" : f.adobe === "no" ? "Not on Adobe Fonts" : "Adobe: not sure"} />
+                              <Badge ok={(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || ""))} bad={f.adobe === "no"} label={(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) ? "On Adobe Fonts" : f.adobe === "no" ? "Not on Adobe Fonts" : "Adobe: not sure"} />
                               {f.adobe !== "yes" && <Badge ok={f.google === "yes"} bad={f.google === "no"} label={f.google === "yes" ? "On Google Fonts" : f.google === "no" ? "Not on Google Fonts" : "Google: not sure"} />}
                               {f.adobe !== "yes" && f.google !== "yes" && f.freeVersion && <Badge ok={f.freeVersion.isFree} bad={!f.freeVersion.isFree} label={f.freeVersion.isFree ? "Free version exists" : "No free version"} />}
                               {f.freeRoute === "none" && (
