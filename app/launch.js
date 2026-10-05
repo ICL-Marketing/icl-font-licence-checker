@@ -23,6 +23,8 @@ const keyFor = (input) => { let s = String(input || "").trim(); if (!/^https?:\/
 export default function LaunchArea({ post, onRunning, onCount, mode = "launch" }) {
   const { runs: RUNS_KEY, sign: SIGN_KEY, log: LOG_KEY } = keysFor(mode);
   const storeKey = (key) => (mode === "post" ? `${key}#post` : key); // shared-store id for sign-offs
+  // Launch Checks = the pre-go-live list (7.2); Post Launch Checks = the launch actions list (8.1).
+  const forMode = (checks) => checks.filter((c) => (mode === "post" ? c.section === "Launch actions" : c.section === "Launch checks"));
   const [url, setUrl] = useState("");
   const [markerLink, setMarkerLink] = useState("");
   const [markerReady, setMarkerReady] = useState(null); // null unknown, true/false from /api/marker
@@ -280,7 +282,7 @@ export default function LaunchArea({ post, onRunning, onCount, mode = "launch" }
     const r = runs[key];
     if (!r || r.status !== "DONE") return runCheck(r?.input || key);
     const signed = signoffs[key] || {};
-    const unsigned = evaluateLaunch(r).filter((c) => c.state !== "pass" && !signed[c.id]);
+    const unsigned = forMode(evaluateLaunch(r)).filter((c) => c.state !== "pass" && !signed[c.id]);
     const stages = new Set(unsigned.flatMap((c) => CHECK_STAGES[c.id] || []));
     if (!stages.size) return;
     if (stages.has("pages")) return runCheck(r.input || key);
@@ -316,7 +318,7 @@ export default function LaunchArea({ post, onRunning, onCount, mode = "launch" }
   const outstanding = useMemo(() => Object.entries(runs).filter(([key, r]) => {
     if (r.status !== "DONE") return true;
     const signed = signoffs[key] || {};
-    return evaluateLaunch(r).some((c) => c.state !== "pass" && !signed[c.id]);
+    return forMode(evaluateLaunch(r)).some((c) => c.state !== "pass" && !signed[c.id]);
   }).length, [runs, signoffs]);
   useEffect(() => { onCount?.(outstanding); }, [outstanding, onCount]);
 
@@ -333,7 +335,9 @@ export default function LaunchArea({ post, onRunning, onCount, mode = "launch" }
           ? <button type="button" onClick={() => { stopRef.current = true; }} className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700"><StopIcon /> Stop</button>
           : <button type="submit" disabled={!url.trim() || !/^https?:\/\//.test(markerLink.trim())} title={!/^https?:\/\//.test(markerLink.trim()) ? "Add the Marker.io project link first" : ""} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"><PlayIcon /> Run {mode === "post" ? "post-launch" : "launch"} check</button>}
       </form>
-      <p className="mt-2 text-xs text-zinc-500">Checks every page in the sitemap (up to 500), the links and images on them, and runs Google&apos;s accessibility audit on each page (up to 100). Anything the scan can&apos;t fully verify needs a person to tick it off. Completed checks drop to the bottom.</p>
+      <p className="mt-2 text-xs text-zinc-500">{mode === "post"
+        ? "Once the site is live: SSL certificate, robots.txt allows indexing, CRM Client Card and business emails. The SSL and robots checks are done by the scan."
+        : "Checks every page in the sitemap (up to 500), the links and images on them, and runs Google's accessibility audit on each page (up to 100). Anything the scan can't fully verify needs a person to tick it off. Completed checks drop to the bottom."}</p>
 
       <div className="mt-4 space-y-3">
         {list.map(([key, r]) => (
@@ -349,7 +353,7 @@ export default function LaunchArea({ post, onRunning, onCount, mode = "launch" }
 }
 
 function LaunchCard({ k, r, mode, signed, log, shared, team, open, toggle, onSign, onRescan, onFinish, onRescanUnsigned, onRemove, busy, markerReady, onSnag, onMarkerRescan }) {
-  const checks = useMemo(() => (r.status === "DONE" ? evaluateLaunch(r) : []), [r]);
+  const checks = useMemo(() => (r.status === "DONE" ? evaluateLaunch(r).filter((c) => (mode === "post" ? c.section === "Launch actions" : c.section === "Launch checks")) : []), [r, mode]);
   const auto = checks.filter((c) => c.state === "pass").length;
   const signedCount = checks.filter((c) => c.state !== "pass" && signed[c.id]).length;
   const fails = checks.filter((c) => c.state === "fail" && !signed[c.id]).length;
