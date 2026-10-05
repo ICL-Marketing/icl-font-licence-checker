@@ -246,6 +246,19 @@ export default function LaunchArea({ post, onRunning, onCount, mode = "launch" }
       let markerInfo = w.keepMarker || null;
       const projLink = load(MARKER_KEY, {})[key] || "";
       if (projLink && markerReady !== false && !w.keepMarker) {
+        // Ask Marker.io for a fresh scan and wait for it (up to 5 minutes), then read the results.
+        try {
+          progress("Marker.io accessibility scan", 0, 1);
+          const t = await post("/api/marker-monitor", { project: projLink, action: "scan" });
+          const started = Date.now();
+          let done = !t.ok || !t.scanId;
+          while (!done && Date.now() - started < 5 * 60_000 && !stopRef.current) {
+            await new Promise((res) => setTimeout(res, 15_000));
+            const st = await post("/api/marker-monitor", { project: projLink, action: "scan-status", scanId: t.scanId });
+            progress(`Marker.io is scanning (${st.status || "running"})`, Math.min(0.9, (Date.now() - started) / (5 * 60_000)), 1);
+            done = !!st.done || !!st.failed;
+          }
+        } catch {}
         progress("Reading Marker.io accessibility results", 0, 1);
         try { markerInfo = await post("/api/marker-monitor", { project: projLink }); } catch (e) { markerInfo = { ok: false, error: e.message }; }
         if (markerInfo?.raw) delete markerInfo.raw;
@@ -289,31 +302,6 @@ export default function LaunchArea({ post, onRunning, onCount, mode = "launch" }
     return runCheck(r.input || key, undefined, { only: [...stages] });
   }
 
-  // Ask Marker.io to rescan the site, wait for it, then pull the new results in.
-  async function markerRescan(key) {
-    const projLink = load(MARKER_KEY, {})[key] || "";
-    if (!projLink) return;
-    patch(key, { markerBusy: "Asking Marker.io to rescan…" });
-    try {
-      const t = await post("/api/marker-monitor", { project: projLink, action: "scan" });
-      if (!t.ok) throw new Error(t.error);
-      const started = Date.now();
-      let done = false;
-      while (!done && Date.now() - started < 10 * 60_000 && t.scanId) {
-        await new Promise((r) => setTimeout(r, 15_000));
-        const st = await post("/api/marker-monitor", { project: projLink, action: "scan-status", scanId: t.scanId });
-        patch(key, { markerBusy: `Marker.io is scanning… (${st.status || "running"})` });
-        if (st.failed) throw new Error("Marker.io scan failed.");
-        done = !!st.done;
-      }
-      const info = await post("/api/marker-monitor", { project: projLink });
-      delete info.raw;
-      patch(key, { marker: info, markerLink: projLink, markerBusy: "" });
-    } catch (e) {
-      patch(key, { markerBusy: "", marker: { ...(runs[key]?.marker || {}), refreshError: String(e.message) } });
-    }
-  }
-
   // Sites not fully signed off (or not finished scanning), for the tab counter.
   const outstanding = useMemo(() => Object.entries(runs).filter(([key, r]) => {
     if (r.status !== "DONE") return true;
@@ -343,7 +331,7 @@ export default function LaunchArea({ post, onRunning, onCount, mode = "launch" }
         {list.map(([key, r]) => (
           <LaunchCard key={key} k={key} r={r} mode={mode} signed={signoffs[key] || {}} log={logs[key] || []} shared={shared} team={team} open={openKey === key}
             toggle={() => { if (openKey !== key) refreshSignoffs(key); setOpenKey((o) => (o === key ? null : key)); }} onSign={(check, name, nr) => sign(key, check, name, nr)}
-            onRescan={() => runCheck(r.input || key)} onFinish={() => runCheck(r.input || key, undefined, { resume: true })} onRescanUnsigned={() => rescanUnsigned(key)} onRemove={() => removeRun(key)} busy={!!running} markerReady={markerCreate} onMarkerRescan={() => markerRescan(key)}
+            onRescan={() => runCheck(r.input || key)} onFinish={() => runCheck(r.input || key, undefined, { resume: true })} onRescanUnsigned={() => rescanUnsigned(key)} onRemove={() => removeRun(key)} busy={!!running} markerReady={markerCreate}
             onSnag={(id, snag) => patch(key, { snags: { ...(r.snags || {}), [id]: snag } })} />
         ))}
         {!list.length && <p className="text-sm text-zinc-500">No {mode === "post" ? "post-launch" : "launch"} checks yet.</p>}
@@ -352,7 +340,7 @@ export default function LaunchArea({ post, onRunning, onCount, mode = "launch" }
   );
 }
 
-function LaunchCard({ k, r, mode, signed, log, shared, team, open, toggle, onSign, onRescan, onFinish, onRescanUnsigned, onRemove, busy, markerReady, onSnag, onMarkerRescan }) {
+function LaunchCard({ k, r, mode, signed, log, shared, team, open, toggle, onSign, onRescan, onFinish, onRescanUnsigned, onRemove, busy, markerReady, onSnag }) {
   const checks = useMemo(() => (r.status === "DONE" ? evaluateLaunch(r).filter((c) => (mode === "post" ? c.section === "Launch actions" : c.section === "Launch checks")) : []), [r, mode]);
   const auto = checks.filter((c) => c.state === "pass").length;
   const signedCount = checks.filter((c) => c.state !== "pass" && signed[c.id]).length;
@@ -430,9 +418,6 @@ function LaunchCard({ k, r, mode, signed, log, shared, team, open, toggle, onSig
               <button onClick={onRescanUnsigned} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 disabled:opacity-50" title="Re-runs only the parts of the scan the unsigned checks need"><RefreshIcon className="h-3.5 w-3.5" /> Rescan {todo} unsigned check{todo === 1 ? "" : "s"}</button>
             )}
             <button onClick={onRescan} disabled={busy} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${r.status === "PAUSED" || (r.status === "DONE" && todo > 0 && todo < checks.length) ? "border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100" : "bg-zinc-900 text-white hover:bg-zinc-700"}`}><RefreshIcon className="h-3.5 w-3.5" /> {r.status === "PAUSED" ? "Start again" : "Rescan everything"}</button>
-            {r.status === "DONE" && r.markerLink && (r.markerBusy
-              ? <span className="text-xs text-blue-700">{r.markerBusy}</span>
-              : <button onClick={onMarkerRescan} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-50" title="Runs a fresh Marker.io accessibility scan and pulls the results in"><RefreshIcon className="h-3.5 w-3.5" /> Re-run Marker.io scan</button>)}
             {r.status === "DONE" && <button onClick={() => download("word")} disabled={!!exporting} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-50"><DownloadIcon className="h-3.5 w-3.5" /> {exporting === "word" ? "Building…" : "Download sign-off log (Word)"}</button>}
             {r.status === "DONE" && (
               <label className="flex items-center gap-1.5 text-xs text-zinc-600">
