@@ -17,3 +17,6 @@ export const FlagIcon = I(<><path d="M5 21V4" /><path d="M5 4h12l-2 4 2 4H5" /><
 export const CheckIcon = I(<path d="M5 12l5 5L20 7" />);
 export const MailIcon = I(<><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 7l9 6 9-6" /></>);
 export const SearchIcon = I(<><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></>);
+export function SpinnerIcon({ className = "h-4 w-4" }) {
+  return <svg {...base} className={`animate-spin ${className}`}><path d="M21 12a9 9 0 1 1-6.2-8.56" /></svg>;
+}

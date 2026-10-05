@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadTeam, normaliseTeam } from "@/app/team";
 import { evaluateLaunch, CHECK_STAGES } from "@/lib/launchChecks";
-import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, ExternalIcon, FlagIcon, CopyIcon, CheckIcon } from "@/app/icons";
+import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, ExternalIcon, FlagIcon, CheckIcon, SpinnerIcon } from "@/app/icons";
 
 // Launch and post-launch checks keep separate results and sign-offs.
 const keysFor = (mode) => { const sfx = mode === "post" ? "-post" : ""; return { runs: `flc-launch-v1${sfx}`, sign: `flc-launch-signoffs-v1${sfx}`, log: `flc-launch-log-v1${sfx}` }; };
@@ -386,7 +386,7 @@ function LaunchCard({ k, r, mode, signed, log, shared, team, open, toggle, onSig
     <div className="rounded-xl bg-white shadow-sm ring-1 ring-zinc-200">
       <div className="flex items-start">
         <button onClick={toggle} className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 py-3 pl-4 pr-2 text-left">
-          {r.status === "RUNNING" && <span className="rounded-full bg-blue-500 px-2 py-0.5 text-[11px] font-semibold text-white">SCANNING</span>}
+          {r.status === "RUNNING" && <span className="text-blue-600" title="Scanning"><SpinnerIcon className="h-5 w-5" /></span>}
           {r.status === "ERROR" && <span className="rounded-full bg-purple-600 px-2 py-0.5 text-[11px] font-semibold text-white">COULDN&apos;T CHECK</span>}
           {r.status === "PAUSED" && <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-white">NOT FINISHED</span>}
           <span className="font-medium">{k}</span>

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, CopyIcon, CheckIcon } from "@/app/icons";
+import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, CopyIcon, CheckIcon, SpinnerIcon } from "@/app/icons";
 import LaunchArea from "@/app/launch";
 import { DEFAULT_SITES } from "@/data/sites";
 import { buildFontEmail, buildImageEmail, isFreeLib, segmentsToText, segmentsToHtml } from "@/lib/email";
@@ -36,7 +36,8 @@ export default function Home() {
   const [parallel, setParallel] = useState(4);
   const [results, setResults] = useState({});
   const [running, setRunning] = useState(null); // null | "fonts" | "images"
-  const [launchRunning, setLaunchRunning] = useState(false); // false | "launch" | "post"
+  const [launchRunning, setLaunchRunning] = useState(false);
+  const [postRunning, setPostRunning] = useState(false);
   const [launchCount, setLaunchCount] = useState(0);
   const [postCount, setPostCount] = useState(0);
   const [area, setAreaState] = useState("fonts"); // "fonts" | "images" | "launch" | "post"
@@ -88,11 +89,11 @@ export default function Home() {
 
   // Warn before closing or reloading while a scan is in progress.
   useEffect(() => {
-    if (!running && !launchRunning) return;
+    if (!running && !launchRunning && !postRunning) return;
     const warn = (e) => { e.preventDefault(); e.returnValue = ""; };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [running, launchRunning]);
+  }, [running, launchRunning, postRunning]);
 
   const sites = useMemo(() => [...new Set(text.split(/\r?\n|,/).map(normalise).filter((s) => s.includes(".")))], [text]);
 
@@ -293,14 +294,14 @@ export default function Home() {
           <button key={id} onClick={() => setArea(id)} aria-current={area === id ? "page" : undefined}
             className={`rounded-lg px-4 py-2 text-sm font-semibold ${area === id ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"}`}>
             {label}{n != null && <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] text-zinc-700">{n}</span>}
-            {(running === id || (id === "launch" && launchRunning === "launch") || (id === "post" && launchRunning === "post")) && <span className="ml-2 text-[11px] font-normal text-blue-600">scanning…</span>}
+            {(running === id || (id === "launch" && launchRunning) || (id === "post" && postRunning)) && <span className="ml-2 inline-block align-middle text-blue-600" title="Scanning"><SpinnerIcon /></span>}
           </button>
         ))}
       </nav>
 
       {/* All areas stay mounted so a running scan carries on when you switch tabs. */}
-      <section className={`mt-5 ${area === "launch" ? "" : "hidden"}`}><LaunchArea post={post} mode="launch" onRunning={(v) => setLaunchRunning(v ? "launch" : false)} onCount={setLaunchCount} /></section>
-      <section className={`mt-5 ${area === "post" ? "" : "hidden"}`}><LaunchArea post={post} mode="post" onRunning={(v) => setLaunchRunning(v ? "post" : false)} onCount={setPostCount} /></section>
+      <section className={`mt-5 ${area === "launch" ? "" : "hidden"}`}><LaunchArea post={post} mode="launch" onRunning={setLaunchRunning} onCount={setLaunchCount} /></section>
+      <section className={`mt-5 ${area === "post" ? "" : "hidden"}`}><LaunchArea post={post} mode="post" onRunning={setPostRunning} onCount={setPostCount} /></section>
 
       <div className={area !== "launch" && area !== "post" ? "" : "hidden"}>
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
@@ -590,6 +591,7 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove }) {
       <button onClick={toggle} className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 py-3 pl-4 pr-2 text-left">
         {labels.length && r.status !== "RUNNING"
           ? labels.map((l) => <span key={l} className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${TONE_CHIP[ISSUE_TONE[l]] || "bg-zinc-500"}`}>{l}</span>)
+          : r.status === "RUNNING" ? <span className="text-blue-600" title="Scanning"><SpinnerIcon className="h-5 w-5" /></span>
           : <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${c.chip}`}>{LABEL[r.status] || r.status}</span>}
         <span className="font-medium">{r.site}</span>
         {r.platform && <span className="text-xs text-zinc-400">{r.platform}</span>}
@@ -682,7 +684,8 @@ function ImageCard({ r, paid, open, toggle, rerun, running, onRemove }) {
     <div className="rounded-xl bg-white shadow-sm ring-1 ring-zinc-200">
       <div className="flex items-start">
       <button onClick={toggle} className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 py-3 pl-4 pr-2 text-left">
-        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${c.chip}`}>{label}</span>
+        {st === "RUNNING" ? <span className="text-blue-600" title="Scanning"><SpinnerIcon className="h-5 w-5" /></span>
+          : <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${c.chip}`}>{label}</span>}
         <span className="font-medium">{r.site}</span>
         <span className="basis-full text-sm text-zinc-700 sm:basis-auto sm:flex-1">{headline}</span>
         {st !== "RUNNING" && r.pagesScanned > 0 && <span className="text-xs text-zinc-400">{r.pagesScanned} pages</span>}
