@@ -7,6 +7,7 @@ import { evaluateLaunch } from "@/lib/launchChecks";
 const RUNS_KEY = "flc-launch-v1";
 const SIGN_KEY = "flc-launch-signoffs-v1";
 const LOG_KEY = "flc-launch-log-v1";
+const MARKER_KEY = "flc-marker-v1"; // {site: Marker.io project link}
 const MAX_LINKS = 800;
 const MAX_IMAGES = 600;
 const MAX_PSI = 100; // pages audited by Google PageSpeed (about 20s each, 6 at a time)
@@ -243,6 +244,8 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
   const fails = checks.filter((c) => c.state === "fail" && !signed[c.id]).length;
   const todo = checks.filter((c) => c.state !== "pass" && !signed[c.id]).length;
   const [exporting, setExporting] = useState("");
+  const [marker, setMarker] = useState(() => load(MARKER_KEY, {})[k] || "");
+  const saveMarker = (v) => { setMarker(v); const all = load(MARKER_KEY, {}); if (v.trim()) all[k] = v.trim(); else delete all[k]; save(MARKER_KEY, all); };
   const [showLog, setShowLog] = useState(false);
   const [hideDone, setHideDone] = useState(() => load("flc-launch-hide-done", false));
   const [asking, setAsking] = useState(false);
@@ -307,6 +310,13 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
             <button onClick={onRescan} disabled={busy} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">Rescan</button>
             {r.status === "DONE" && <button onClick={() => download("word")} disabled={!!exporting} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-50">{exporting === "word" ? "Building…" : "Download sign-off log (Word)"}</button>}
             {r.status === "DONE" && (
+              <span className="flex items-center gap-1.5 text-xs">
+                <input value={marker} onChange={(e) => saveMarker(e.target.value)} placeholder="Marker.io project link" aria-label="Marker.io project link"
+                  className="w-56 rounded-md border border-zinc-300 px-2 py-1.5 text-xs" />
+                {/^https?:\/\//.test(marker) && <a href={marker} target="_blank" rel="noreferrer" className="rounded-md bg-zinc-100 px-2.5 py-1.5 font-medium text-zinc-800 hover:bg-zinc-200">Open in Marker.io ↗</a>}
+              </span>
+            )}
+            {r.status === "DONE" && (
               <label className="flex items-center gap-1.5 text-xs text-zinc-600">
                 <input type="checkbox" checked={hideDone} onChange={(e) => { setHideDone(e.target.checked); save("flc-launch-hide-done", e.target.checked); }} className="h-3.5 w-3.5" />
                 Hide completed ({checks.length - todo})
@@ -326,7 +336,7 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
                 </h3>
                 <div className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
                   {mine.filter((x) => !(hideDone && x.done)).sort((a, b) => a.done - b.done || a.i - b.i).map(({ c }) => (
-                    <CheckRow key={c.id} c={c} s={signed[c.id]} team={team} onSign={(name) => onSign(c, name)} />
+                    <CheckRow key={c.id} c={c} s={signed[c.id]} team={team} onSign={(name) => onSign(c, name)} site={r.start?.finalUrl || `https://${k}`} marker={marker} />
                   ))}
                   {hideDone && !left && <p className="px-3 py-2.5 text-sm text-green-700">All {who} checks are complete.</p>}
                 </div>
@@ -369,8 +379,22 @@ const OWNER_ROLE = { Designer: "Designer", Developer: "Development", "Senior Dev
 // What the scan found, shown as a short note on rows still needing a person.
 const SCAN_NOTE = { fail: "Scan found problems", review: "Scan found things to look at", manual: "Manual check" };
 
-function CheckRow({ c, s, team, onSign }) {
+// Ready-to-paste snag text for Marker.io (or any ticket tool).
+function snagText(c, site) {
+  const lines = [`${c.title}`, `Site: ${site}`, ""];
+  if (c.summary) lines.push(c.summary, "");
+  if (c.items.length) { lines.push("Details:"); for (const i of c.items.slice(0, 30)) lines.push(`- ${i.text}${i.href && !i.text.includes(i.href) ? ` (${i.href})` : ""}`); if (c.items.length > 30) lines.push(`- and ${c.items.length - 30} more`); }
+  lines.push("", "Found by Website Checker launch check.");
+  return lines.join("\n");
+}
+
+function CheckRow({ c, s, team, onSign, site, marker }) {
   const [more, setMore] = useState(false);
+  const [copied, setCopied] = useState(false);
+  async function copySnag() {
+    try { await navigator.clipboard.writeText(snagText(c, site)); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
+    if (/^https?:\/\//.test(marker || "")) window.open(marker, "_blank", "noopener");
+  }
   const auto = c.state === "pass";
   const done = auto || !!s;
   const role = OWNER_ROLE[c.owner] || "";
@@ -395,6 +419,11 @@ function CheckRow({ c, s, team, onSign }) {
         {(c.items.length > 0 || c.links.length > 0) && (
           <div className="mt-1 text-xs">
             {c.links.map((l) => <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="mr-3 text-blue-700 underline">{l.text}</a>)}
+            {c.state !== "pass" && c.state !== "manual" && (
+              <button onClick={copySnag} className="mr-3 rounded border border-zinc-300 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-100" title="Copies the problem as text; opens your Marker.io project if a link is set">
+                {copied ? "Copied – paste into Marker.io" : "Copy snag for Marker.io"}
+              </button>
+            )}
             {more && (
               <ul className="mt-1 max-h-72 space-y-0.5 overflow-auto rounded bg-white/70 p-2 text-[11px] text-zinc-700">
                 {c.items.map((i, n) => <li key={n} className="break-words">{i.href ? <a href={i.href} target="_blank" rel="noreferrer" className="hover:underline">{i.text}</a> : i.text}</li>)}
