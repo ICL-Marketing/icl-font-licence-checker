@@ -24,6 +24,7 @@ export default function LaunchArea({ post, onRunning }) {
   const [url, setUrl] = useState("");
   const [markerLink, setMarkerLink] = useState("");
   const [markerReady, setMarkerReady] = useState(null); // null unknown, true/false from /api/marker
+  const [markerCreate, setMarkerCreate] = useState(false); // can Marker.io create issues?
   const [runs, setRuns] = useState({});
   const [signoffs, setSignoffs] = useState({});
   const [logs, setLogs] = useState({});
@@ -36,14 +37,14 @@ export default function LaunchArea({ post, onRunning }) {
   useEffect(() => {
     const t = setTimeout(() => {
       const saved = load(RUNS_KEY, {});
-      for (const r of Object.values(saved)) if (r.status === "RUNNING") Object.assign(r, { status: "ERROR", error: "Check was interrupted (page reloaded or closed). Press Rescan." });
+      for (const r of Object.values(saved)) if (r.status === "RUNNING") Object.assign(r, r.work ? { status: "PAUSED", phase: "" } : { status: "ERROR", error: "Check was interrupted (page reloaded or closed). Press Rescan." });
       setRuns(saved);
       setSignoffs(load(SIGN_KEY, {}));
       setLogs(load(LOG_KEY, {}));
       setTeam(loadTeam());
     }, 0);
     // Shared store (when set up) wins over this browser's copy.
-    fetch("/api/marker").then((r) => r.json()).then((j) => setMarkerReady(!!(j.configured && j.ok && j.createTool))).catch(() => setMarkerReady(false));
+    fetch("/api/marker").then((r) => r.json()).then((j) => { setMarkerReady(!!(j.configured && j.ok)); setMarkerCreate(!!(j.configured && j.ok && j.createTool)); }).catch(() => setMarkerReady(false));
     fetch("/api/team").then((r) => r.json()).then((j) => { if (j.shared && Array.isArray(j.team) && j.team.length) setTeam(normaliseTeam(j.team)); }).catch(() => {});
     for (const key of Object.keys(load(RUNS_KEY, {}))) refreshSignoffs(key);
     return () => clearTimeout(t);
@@ -97,7 +98,10 @@ export default function LaunchArea({ post, onRunning }) {
     setRuns((prev) => { const next = { ...prev }; delete next[key]; save(RUNS_KEY, next); return next; });
   }
 
-  async function runCheck(input, markerProject) {
+  // One launch check, as a resumable sequence of short requests. Progress is
+  // saved after every batch (r.work), so an interrupted check can be finished
+  // later with runCheck(input, undefined, { resume: true }) instead of starting over.
+  async function runCheck(input, markerProject, { resume = false } = {}) {
     const key = keyFor(input);
     if (!key) return;
     if (markerProject !== undefined) { const all = load(MARKER_KEY, {}); if (markerProject.trim()) all[key] = markerProject.trim(); else delete all[key]; save(MARKER_KEY, all); }
@@ -105,114 +109,167 @@ export default function LaunchArea({ post, onRunning }) {
     setRunning(key);
     onRunning?.(true);
     setOpenKey(key);
-    patch(key, { input, status: "RUNNING", phase: "Reading the site", done: 0, total: 1, error: "" });
+    const prev = load(RUNS_KEY, {})[key];
+    let w = resume && prev?.work ? prev.work : null;
+    patch(key, { input, status: "RUNNING", phase: w ? "Finishing the check" : "Reading the site", done: 0, total: 1, error: "" });
+    const progress = (phase, done, total) => patch(key, { work: w, phase, done, total });
+    const paused = () => { patch(key, { status: "PAUSED", work: w, phase: "" }); };
     try {
-      const start = await post("/api/launch", { step: "start", url: input });
-      if (start.error) { patch(key, { status: "ERROR", error: start.error }); return; }
-      const { pageQueue, ...startInfo } = start;
-      const site = startInfo.host;
+      if (!w) {
+        const start = await post("/api/launch", { step: "start", url: input });
+        if (start.error) { patch(key, { status: "ERROR", error: start.error, work: null }); return; }
+        const { pageQueue, ...startInfo } = start;
+        w = { stage: "pages", startInfo, site: startInfo.host, pageQueue: [...pageQueue], queued: pageQueue.map((u) => u.replace(/\/$/, "")), pages: [], leftover: 0,
+          linkSources: {}, linkTexts: {}, imageSources: {}, statusOf: {},
+          linkList: null, linksLeft: 0, linkStatus: {}, imgAll: 0, imgList: null, imageInfo: {}, psiList: null, psiQueue: null, psi: {}, psiError: "", psiDone: 0 };
+      }
+      const site = w.site;
 
       // 1) Every page from the sitemap (or crawled from the homepage when there is none).
-      const queue = [...pageQueue];
-      const queued = new Set(queue.map((u) => u.replace(/\/$/, "")));
-      const pages = [];
-      let leftover = 0;
-      while (queue.length && !stopRef.current) {
-        patch(key, { phase: "Checking pages", done: pages.length, total: pages.length + queue.length });
-        const batch = queue.splice(0, 10);
-        const out = await post("/api/launch", { step: "pages", urls: batch });
-        if (out.error) { leftover += batch.length; continue; }
-        pages.push(...(out.pages || []));
-        if (out.remaining?.length) queue.unshift(...out.remaining);
-        if (!startInfo.hasSitemap) {
-          for (const p of out.pages || []) for (const l of p.links || []) {
-            const k = l.replace(/\/$/, "");
-            if (hostOf(l) === site && !FILE_RE.test(l) && !queued.has(k) && queued.size < 500) { queued.add(k); queue.push(l); }
+      if (w.stage === "pages") {
+        const queued = new Set(w.queued);
+        while (w.pageQueue.length && !stopRef.current) {
+          progress("Checking pages", w.pages.length, w.pages.length + w.pageQueue.length);
+          const batch = w.pageQueue.splice(0, 10);
+          const out = await post("/api/launch", { step: "pages", urls: batch });
+          if (out.error) { w.leftover += batch.length; continue; }
+          for (const p of out.pages || []) {
+            w.statusOf[p.url] = { status: p.status, error: p.error || "" };
+            if (p.finalUrl && !w.statusOf[p.finalUrl]) w.statusOf[p.finalUrl] = w.statusOf[p.url];
+            for (const l of p.links || []) if (hostOf(l) === site && !w.linkSources[l]) { w.linkSources[l] = p.url; w.linkTexts[l] = p.linkText?.[l] || ""; }
+            for (const i of p.images || []) if (!w.imageSources[i]) w.imageSources[i] = p.url;
+            if (!w.startInfo.hasSitemap) for (const l of p.links || []) {
+              const k = l.replace(/\/$/, "");
+              if (hostOf(l) === site && !FILE_RE.test(l) && !queued.has(k) && queued.size < 500) { queued.add(k); w.pageQueue.push(l); }
+            }
+            const slim = { ...p }; delete slim.links; delete slim.images; delete slim.linkText;
+            w.pages.push(slim);
           }
+          w.queued = [...queued];
+          if (out.remaining?.length) w.pageQueue.unshift(...out.remaining);
         }
+        if (stopRef.current) return paused();
+        w.leftover += w.pageQueue.length;
+        w.stage = "links";
       }
-      leftover += queue.length;
 
       // 2) Internal links: pages already fetched give their own status, the rest are checked.
-      const statusOf = {};
-      for (const p of pages) { statusOf[p.url] = { status: p.status, error: p.error || "" }; if (p.finalUrl) statusOf[p.finalUrl] ||= statusOf[p.url]; }
-      const linkSources = {};
-      const linkTexts = {};
-      for (const p of pages) for (const l of p.links || []) if (hostOf(l) === site && !linkSources[l]) { linkSources[l] = p.url; linkTexts[l] = p.linkText?.[l] || ""; }
-      const linkStatus = {};
-      const toCheck = [];
-      for (const l of Object.keys(linkSources)) {
-        if (statusOf[l] || statusOf[l.replace(/\/$/, "")] || statusOf[l + "/"]) linkStatus[l] = statusOf[l] || statusOf[l.replace(/\/$/, "")] || statusOf[l + "/"];
-        else toCheck.push(l);
+      if (w.stage === "links") {
+        if (!w.linkList) {
+          const toCheck = [];
+          for (const l of Object.keys(w.linkSources)) {
+            const st = w.statusOf[l] || w.statusOf[l.replace(/\/$/, "")] || w.statusOf[l + "/"];
+            if (st) w.linkStatus[l] = st; else toCheck.push(l);
+          }
+          w.linkList = toCheck.slice(0, MAX_LINKS);
+          w.linksLeft = toCheck.length - w.linkList.length;
+        }
+        while (w.linkList.length && !stopRef.current) {
+          progress("Checking links", Object.keys(w.linkStatus).length, Object.keys(w.linkStatus).length + w.linkList.length);
+          const batch = w.linkList.splice(0, 40);
+          const out = await post("/api/launch", { step: "urls", urls: batch });
+          Object.assign(w.linkStatus, out.results || {});
+          if (out.remaining?.length) w.linkList.unshift(...out.remaining);
+        }
+        if (stopRef.current) return paused();
+        w.linksLeft += w.linkList.length;
+        w.stage = "images";
       }
-      const linkList = toCheck.slice(0, MAX_LINKS);
-      let linksLeft = toCheck.length - linkList.length;
-      while (linkList.length && !stopRef.current) {
-        patch(key, { phase: "Checking links", done: Object.keys(linkStatus).length, total: Object.keys(linkStatus).length + linkList.length });
-        const batch = linkList.splice(0, 40);
-        const out = await post("/api/launch", { step: "urls", urls: batch });
-        Object.assign(linkStatus, out.results || {});
-        if (out.remaining?.length) linkList.unshift(...out.remaining);
-      }
-      linksLeft += linkList.length;
 
       // 3) Images: do they load, and how big are they.
-      const imageSources = {};
-      for (const p of pages) for (const i of p.images || []) if (!imageSources[i]) imageSources[i] = p.url;
-      const imgAll = Object.keys(imageSources);
-      const imgList = imgAll.slice(0, MAX_IMAGES);
-      const imageInfo = {};
-      while (imgList.length && !stopRef.current) {
-        patch(key, { phase: "Checking images", done: Object.keys(imageInfo).length, total: Object.keys(imageInfo).length + imgList.length });
-        const batch = imgList.splice(0, 40);
-        const out = await post("/api/launch", { step: "urls", urls: batch });
-        Object.assign(imageInfo, out.results || {});
-        if (out.remaining?.length) imgList.unshift(...out.remaining);
+      if (w.stage === "images") {
+        if (!w.imgList) { const all = Object.keys(w.imageSources); w.imgAll = all.length; w.imgList = all.slice(0, MAX_IMAGES); }
+        while (w.imgList.length && !stopRef.current) {
+          progress("Checking images", Object.keys(w.imageInfo).length, Object.keys(w.imageInfo).length + w.imgList.length);
+          const batch = w.imgList.splice(0, 40);
+          const out = await post("/api/launch", { step: "urls", urls: batch });
+          Object.assign(w.imageInfo, out.results || {});
+          if (out.remaining?.length) w.imgList.unshift(...out.remaining);
+        }
+        if (stopRef.current) return paused();
+        w.stage = "psi";
       }
 
       // 4) Google PageSpeed (Lighthouse) on each page: contrast, text size, other accessibility errors, image savings.
-      const okUrls = pages.filter((p) => p.status >= 200 && p.status < 400 && !p.notHtml && !p.error).map((p) => p.url);
-      const psiList = okUrls.slice(0, MAX_PSI);
-      const psi = {};
-      let psiError = "";
-      let psiDone = 0;
-      patch(key, { phase: "Accessibility audit (Google PageSpeed)", done: 0, total: psiList.length });
-      const psiQueue = [...psiList];
-      await Promise.all(Array.from({ length: 6 }, async () => {
-        while (psiQueue.length && !stopRef.current && !psiError) {
-          const u = psiQueue.shift();
-          let out = await post("/api/launch", { step: "psi", url: u });
-          if (!out.ok && !out.fatal) out = await post("/api/launch", { step: "psi", url: u }); // one retry
-          if (out.fatal) { psiError = out.error; break; }
-          if (out.ok) psi[u] = out;
-          psiDone++;
-          patch(key, { done: psiDone });
+      if (w.stage === "psi") {
+        if (!w.psiList) {
+          const okUrls = w.pages.filter((p) => p.status >= 200 && p.status < 400 && !p.notHtml && !p.error).map((p) => p.url);
+          w.okCount = okUrls.length;
+          w.psiList = okUrls.slice(0, MAX_PSI);
+          w.psiQueue = [...w.psiList];
         }
-      }));
+        progress("Accessibility audit (Google PageSpeed)", w.psiDone, w.psiList.length);
+        await Promise.all(Array.from({ length: 6 }, async () => {
+          while (w.psiQueue.length && !stopRef.current && !w.psiError) {
+            const u = w.psiQueue.shift();
+            let out = await post("/api/launch", { step: "psi", url: u });
+            if (!out.ok && !out.fatal) out = await post("/api/launch", { step: "psi", url: u }); // one retry
+            if (out.fatal) { w.psiError = out.error; break; }
+            if (out.ok) w.psi[u] = out;
+            w.psiDone++;
+            progress("Accessibility audit (Google PageSpeed)", w.psiDone, w.psiList.length);
+          }
+        }));
+        if (stopRef.current) return paused();
+        w.stage = "marker";
+      }
+
+      // 5) Marker.io accessibility monitoring for this project (when a project link is set).
+      let markerInfo = null;
+      const projLink = load(MARKER_KEY, {})[key] || "";
+      if (projLink && markerReady !== false) {
+        progress("Reading Marker.io accessibility results", 0, 1);
+        try { markerInfo = await post("/api/marker-monitor", { project: projLink }); } catch (e) { markerInfo = { ok: false, error: e.message }; }
+        if (markerInfo?.raw) delete markerInfo.raw;
+      }
 
       // Keep only what the checks need, so a 500-page site fits in browser storage.
-      const brokenSources = Object.fromEntries(Object.keys(linkStatus).map((l) => [l, linkSources[l]]));
-      const brokenTexts = Object.fromEntries(Object.keys(linkStatus).map((l) => [l, linkTexts[l] || ""]));
-      const imgSrc = Object.fromEntries(Object.keys(imageInfo).map((i) => [i, imageSources[i]]));
-      const slimPages = pages.map((p) => { const rest = { ...p }; delete rest.links; delete rest.images; delete rest.linkText; return rest; });
-      const stopped = stopRef.current;
+      const linkSources = Object.fromEntries(Object.keys(w.linkStatus).map((l) => [l, w.linkSources[l]]));
+      const linkTexts = Object.fromEntries(Object.keys(w.linkStatus).map((l) => [l, w.linkTexts[l] || ""]));
+      const imageSources = Object.fromEntries(Object.keys(w.imageInfo).map((i) => [i, w.imageSources[i]]));
       patch(key, {
-        status: "DONE", phase: "", start: startInfo, pages: slimPages, linkStatus, linkSources: brokenSources, linkTexts: brokenTexts,
-        imageInfo, imageSources: imgSrc, stopped, psi, psiError,
+        status: "DONE", phase: "", work: null, stopped: false, start: w.startInfo, pages: w.pages, linkStatus: w.linkStatus, linkSources, linkTexts,
+        imageInfo: w.imageInfo, imageSources, psi: w.psi, psiError: w.psiError, marker: markerInfo, markerLink: projLink,
         complete: {
-          pages: !stopped && !leftover && !startInfo.capped && slimPages.every((p) => p.status > 0),
-          links: !stopped && !linksLeft && Object.values(linkStatus).every((s) => s.status > 0),
-          images: !stopped && imgAll.length <= MAX_IMAGES && Object.keys(imageInfo).length === imgAll.length,
-          psi: !stopped && !psiError && okUrls.length <= MAX_PSI && psiList.every((u) => psi[u]?.ok),
+          pages: !w.leftover && !w.startInfo.capped && w.pages.every((p) => p.status > 0),
+          links: !w.linksLeft && Object.values(w.linkStatus).every((s) => s.status > 0),
+          images: w.imgAll <= MAX_IMAGES && Object.keys(w.imageInfo).length === w.imgAll,
+          psi: !w.psiError && w.okCount <= MAX_PSI && w.psiList.every((u) => w.psi[u]?.ok),
         },
         scannedAt: new Date().toISOString(),
       });
     } catch (e) {
-      patch(key, { status: "ERROR", error: `Request failed: ${e.message}` });
+      // Keep the progress so it can be finished later.
+      patch(key, { status: w ? "PAUSED" : "ERROR", work: w, error: `Request failed: ${e.message}` });
     } finally {
       setRunning(null);
       onRunning?.(false);
       refreshSignoffs(key);
+    }
+  }
+
+  // Ask Marker.io to rescan the site, wait for it, then pull the new results in.
+  async function markerRescan(key) {
+    const projLink = load(MARKER_KEY, {})[key] || "";
+    if (!projLink) return;
+    patch(key, { markerBusy: "Asking Marker.io to rescan…" });
+    try {
+      const t = await post("/api/marker-monitor", { project: projLink, action: "scan" });
+      if (!t.ok) throw new Error(t.error);
+      const started = Date.now();
+      let done = false;
+      while (!done && Date.now() - started < 10 * 60_000 && t.scanId) {
+        await new Promise((r) => setTimeout(r, 15_000));
+        const st = await post("/api/marker-monitor", { project: projLink, action: "scan-status", scanId: t.scanId });
+        patch(key, { markerBusy: `Marker.io is scanning… (${st.status || "running"})` });
+        if (st.failed) throw new Error("Marker.io scan failed.");
+        done = !!st.done;
+      }
+      const info = await post("/api/marker-monitor", { project: projLink });
+      delete info.raw;
+      patch(key, { marker: info, markerLink: projLink, markerBusy: "" });
+    } catch (e) {
+      patch(key, { markerBusy: "", marker: { ...(runs[key]?.marker || {}), refreshError: String(e.message) } });
     }
   }
 
@@ -235,7 +292,7 @@ export default function LaunchArea({ post, onRunning }) {
         {list.map(([key, r]) => (
           <LaunchCard key={key} k={key} r={r} signed={signoffs[key] || {}} log={logs[key] || []} shared={shared} team={team} open={openKey === key}
             toggle={() => { if (openKey !== key) refreshSignoffs(key); setOpenKey((o) => (o === key ? null : key)); }} onSign={(check, name) => sign(key, check, name)}
-            onRescan={() => runCheck(r.input || key)} onRemove={() => removeRun(key)} busy={!!running} markerReady={markerReady}
+            onRescan={() => runCheck(r.input || key)} onFinish={() => runCheck(r.input || key, undefined, { resume: true })} onRemove={() => removeRun(key)} busy={!!running} markerReady={markerCreate} onMarkerRescan={() => markerRescan(key)}
             onSnag={(id, snag) => patch(key, { snags: { ...(r.snags || {}), [id]: snag } })} />
         ))}
         {!list.length && <p className="text-sm text-zinc-500">No launch checks yet.</p>}
@@ -244,7 +301,7 @@ export default function LaunchArea({ post, onRunning }) {
   );
 }
 
-function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onRescan, onRemove, busy, markerReady, onSnag }) {
+function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onRescan, onFinish, onRemove, busy, markerReady, onSnag, onMarkerRescan }) {
   const checks = useMemo(() => (r.status === "DONE" ? evaluateLaunch(r) : []), [r]);
   const auto = checks.filter((c) => c.state === "pass").length;
   const signedCount = checks.filter((c) => c.state !== "pass" && signed[c.id]).length;
@@ -284,12 +341,14 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
         <button onClick={toggle} className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 py-3 pl-4 pr-2 text-left">
           {r.status === "RUNNING" && <span className="rounded-full bg-blue-500 px-2 py-0.5 text-[11px] font-semibold text-white">SCANNING</span>}
           {r.status === "ERROR" && <span className="rounded-full bg-purple-600 px-2 py-0.5 text-[11px] font-semibold text-white">COULDN&apos;T CHECK</span>}
+          {r.status === "PAUSED" && <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-white">NOT FINISHED</span>}
           {r.status === "DONE" && (todo ? <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${fails ? "bg-red-600" : "bg-amber-500"}`}>{todo} TO SIGN OFF</span>
             : <span className="rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">READY TO LAUNCH</span>)}
           <span className="font-medium">{k}</span>
           <span className="basis-full text-sm text-zinc-600 sm:basis-auto sm:flex-1">
             {r.status === "RUNNING" ? `${r.phase}… ${r.total > 1 ? `${r.done} of ${r.total}` : ""}`
               : r.status === "ERROR" ? r.error
+              : r.status === "PAUSED" ? `Stopped part way (${workLeft(r.work)} left). Press Finish scan to carry on from where it got to.${r.error ? ` ${r.error}` : ""}`
               : `${auto} passed automatically · ${signedCount} signed off · ${fails} with problems · ${r.pages?.length || 0} pages`}
           </span>
           {r.status !== "RUNNING" && <span className="text-xs text-zinc-400">{open ? "▲" : "▼"}</span>}
@@ -314,7 +373,11 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
       {open && r.status !== "RUNNING" && (
         <div className="border-t border-zinc-100 px-4 py-3">
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            <button onClick={onRescan} disabled={busy} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">Rescan</button>
+            {r.status === "PAUSED" && <button onClick={onFinish} disabled={busy} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">Finish scan ({workLeft(r.work)} left)</button>}
+            <button onClick={onRescan} disabled={busy} className={`rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${r.status === "PAUSED" ? "border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100" : "bg-zinc-900 text-white"}`}>{r.status === "PAUSED" ? "Start again" : "Rescan"}</button>
+            {r.status === "DONE" && r.markerLink && (r.markerBusy
+              ? <span className="text-xs text-blue-700">{r.markerBusy}</span>
+              : <button onClick={onMarkerRescan} disabled={busy} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-50" title="Runs a fresh Marker.io accessibility scan and pulls the results in">Re-run Marker.io scan</button>)}
             {r.status === "DONE" && <button onClick={() => download("word")} disabled={!!exporting} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-50">{exporting === "word" ? "Building…" : "Download sign-off log (Word)"}</button>}
             {r.status === "DONE" && (
               <span className="flex items-center gap-1.5 text-xs">
@@ -342,7 +405,7 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
                 </h3>
                 <div className="space-y-2">
                   {mine.filter((x) => !(hideDone && x.done)).sort((a, b) => a.done - b.done || a.i - b.i).map(({ c }) => (
-                    <CheckRow key={c.id} c={c} s={signed[c.id]} team={team} onSign={(name) => onSign(c, name)} marker={marker} markerReady={markerReady} snag={r.snags?.[c.id]} onSnag={(sn) => onSnag(c.id, sn)} />
+                    <CheckRow key={c.id} c={c} s={signed[c.id]} team={team} onSign={(name) => onSign(c, name)} marker={marker} markerReady={markerReady} snag={r.snags?.[c.id]} onSnag={(sn) => onSnag(c.id, sn)} site={r.start?.finalUrl || `https://${k}`} />
                   ))}
                   {hideDone && !left && <p className="px-3 py-2.5 text-sm text-green-700">All {who} checks are complete.</p>}
                 </div>
@@ -379,6 +442,16 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
   );
 }
 
+// What is left to do in a paused check, for the Finish button.
+function workLeft(w) {
+  if (!w) return "nothing";
+  if (w.stage === "pages") return `${w.pageQueue?.length || 0} pages`;
+  if (w.stage === "links") return `${w.linkList ? w.linkList.length : "the"} links`;
+  if (w.stage === "images") return `${w.imgList ? w.imgList.length : "the"} images`;
+  if (w.stage === "psi") return `${w.psiQueue ? w.psiQueue.length : "the"} accessibility audits`;
+  return "the Marker.io results";
+}
+
 // Which team role each check owner maps to (people with that role are listed first).
 const OWNER_ROLE = { Designer: "Designer", Developer: "Development", "Senior Developer": "Senior Developer", "Account Manager": "Account Manager", Content: "Content" };
 
@@ -395,7 +468,7 @@ function snagText(c) {
   return lines.join("\n");
 }
 
-function CheckRow({ c, s, team, onSign, marker, markerReady, snag, onSnag }) {
+function CheckRow({ c, s, team, onSign, marker, markerReady, snag, onSnag, site }) {
   const [more, setMore] = useState(false);
   const [copied, setCopied] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -411,9 +484,12 @@ function CheckRow({ c, s, team, onSign, marker, markerReady, snag, onSnag }) {
     } catch (e) { setSnagError(`Could not reach Marker.io: ${e.message}`); }
     finally { setCreating(false); }
   }
-  async function copySnag() {
-    try { await navigator.clipboard.writeText(snagText(c)); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
-    if (/^https?:\/\//.test(marker || "")) window.open(marker, "_blank", "noopener");
+  // Snags are raised on the page itself (Marker.io widget / extension): copy the
+  // text, then open the affected page. One click per finding, or the whole list.
+  const firstPage = c.items.find((i) => i.href && !/marker\.io/.test(i.href))?.href || site;
+  async function copySnag(text, pageUrl) {
+    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
+    if (pageUrl) window.open(pageUrl, "_blank", "noopener");
   }
   const auto = c.state === "pass";
   const done = auto || !!s;
@@ -458,14 +534,21 @@ function CheckRow({ c, s, team, onSign, marker, markerReady, snag, onSnag }) {
                 {creating ? "Sending…" : "Create snag in Marker.io"}
               </button>
             ) : (
-              <button onClick={copySnag} className="mr-3 rounded border border-zinc-300 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-100" title="Copies the problem as text; opens your Marker.io project if a link is set">
-                {copied ? "Copied – paste into Marker.io" : "Copy snag for Marker.io"}
+              <button onClick={() => copySnag(snagText(c), firstPage)} className="mr-3 rounded border border-zinc-300 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-100" title="Copies the finding, then opens the affected page so you can raise the snag there with Marker.io">
+                {copied ? "Copied – now raise it on the page" : "Snag on page ↗"}
               </button>
             ))}
             {snagError && <span className="mr-3 text-[11px] text-red-700">{snagError}</span>}
             {more && (
               <ol className="mt-1 max-h-80 list-decimal space-y-1.5 overflow-auto rounded bg-white/70 py-2 pl-7 pr-2 text-[11px] text-zinc-700">
-                {c.items.map((i, n) => <li key={n} className="break-words pl-1">{i.href ? <a href={i.href} target="_blank" rel="noreferrer" className="hover:underline">{i.text}</a> : i.text}</li>)}
+                {c.items.map((i, n) => (
+                  <li key={n} className="break-words pl-1">
+                    {i.href ? <a href={i.href} target="_blank" rel="noreferrer" className="hover:underline">{i.text}</a> : i.text}
+                    {i.href && !/marker\.io/.test(i.href) && c.state !== "pass" && (
+                      <button onClick={() => copySnag(`${c.title}\n${i.text}`, i.href)} className="ml-2 rounded border border-zinc-300 bg-white px-1.5 py-0 text-[10px] font-medium text-zinc-600 hover:bg-zinc-100" title="Copy this one and open its page">Snag ↗</button>
+                    )}
+                  </li>
+                ))}
               </ol>
             )}
           </div>

@@ -704,7 +704,7 @@ function ImageCard({ r, paid, open, toggle, rerun, running, onRemove }) {
                         {i.pages?.length > 0 && <div className="text-[11px] text-zinc-400">on {i.pages.slice(0, 3).map((p) => { try { return new URL(p).pathname || "/"; } catch { return p; } }).join(", ")}{i.pages.length > 3 ? ` +${i.pages.length - 3} more` : ""}</div>}
                       </td>
                       <td className="py-1.5 pr-2" title={stockLicenceSignal(i).reason}>
-                        {(() => { const st = stockLicenceSignal(i).status; return <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${st === "Likely licensed" ? "bg-green-600" : st === "Possible watermarked preview" ? "bg-red-600" : "bg-amber-500"}`}>{st}</span>; })()}
+                        {(() => { const st = stockLicenceSignal(i).status; return <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${st === "Likely licensed" ? "bg-green-600" : st === "Possible preview" ? "bg-red-600" : "bg-amber-500"}`}>{st}</span>; })()}
                         <div className="mt-0.5 text-[11px] text-zinc-500">{stockLicenceSignal(i).reason}</div>
                       </td>
                       <td className="py-1.5 pr-2 whitespace-nowrap">{stockLibraryLink(i.url, i.flag) ? <a href={stockLibraryLink(i.url, i.flag)} target="_blank" rel="noreferrer" className="text-blue-700 underline">View on {i.flag}</a> : "—"}</td>

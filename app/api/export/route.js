@@ -135,7 +135,7 @@ export async function POST(request) {
         task: "To do", owner: "" });
     }
   }
-  const LO = { "Possible watermarked preview": 0, "Unconfirmed": 1, "Likely licensed": 2 };
+  const LO = { "Possible preview": 0, "Could not check": 1, "Likely licensed": 2 };
   imgRows.sort((a, b) => a.site.localeCompare(b.site) || LO[a.licence] - LO[b.licence]);
   const imgs = sheet(wb, "Stock images to check", [
     { header: "Site", key: "site", width: 30 },
@@ -161,7 +161,7 @@ export async function POST(request) {
     row.getCell("image").font = { color: { argb: "FF1F4E79" }, underline: true };
     const lc = row.getCell("licence");
     lc.font = { bold: true };
-    lc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: r.licence === "Likely licensed" ? "FFD4EDDA" : r.licence === "Possible watermarked preview" ? "FFF8D7DA" : "FFFFF3CD" } };
+    lc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: r.licence === "Likely licensed" ? "FFD4EDDA" : r.licence === "Possible preview" ? "FFF8D7DA" : "FFFFF3CD" } };
     if (r.libUrl) {
       row.getCell("lib").value = { text: `View on ${r.flag}`, hyperlink: r.libUrl };
       row.getCell("lib").font = { color: { argb: "FF1F4E79" }, underline: true };
