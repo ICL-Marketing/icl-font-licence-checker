@@ -131,7 +131,8 @@ export default function LaunchArea({ post }) {
       const statusOf = {};
       for (const p of pages) { statusOf[p.url] = { status: p.status, error: p.error || "" }; if (p.finalUrl) statusOf[p.finalUrl] ||= statusOf[p.url]; }
       const linkSources = {};
-      for (const p of pages) for (const l of p.links || []) if (hostOf(l) === site && !linkSources[l]) linkSources[l] = p.url;
+      const linkTexts = {};
+      for (const p of pages) for (const l of p.links || []) if (hostOf(l) === site && !linkSources[l]) { linkSources[l] = p.url; linkTexts[l] = p.linkText?.[l] || ""; }
       const linkStatus = {};
       const toCheck = [];
       for (const l of Object.keys(linkSources)) {
@@ -185,11 +186,12 @@ export default function LaunchArea({ post }) {
 
       // Keep only what the checks need, so a 500-page site fits in browser storage.
       const brokenSources = Object.fromEntries(Object.keys(linkStatus).map((l) => [l, linkSources[l]]));
+      const brokenTexts = Object.fromEntries(Object.keys(linkStatus).map((l) => [l, linkTexts[l] || ""]));
       const imgSrc = Object.fromEntries(Object.keys(imageInfo).map((i) => [i, imageSources[i]]));
-      const slimPages = pages.map((p) => { const rest = { ...p }; delete rest.links; delete rest.images; return rest; });
+      const slimPages = pages.map((p) => { const rest = { ...p }; delete rest.links; delete rest.images; delete rest.linkText; return rest; });
       const stopped = stopRef.current;
       patch(key, {
-        status: "DONE", phase: "", start: startInfo, pages: slimPages, linkStatus, linkSources: brokenSources,
+        status: "DONE", phase: "", start: startInfo, pages: slimPages, linkStatus, linkSources: brokenSources, linkTexts: brokenTexts,
         imageInfo, imageSources: imgSrc, stopped, psi, psiError,
         complete: {
           pages: !stopped && !leftover && !startInfo.capped && slimPages.every((p) => p.status > 0),
