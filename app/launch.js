@@ -498,6 +498,7 @@ const SCAN_NOTE = { fail: "Scan found problems", review: "Scan found things to l
 // text, then open the affected page. One button per finding.
 function CheckRow({ c, s, team, onSign, site }) {
   const [copiedIdx, setCopiedIdx] = useState(-1);
+  const [showList, setShowList] = useState(false);
   async function addSnag(text, pageUrl, idx) {
     try { await navigator.clipboard.writeText(text); setCopiedIdx(idx); setTimeout(() => setCopiedIdx(-1), 2000); } catch {}
     if (pageUrl) window.open(pageUrl, "_blank", "noopener");
@@ -534,8 +535,13 @@ function CheckRow({ c, s, team, onSign, site }) {
           </ul>
         )}
         {c.summary && <p className="mt-0.5 text-xs text-zinc-600">{c.summary}</p>}
-        {c.links.length > 0 && <p className="mt-1 text-xs">{c.links.map((l) => <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="mr-3 inline-flex items-center gap-1 text-blue-700 underline">{l.text} <ExternalIcon /></a>)}</p>}
         {c.items.length > 0 && (
+          <button onClick={() => setShowList((v) => !v)} aria-expanded={showList} className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700 hover:bg-zinc-100">
+            {showList ? <><ChevronUpIcon className="h-3.5 w-3.5" /> Hide {c.items.length === 1 ? "detail" : `${c.items.length} details`}</> : <><ChevronDownIcon className="h-3.5 w-3.5" /> Show {c.items.length === 1 ? "detail" : `${c.items.length} details`}</>}
+          </button>
+        )}
+        {c.links.length > 0 && <p className="mt-1 text-xs">{c.links.map((l) => <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="mr-3 inline-flex items-center gap-1 text-blue-700 underline">{l.text} <ExternalIcon /></a>)}</p>}
+        {c.items.length > 0 && showList && (
           <ol className="mt-1.5 list-decimal space-y-1.5 rounded bg-white/70 py-2 pl-7 pr-2 text-[11px] text-zinc-700">
             {c.items.map((i, n) => (
               <li key={n} className="break-words pl-1">
