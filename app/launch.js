@@ -552,7 +552,7 @@ function CheckRow({ c, s, team, onSign, site }) {
               <li key={n} className="break-words pl-1">
                 {i.href ? <a href={i.href} target="_blank" rel="noreferrer" className="hover:underline">{i.text}</a> : i.text}
                 {i.href && !/marker\.io/.test(i.href) && canSnag && (
-                  <button onClick={() => addSnag(`${c.title}\n${i.snag || i.text}`, i.href, n)} className="ml-2 inline-flex items-center gap-1 rounded border border-zinc-300 bg-white px-1.5 py-0 text-[10px] font-medium text-zinc-700 hover:bg-zinc-100" title="Copies this finding and opens the page so you can add the snag with Marker.io">
+                  <button onClick={() => addSnag(i.snag || i.text.replace(/\s+–\s+\/\S*$/, "").replace(/ on (the )?(".*?" page|the page \/\S*)/, ""), i.href, n)} className="ml-2 inline-flex items-center gap-1 rounded border border-zinc-300 bg-white px-1.5 py-0 text-[10px] font-medium text-zinc-700 hover:bg-zinc-100" title="Copies this finding and opens the page so you can add the snag with Marker.io">
                     {copiedIdx === n ? <><CheckIcon className="h-3 w-3" /> Copied – add it on the page</> : <><FlagIcon className="h-3 w-3" /> Add Snag to Marker</>}
                   </button>
                 )}
@@ -561,7 +561,7 @@ function CheckRow({ c, s, team, onSign, site }) {
           </ol>
         )}
         {canSnag && !c.items.length && c.facts?.some((f) => f.ok === false) && (
-          <button onClick={() => addSnag(`${c.title}\n${c.facts.filter((f) => f.ok === false).map((f) => `- ${f.text}`).join("\n")}`, site, 99)} className="mt-1.5 inline-flex items-center gap-1 rounded border border-zinc-300 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-100">
+          <button onClick={() => addSnag(c.facts.filter((f) => f.ok === false).map((f) => f.text).join("\n"), site, 99)} className="mt-1.5 inline-flex items-center gap-1 rounded border border-zinc-300 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-100">
             {copiedIdx === 99 ? <><CheckIcon className="h-3 w-3" /> Copied – add it on the page</> : <><FlagIcon className="h-3 w-3" /> Add Snag to Marker</>}
           </button>
         )}
