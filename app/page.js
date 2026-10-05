@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DEFAULT_SITES } from "@/data/sites";
 import { buildFontEmail, buildImageEmail, isFreeLib, segmentsToText, segmentsToHtml } from "@/lib/email";
-import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, freeRouteLink, isFreeFontAwesome, ISSUE_TONE, mergeImageSizes, creditOnly } from "@/lib/fontlink";
+import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, freeRouteLink, isFreeFontAwesome, ISSUE_TONE, mergeImageSizes, creditOnly, imageAdminLink } from "@/lib/fontlink";
 
 const ORDER = { PROBLEM: 4, CHECK: 3, UNREACHABLE: 2, OK: 1, SYSTEM: 0 };
 const LABEL = { PROBLEM: "PROBLEM", CHECK: "CHECK", UNREACHABLE: "COULDN'T CHECK", OK: "OK", SYSTEM: "NO WEB FONTS", RUNNING: "SCANNING" };
@@ -699,7 +699,7 @@ function EmailCard({ e }) {
                   suppressContentEditableWarning
                   onBlur={(ev) => { const v = ev.currentTarget.innerText; if (v !== (edits[seg.id] ?? seg.v)) update(seg.id, v); }}
                   className={`rounded px-0.5 underline outline-none focus:ring-2 focus:ring-orange-400 ${edits[seg.id] !== undefined ? "bg-orange-200 text-orange-950" : "bg-orange-100 text-orange-900"}`}
-                >{edits[seg.id] ?? seg.v}</span><a href={seg.href} target="_blank" rel="noreferrer" title="Open image" className="ml-0.5 text-blue-700 no-underline">↗</a></span>
+                >{edits[seg.id] ?? seg.v}</span><a href={seg.href} target="_blank" rel="noreferrer" title="Open in the site\u2019s media library" className="ml-0.5 text-blue-700 no-underline">↗</a></span>
               : <span
                   key={seg.id}
                   contentEditable
