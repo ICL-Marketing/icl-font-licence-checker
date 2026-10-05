@@ -308,7 +308,7 @@ export default function Home() {
         {tab === "emails" && (
           <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
             <p className="text-sm text-zinc-600">
-              One ready-to-send email per site that has something to confirm. Copy, paste into your email client, and your signature does the rest. Sites with no issues get no email.
+              One ready-to-send email per site that has something to confirm. Fonts with a free fix (Adobe Fonts relink, Google Fonts, free version, Font Awesome Free) are left out, since we fix those ourselves. Copy, paste into your email client, and your signature does the rest. Sites with no issues get no email.
             </p>
             <div className="mt-3 flex gap-2">
               {[["fonts", "Font emails", fontEmails.length], ["images", "Image emails", imageEmails.length]].map(([id, label, n]) => (
