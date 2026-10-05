@@ -220,14 +220,14 @@ export default function LaunchArea({ post, onRunning }) {
 
   return (
     <div className="rounded-xl border border-zinc-300 bg-white p-4">
-      <form onSubmit={(e) => { e.preventDefault(); if (!running && url.trim()) { runCheck(url.trim(), markerLink); setMarkerLink(""); } }} className="flex flex-wrap items-center gap-2">
+      <form onSubmit={(e) => { e.preventDefault(); if (!running && url.trim() && /^https?:\/\//.test(markerLink.trim())) { runCheck(url.trim(), markerLink); setMarkerLink(""); } }} className="flex flex-wrap items-center gap-2">
         <input value={url} onChange={(e) => { setUrl(e.target.value); const k = keyFor(e.target.value); if (k) setMarkerLink(load(MARKER_KEY, {})[k] || ""); }} disabled={!!running} placeholder="Website link, e.g. https://www.example.co.uk"
           className="min-w-0 flex-1 basis-64 rounded-md border border-zinc-300 px-3 py-2 text-sm" aria-label="Website to check" />
-        <input value={markerLink} onChange={(e) => setMarkerLink(e.target.value)} disabled={!!running} placeholder="Marker.io project link (optional)"
+        <input value={markerLink} onChange={(e) => setMarkerLink(e.target.value)} disabled={!!running} placeholder="Marker.io project link" required
           className="min-w-0 flex-1 basis-64 rounded-md border border-zinc-300 px-3 py-2 text-sm" aria-label="Marker.io project link" />
         {running
           ? <button type="button" onClick={() => { stopRef.current = true; }} className="rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white">Stop</button>
-          : <button type="submit" disabled={!url.trim()} className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">Run launch check</button>}
+          : <button type="submit" disabled={!url.trim() || !/^https?:\/\//.test(markerLink.trim())} title={!/^https?:\/\//.test(markerLink.trim()) ? "Add the Marker.io project link first" : ""} className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">Run launch check</button>}
       </form>
       <p className="mt-2 text-xs text-zinc-500">Checks every page in the sitemap (up to 500), the links and images on them, and runs Google&apos;s accessibility audit on each page (up to 100). Anything the scan can&apos;t fully verify needs a person to tick it off. Completed checks drop to the bottom.</p>
 
