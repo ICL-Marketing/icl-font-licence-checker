@@ -402,7 +402,7 @@ function SiteCard({ r, open, toggle, rerun, running }) {
                     const fc = COLOUR[f.status] || COLOUR.PENDING;
                     return (
                       <tr key={i} className={`border-t border-zinc-100 align-top ${fc.bg}`}>
-                        <td className={`py-1.5 pr-2 font-semibold ${fc.text}`}>{f.family}{f.otherFiles > 0 && <span className="text-zinc-400"> +{f.otherFiles} more file{f.otherFiles === 1 ? "" : "s"}</span>}</td>
+                        <td className={`py-1.5 pr-2 font-semibold ${fc.text}`}><a href={f.source} target="_blank" rel="noreferrer" className="underline decoration-dotted underline-offset-2">{f.family}</a>{f.otherFiles > 0 && <span className="text-zinc-400"> +{f.otherFiles} more file{f.otherFiles === 1 ? "" : "s"}</span>}</td>
                         <td className="py-1.5 pr-2 whitespace-nowrap">{f.kind}{f.hostedOn ? ` / ${f.hostedOn}` : ""}</td>
                         <td className="py-1.5 pr-2">{f.note}</td>
                         <td className="py-1.5 pr-2 font-medium">

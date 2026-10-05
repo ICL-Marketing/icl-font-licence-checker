@@ -42,16 +42,13 @@ export async function POST(request) {
   // ---- Sheet 1: fonts to fix. One row per outstanding font, plus one per site that couldn't be checked.
   const fontRows = [];
   for (const r of results) {
-    if (!r.status) continue;
-    if (r.status === "UNREACHABLE") {
-      fontRows.push({ site: r.site, status: "UNREACHABLE", font: "(site could not be scanned)", why: r.error || "",
-        adobe: "", fix: r.fix || "Check the site by hand.", task: "To do", owner: "", notes: "", done: "" });
-      continue;
-    }
+    if (!r.status || r.status === "UNREACHABLE") continue;
     for (const f of r.fonts || []) {
       if (f.status !== "PROBLEM" && f.status !== "CHECK") continue;
       fontRows.push({ site: r.site, status: f.status, font: f.family, why: f.note || "",
-        free: f.status !== "PROBLEM" ? "" : f.adobe === "yes" ? "Adobe Fonts (covered by ICL's subscription)" : f.google === "yes" ? "Google Fonts (free)" : f.freeVersion?.isFree ? `Free version: ${f.freeVersion.note}` : f.adobe === "no" ? "None found: licence or swap" : "Not sure: check Adobe / Google / Font Squirrel",
+        free: f.status !== "PROBLEM" ? "" : f.adobe === "yes" ? "Adobe Fonts" : f.google === "yes" ? "Google Fonts" : f.freeVersion?.isFree ? `Free version: ${f.freeVersion.note}` : f.adobe === "no" ? "None found" : "Not sure: check Adobe / Google / Font Squirrel",
+        freeOk: f.status === "PROBLEM" && (f.adobe === "yes" || f.google === "yes" || !!f.freeVersion?.isFree),
+        siteUrl: r.finalUrl || `https://${r.site}`, fontUrl: f.source || "",
         fix: f.fix || "", task: "To do", owner: "", notes: "", done: "" });
     }
   }
@@ -72,20 +69,33 @@ export async function POST(request) {
     { header: "Date done", key: "done", width: 12 },
   ], fontRows, "status");
   addTaskDropdown(fonts, "task", fontRows.length);
+  fonts.eachRow((row, i) => {
+    if (i === 1) return;
+    const r = fontRows[i - 2];
+    if (!r) return;
+    // Site and font cells link to the live site and the font file.
+    row.getCell("site").value = { text: r.site, hyperlink: r.siteUrl };
+    row.getCell("site").font = { color: { argb: "FF1F4E79" }, underline: true };
+    if (r.fontUrl && /^https?:/.test(r.fontUrl)) {
+      row.getCell("font").value = { text: r.font, hyperlink: r.fontUrl };
+      row.getCell("font").font = { color: { argb: "FF1F4E79" }, underline: true };
+    }
+    if (r.freeOk) {
+      const c = row.getCell("free");
+      c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD4EDDA" } };
+      c.font = { bold: true, color: { argb: "FF1E8449" } };
+    }
+  });
 
   // ---- Sheet 2: stock images to check. Only flagged images.
   const imgRows = [];
   for (const r of results) {
-    if (r.imgStatus === "UNREACHABLE") {
-      imgRows.push({ site: r.site, flag: "COULDN'T CHECK", image: "(site could not be scanned)", meta: r.imgError || "", fix: r.imgFix || "Check the site by hand.", task: "To do", owner: "", notes: "", done: "" });
-      continue;
-    }
     if (r.imgStatus !== "DONE") continue;
     for (const i of r.images || []) {
       if (!i.flag || /free/i.test(i.flag)) continue;
       let name = i.url;
       try { name = decodeURIComponent(new URL(i.url).pathname.split("/").pop()); } catch {}
-      imgRows.push({ site: r.site, flag: i.flag, image: name, meta: i.meta || "",
+      imgRows.push({ site: r.site, siteUrl: r.finalUrl || `https://${r.site}`, imageUrl: i.url, flag: i.flag, image: name, meta: i.meta || "",
         fix: /free/i.test(i.flag) ? "Free library: no licence needed, but check attribution rules." : "Find the purchase record / licence for this image. If none, replace it or buy a licence.",
         task: "To do", owner: "", notes: "", done: "" });
     }
@@ -103,6 +113,15 @@ export async function POST(request) {
     { header: "Date done", key: "done", width: 12 },
   ], imgRows);
   addTaskDropdown(imgs, "task", imgRows.length);
+  imgs.eachRow((row, i) => {
+    if (i === 1) return;
+    const r = imgRows[i - 2];
+    if (!r) return;
+    row.getCell("site").value = { text: r.site, hyperlink: r.siteUrl };
+    row.getCell("site").font = { color: { argb: "FF1F4E79" }, underline: true };
+    row.getCell("image").value = { text: r.image, hyperlink: r.imageUrl };
+    row.getCell("image").font = { color: { argb: "FF1F4E79" }, underline: true };
+  });
 
   const buf = await wb.xlsx.writeBuffer();
   return new Response(buf, {
