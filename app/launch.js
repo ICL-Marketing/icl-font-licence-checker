@@ -335,7 +335,7 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
                 </h3>
                 <div className="space-y-2">
                   {mine.filter((x) => !(hideDone && x.done)).sort((a, b) => a.done - b.done || a.i - b.i).map(({ c }) => (
-                    <CheckRow key={c.id} c={c} s={signed[c.id]} team={team} onSign={(name) => onSign(c, name)} site={r.start?.finalUrl || `https://${k}`} marker={marker} />
+                    <CheckRow key={c.id} c={c} s={signed[c.id]} team={team} onSign={(name) => onSign(c, name)} marker={marker} />
                   ))}
                   {hideDone && !left && <p className="px-3 py-2.5 text-sm text-green-700">All {who} checks are complete.</p>}
                 </div>
@@ -379,19 +379,20 @@ const OWNER_ROLE = { Designer: "Designer", Developer: "Development", "Senior Dev
 const SCAN_NOTE = { fail: "Scan found problems", review: "Scan found things to look at", manual: "Manual check" };
 
 // Ready-to-paste snag text for Marker.io (or any ticket tool).
-function snagText(c, site) {
-  const lines = [`${c.title}`, `Site: ${site}`, ""];
-  if (c.summary) lines.push(c.summary, "");
-  if (c.items.length) { lines.push("Details:"); for (const i of c.items.slice(0, 30)) lines.push(`- ${i.text}${i.href && !i.text.includes(i.href) ? ` (${i.href})` : ""}`); if (c.items.length > 30) lines.push(`- and ${c.items.length - 30} more`); }
-  lines.push("", "Found by Website Checker launch check.");
+function snagText(c) {
+  const lines = [c.title];
+  for (const f of c.facts || []) if (f.ok === false) lines.push(`- ${f.text}`);
+  if (c.items.length) c.items.slice(0, 30).forEach((i, n) => lines.push(`${n + 1}. ${i.text}`));
+  else if (c.summary && !(c.facts || []).some((f) => f.ok === false)) lines.push(c.summary);
+  if (c.items.length > 30) lines.push(`…and ${c.items.length - 30} more`);
   return lines.join("\n");
 }
 
-function CheckRow({ c, s, team, onSign, site, marker }) {
+function CheckRow({ c, s, team, onSign, marker }) {
   const [more, setMore] = useState(false);
   const [copied, setCopied] = useState(false);
   async function copySnag() {
-    try { await navigator.clipboard.writeText(snagText(c, site)); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
+    try { await navigator.clipboard.writeText(snagText(c)); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
     if (/^https?:\/\//.test(marker || "")) window.open(marker, "_blank", "noopener");
   }
   const auto = c.state === "pass";
