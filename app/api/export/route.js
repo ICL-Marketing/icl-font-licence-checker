@@ -58,7 +58,7 @@ function addTaskDropdown(ws, colKey, rowCount) {
 export async function POST(request) {
   const { results = [], kind = "fonts" } = await request.json().catch(() => ({}));
   const wb = new ExcelJS.Workbook();
-  wb.creator = "ICL font licence checker";
+  wb.creator = "ICL Licence Checker";
   const today = new Date().toISOString().slice(0, 10);
 
   if (kind === "fonts") {
@@ -70,7 +70,7 @@ export async function POST(request) {
       if (f.status !== "PROBLEM" && f.status !== "CHECK") continue;
       if (isEmbeddedIconFont(f) || isFreeFontAwesome(f)) continue;
       const free = freeRouteLabel(f);
-      fontRows.push({ site: r.site, status: f.status, issue: issueLabel(f), font: f.family, why: f.note || "",
+      fontRows.push({ site: r.site, status: f.status, issue: issueLabel(f), font: f.family, styles: (f.styles || []).join(", "), why: f.note || "",
         free, freeOk: free !== "N/A",
         siteUrl: r.finalUrl || `https://${r.site}`, fontUrl: fontLink(f),
         fix: nextAction(f), task: "To do", owner: "" });
@@ -87,6 +87,7 @@ export async function POST(request) {
     { header: "Site", key: "site", width: 30 },
     { header: "Status", key: "status", width: 24 },
     { header: "Font", key: "font", width: 24 },
+    { header: "Styles", key: "styles", width: 22 },
     { header: "Why", key: "why", width: 48 },
     { header: "Free route", key: "free", width: 20 },
     { header: "Adobe Embed/Next Action", key: "fix", width: 60 },

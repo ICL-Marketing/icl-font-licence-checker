@@ -96,7 +96,7 @@ export default function Home() {
 
   // ---- Task 2: images (every page)
   async function scanImages(site) {
-    patch(site, { imgStatus: "RUNNING", images: [], imgError: "", imgProgress: "reading sitemap" });
+    patch(site, { imgStatus: "RUNNING", images: [], imgError: "", imgProgress: "reading sitemap", imgDone: 0, imgTotal: 0 });
     try {
       const d = await post("/api/scan", { site, pages: 4, mode: "images" });
       if (d.status === "UNREACHABLE") { patch(site, { imgStatus: "UNREACHABLE", imgError: d.error || "", imgFix: d.fix || "", imgProgress: undefined }); return; }
@@ -107,7 +107,7 @@ export default function Home() {
       let scanned = d.pages?.length || 0;
       let imagesChecked = d.imagesChecked || 0;
       let total = scanned + queue.length;
-      patch(site, { imgProgress: `page ${scanned} of ${total}`, images });
+      patch(site, { imgProgress: `page ${scanned} of ${total}`, imgDone: scanned, imgTotal: total, images });
       while (queue.length && !stopRef.current && !cancelledRef.current.has(site)) {
         const batch = queue.splice(0, 10);
         const out = await post("/api/scan-pages", { site, urls: batch });
@@ -127,7 +127,7 @@ export default function Home() {
           }
         }
         total = scanned + queue.length;
-        patch(site, { imgProgress: `page ${scanned} of ${total}`, images: [...images] });
+        patch(site, { imgProgress: `page ${scanned} of ${total}`, imgDone: scanned, imgTotal: total, images: [...images] });
       }
       patch(site, { imgStatus: "DONE", images, imagesChecked, pagesScanned: scanned, pagesTotal: total, hasSitemap: !!d.hasSitemap, imgProgress: undefined, imagesScannedAt: d.scannedAt });
     } catch (e) {
@@ -157,7 +157,7 @@ export default function Home() {
   // Clear one area's results only; the other area's results stay.
   const AREA_FIELDS = {
     fonts: ["status", "fonts", "ignoredFonts", "error", "fix", "platform", "cssCount", "fontPages", "seconds", "fontsScannedAt"],
-    images: ["imgStatus", "images", "imgError", "imgFix", "imgProgress", "imagesChecked", "pagesScanned", "pagesTotal", "hasSitemap", "imagesScannedAt"],
+    images: ["imgStatus", "images", "imgError", "imgFix", "imgProgress", "imgDone", "imgTotal", "imagesChecked", "pagesScanned", "pagesTotal", "hasSitemap", "imagesScannedAt"],
   };
   function clearArea(kind) {
     setResults((prev) => {
@@ -233,8 +233,7 @@ export default function Home() {
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Font &amp; image licence checker</h1>
-          <p className="text-sm text-zinc-500">Two separate checks: fonts (quick, homepage + 4 pages) and stock images (every page).</p>
+          <h1 className="text-2xl font-semibold">Licence Checker</h1>
         </div>
       </header>
 
@@ -521,7 +520,7 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove }) {
         : fonts.length ? `${oks.length} font${oks.length === 1 ? "" : "s"} OK` : r.ignoredFonts?.length ? "Only icon/UI fonts (ignored)" : "No web fonts found";
 
   return (
-    <div className={`rounded-xl border-l-4 bg-white shadow-sm ring-1 ring-zinc-100 ${c.border}`}>
+    <div className="rounded-xl bg-white shadow-sm ring-1 ring-zinc-200">
       <div className="flex items-start">
       <button onClick={toggle} className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 py-3 pl-4 pr-2 text-left">
         {labels.length && r.status !== "RUNNING"
@@ -557,7 +556,8 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove }) {
                     return (
                       <tr key={i} className={`border-t border-zinc-100 align-top ${fc.bg}`}>
                         <td className="py-1.5 pr-2 whitespace-nowrap"><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${TONE_CHIP[ISSUE_TONE[issueLabel(f)]] || "bg-zinc-500"}`}>{issueLabel(f)}</span></td>
-                        <td className={`py-1.5 pr-2 font-semibold ${fc.text}`}><a href={fontLink(f)} target="_blank" rel="noreferrer" title="Font foundry page" className="underline decoration-dotted underline-offset-2">{f.family}</a>{f.otherFiles > 0 && <span className="text-zinc-400"> +{f.otherFiles} more file{f.otherFiles === 1 ? "" : "s"}</span>}</td>
+                        <td className={`py-1.5 pr-2 font-semibold ${fc.text}`}><a href={fontLink(f)} target="_blank" rel="noreferrer" title="Font foundry page" className="underline decoration-dotted underline-offset-2">{f.family}</a>{f.otherFiles > 0 && <span className="font-normal text-zinc-400"> +{f.otherFiles} more file{f.otherFiles === 1 ? "" : "s"}</span>}
+                          {f.styles?.length > 0 && <div className="mt-0.5 flex flex-wrap gap-1">{f.styles.map((st) => <span key={st} className="rounded bg-white/70 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 ring-1 ring-zinc-200">{st}</span>)}</div>}</td>
                         <td className="py-1.5 pr-2 whitespace-nowrap">{f.kind}{f.hostedOn ? ` / ${f.hostedOn}` : ""}</td>
                         <td className="py-1.5 pr-2">{f.note}</td>
                         <td className="py-1.5 pr-2 font-medium">
@@ -614,17 +614,26 @@ function ImageCard({ r, paid, open, toggle, rerun, running, onRemove }) {
       ? r.imgError
       : `${paid.length} image${paid.length === 1 ? "" : "s"} · ${libs.join(", ")} → find the purchase record, or replace`;
   return (
-    <div className={`rounded-xl border-l-4 bg-white shadow-sm ring-1 ring-zinc-100 ${c.border}`}>
+    <div className="rounded-xl bg-white shadow-sm ring-1 ring-zinc-200">
       <div className="flex items-start">
       <button onClick={toggle} className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 py-3 pl-4 pr-2 text-left">
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${c.chip}`}>{label}</span>
         <span className="font-medium">{r.site}</span>
         <span className="basis-full text-sm text-zinc-700 sm:basis-auto sm:flex-1">{headline}</span>
-        {r.pagesScanned > 0 && <span className="text-xs text-zinc-400">{r.pagesScanned} pages</span>}
+        {st !== "RUNNING" && r.pagesScanned > 0 && <span className="text-xs text-zinc-400">{r.pagesScanned} pages</span>}
         {st !== "RUNNING" && <span className="text-xs text-zinc-400">{open ? "▲" : "▼"}</span>}
       </button>
       <RemoveSite site={r.site} onRemove={onRemove} />
       </div>
+      {st === "RUNNING" && (
+        <div className="px-4 pb-3">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-blue-100" role="progressbar" aria-valuemin={0} aria-valuemax={r.imgTotal || 0} aria-valuenow={r.imgDone || 0}>
+            {r.imgTotal > 0
+              ? <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${Math.min(100, ((r.imgDone || 0) / r.imgTotal) * 100)}%` }} />
+              : <div className="h-full w-1/4 animate-pulse rounded-full bg-blue-300" />}
+          </div>
+        </div>
+      )}
       {open && st !== "RUNNING" && (
         <div className="border-t border-zinc-100 px-4 py-3 text-sm">
           {r.imgFix && st === "UNREACHABLE" && <p className="mb-2"><b>Suggested fix:</b> {r.imgFix}</p>}

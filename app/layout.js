@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Font licence checker · ICL Digital",
+  title: "Licence Checker · ICL Digital",
   description: "Scans live sites for font licence risks and stock-image flags.",
 };
 
