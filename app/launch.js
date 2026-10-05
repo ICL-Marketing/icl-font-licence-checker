@@ -319,7 +319,7 @@ export default function LaunchArea({ post, onRunning, onCount, mode = "launch" }
     if (r.status !== "DONE") return true;
     const signed = signoffs[key] || {};
     return forMode(evaluateLaunch(r)).some((c) => c.state !== "pass" && !signed[c.id]);
-  }).length, [runs, signoffs]);
+  }).length, [runs, signoffs, mode]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { onCount?.(outstanding); }, [outstanding, onCount]);
 
   const list = useMemo(() => Object.entries(runs).sort((a, b) => (b[1].scannedAt || "9").localeCompare(a[1].scannedAt || "9")), [runs]);
