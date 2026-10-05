@@ -359,8 +359,7 @@ function LaunchCard({ k, r, mode, signed, log, shared, team, open, toggle, onSig
   const fails = checks.filter((c) => c.state === "fail" && !signed[c.id]).length;
   const todo = checks.filter((c) => c.state !== "pass" && !signed[c.id]).length;
   const [exporting, setExporting] = useState("");
-  const [marker, setMarker] = useState(() => load(MARKER_KEY, {})[k] || "");
-  const saveMarker = (v) => { setMarker(v); const all = load(MARKER_KEY, {}); if (v.trim()) all[k] = v.trim(); else delete all[k]; save(MARKER_KEY, all); };
+  const marker = r.markerLink || load(MARKER_KEY, {})[k] || "";
   const [showLog, setShowLog] = useState(false);
   const [hideDone, setHideDone] = useState(() => load("flc-launch-hide-done", false));
   const [asking, setAsking] = useState(false);
@@ -435,13 +434,6 @@ function LaunchCard({ k, r, mode, signed, log, shared, team, open, toggle, onSig
               ? <span className="text-xs text-blue-700">{r.markerBusy}</span>
               : <button onClick={onMarkerRescan} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-50" title="Runs a fresh Marker.io accessibility scan and pulls the results in"><RefreshIcon className="h-3.5 w-3.5" /> Re-run Marker.io scan</button>)}
             {r.status === "DONE" && <button onClick={() => download("word")} disabled={!!exporting} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-50"><DownloadIcon className="h-3.5 w-3.5" /> {exporting === "word" ? "Building…" : "Download sign-off log (Word)"}</button>}
-            {r.status === "DONE" && (
-              <span className="flex items-center gap-1.5 text-xs">
-                <input value={marker} onChange={(e) => saveMarker(e.target.value)} placeholder="Marker.io project link" aria-label="Marker.io project link"
-                  className="w-56 rounded-md border border-zinc-300 px-2 py-1.5 text-xs" />
-                {/^https?:\/\//.test(marker) && <a href={marker} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2.5 py-1.5 font-medium text-zinc-800 hover:bg-zinc-200">Open in Marker.io <ExternalIcon /></a>}
-              </span>
-            )}
             {r.status === "DONE" && (
               <label className="flex items-center gap-1.5 text-xs text-zinc-600">
                 <input type="checkbox" checked={hideDone} onChange={(e) => { setHideDone(e.target.checked); save("flc-launch-hide-done", e.target.checked); }} className="h-3.5 w-3.5" />
