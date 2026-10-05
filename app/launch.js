@@ -386,11 +386,15 @@ function CheckRow({ c, s, team, onSign }) {
           {!done && <span className={`ml-2 font-semibold ${c.state === "fail" ? "text-red-700" : c.state === "review" ? "text-amber-700" : "text-zinc-600"}`}>· {SCAN_NOTE[c.state]}</span>}
           {s && c.state === "fail" && <span className="ml-2 font-semibold text-red-700">· Scan still shows problems</span>}
         </p>
-        {c.summary && <p className="mt-0.5 text-xs text-zinc-600">{c.summary}</p>}
+        {/* The summary itself opens the details when there are any. */}
+        {c.summary && (c.items.length
+          ? <button onClick={() => setMore((v) => !v)} className="mt-0.5 text-left text-xs text-zinc-700 hover:text-blue-700" aria-expanded={more}>
+              {c.summary} <span className="whitespace-nowrap font-medium text-blue-700">{more ? "Hide ▴" : "Show ▾"}</span>
+            </button>
+          : <p className="mt-0.5 text-xs text-zinc-600">{c.summary}</p>)}
         {(c.items.length > 0 || c.links.length > 0) && (
           <div className="mt-1 text-xs">
             {c.links.map((l) => <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="mr-3 text-blue-700 underline">{l.text}</a>)}
-            {c.items.length > 0 && <button onClick={() => setMore((v) => !v)} className="text-blue-700 underline">{more ? "Hide details" : `Show ${c.items.length} detail${c.items.length === 1 ? "" : "s"}`}</button>}
             {more && (
               <ul className="mt-1 max-h-72 space-y-0.5 overflow-auto rounded bg-white/70 p-2 text-[11px] text-zinc-700">
                 {c.items.map((i, n) => <li key={n} className="break-words">{i.href ? <a href={i.href} target="_blank" rel="noreferrer" className="hover:underline">{i.text}</a> : i.text}</li>)}
