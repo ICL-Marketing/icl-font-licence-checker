@@ -1,4 +1,4 @@
-import { fontLink, isEmbeddedIconFont, fixedFix } from "@/lib/fontlink";
+import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, ISSUE_FILL } from "@/lib/fontlink";
 import ExcelJS from "exceljs";
 
 export const maxDuration = 30;
@@ -47,7 +47,7 @@ export async function POST(request) {
     for (const f of r.fonts || []) {
       if (f.status !== "PROBLEM" && f.status !== "CHECK") continue;
       if (isEmbeddedIconFont(f)) continue;
-      fontRows.push({ site: r.site, status: f.status, font: f.family, why: f.note || "",
+      fontRows.push({ site: r.site, status: f.status, issue: issueLabel(f), font: f.family, why: f.note || "",
         free: f.status !== "PROBLEM" || f.kind === "Hosted service" ? "" : (f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) ? "Adobe Fonts" : f.google === "yes" ? "Google Fonts" : f.freeVersion?.isFree ? `Free version: ${f.freeVersion.note}` : f.adobe === "no" ? "None found" : "Not sure: check Adobe / Google / Font Squirrel",
         freeOk: f.status === "PROBLEM" && ((f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) || f.google === "yes" || !!f.freeVersion?.isFree),
         siteUrl: r.finalUrl || `https://${r.site}`, fontUrl: fontLink(f),
@@ -56,11 +56,14 @@ export async function POST(request) {
   }
   const order = { PROBLEM: 0, CHECK: 1, UNREACHABLE: 2 };
   fontRows.sort((a, b) => order[a.status] - order[b.status] || a.site.localeCompare(b.site));
-  for (const r of fontRows) r.status = LABEL[r.status];
+  // Free fixes first (we sort those ourselves), then the rest by severity.
+  const issueOrder = Object.keys(ISSUE_FILL);
+  fontRows.sort((a, b) => issueOrder.indexOf(a.issue) - issueOrder.indexOf(b.issue) || a.site.localeCompare(b.site));
+  for (const r of fontRows) r.status = r.issue;
 
   const fonts = sheet(wb, "Fonts to fix", [
     { header: "Site", key: "site", width: 30 },
-    { header: "Status", key: "status", width: 15 },
+    { header: "Status", key: "status", width: 24 },
     { header: "Font", key: "font", width: 26 },
     { header: "Why", key: "why", width: 48 },
     { header: "Free route", key: "free", width: 40 },
@@ -75,6 +78,9 @@ export async function POST(request) {
     if (i === 1) return;
     const r = fontRows[i - 2];
     if (!r) return;
+    const st = row.getCell("status");
+    st.fill = { type: "pattern", pattern: "solid", fgColor: { argb: ISSUE_FILL[r.issue] || "FFF1F1F1" } };
+    st.font = { bold: true };
     // Site and font cells link to the live site and the font file.
     row.getCell("site").value = { text: r.site, hyperlink: r.siteUrl };
     row.getCell("site").font = { color: { argb: "FF1F4E79" }, underline: true };
