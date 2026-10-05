@@ -52,6 +52,7 @@ export default function Home() {
   const [exporting, setExporting] = useState("");
   const [showList, setShowList] = useState(true);
   const [showImgFine, setShowImgFine] = useState(false);
+  const [showFontFine, setShowFontFine] = useState(false);
   const stopRef = useRef(false);
   const cancelledRef = useRef(new Set());
   const router = useRouter();
@@ -341,7 +342,7 @@ export default function Home() {
             {view.fonts === "results" ? (<>
             {fontRows.length > 0 && (
               <>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   {["PROBLEM", "CHECK", "UNREACHABLE"].map((s) => (
                     <button key={s} onClick={() => setFilter(filter === s ? "ALL" : s)}
                       className={`rounded-xl border p-3 text-left ${COLOUR[s].bg} ${filter === s ? COLOUR[s].border : "border-transparent"}`}>
@@ -354,15 +355,25 @@ export default function Home() {
                       </div>
                     </button>
                   ))}
+                  <button onClick={() => setShowFontFine((v) => !v)} aria-expanded={showFontFine} className={`rounded-xl border p-3 text-left ${COLOUR.OK.bg} ${showFontFine ? COLOUR.OK.border : "border-transparent"}`}>
+                    <div className={`text-3xl font-semibold ${COLOUR.OK.text}`}>{fontFine}</div>
+                    <div className={`text-xs font-medium ${COLOUR.OK.text}`}>FINE</div>
+                    <div className="mt-1 text-[11px] leading-tight text-zinc-500">Google Fonts, Adobe Fonts kits, open licence or system fonts only. {showFontFine ? "Hide list" : "Show list"}</div>
+                  </button>
                 </div>
-                <FineList
-                  count={fontFine}
-                  text="fonts are Google Fonts, Adobe Fonts kits, open licence, or system fonts only."
-                  items={fontRows.filter((r) => r.status === "OK" || r.status === "SYSTEM").map((r) => ({
-                    site: r.site, url: r.finalUrl || `https://${r.site}`,
-                    detail: (() => { const f = [...new Set((r.fonts || []).filter((x) => x.status === "OK").map((x) => x.family))]; return f.length ? f.join(", ") : "System fonts only"; })(),
-                  }))}
-                />
+                {showFontFine && (
+                  <ul className="mt-3 grid gap-x-6 gap-y-1 rounded-lg border border-green-200 bg-green-50 p-3 text-xs sm:grid-cols-2">
+                    {fontRows.filter((r) => r.status === "OK" || r.status === "SYSTEM").map((r) => {
+                      const f = [...new Set((r.fonts || []).filter((x) => x.status === "OK").map((x) => x.family))];
+                      return (
+                        <li key={r.site} className="min-w-0">
+                          <a href={r.finalUrl || `https://${r.site}`} target="_blank" rel="noreferrer" className="font-medium text-green-800 underline">{r.site}</a>
+                          <span className="text-zinc-500"> · {f.length ? f.join(", ") : "System fonts only"}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
                 <div className="mt-4 space-y-3">
                   {fontVisible.map((r) => (
                     <SiteCard key={r.site} r={r} open={!!open["f:" + r.site]} toggle={() => toggleOne("f:" + r.site)} rerun={() => run("fonts", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} />
@@ -488,29 +499,6 @@ function RemoveSite({ site, onRemove }) {
   return (
     <button onClick={() => setAsking(true)} aria-label={`Remove ${site}`} title="Cancel and remove this site"
       className="shrink-0 px-3 py-3.5 text-zinc-400 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500"><CloseIcon /></button>
-  );
-}
-
-// "N sites fine" line that expands to list those sites.
-function FineList({ count, text, items }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="mt-3 text-sm text-zinc-600">
-      <button onClick={() => setOpen((v) => !v)} disabled={!items.length} className="text-left disabled:cursor-default">
-        <span className="font-semibold text-green-700">{count}</span> site{count === 1 ? "" : "s"} fine: {text}
-        {items.length > 0 && <span className="ml-2 text-xs text-green-700 underline">{open ? "Hide" : "Show"}</span>}
-      </button>
-      {open && (
-        <ul className="mt-2 grid gap-x-6 gap-y-1 rounded-lg border border-green-200 bg-green-50 p-3 text-xs sm:grid-cols-2">
-          {[...items].sort((a, b) => a.site.localeCompare(b.site)).map((i) => (
-            <li key={i.site} className="min-w-0">
-              <a href={i.url} target="_blank" rel="noreferrer" className="font-medium text-green-800 underline">{i.site}</a>
-              <span className="text-zinc-500"> · {i.detail}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
   );
 }
 
