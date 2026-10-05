@@ -338,7 +338,7 @@ function Badge({ ok, bad, label }) {
   return <span className={`rounded px-1.5 py-0.5 font-semibold ${ok ? "bg-green-100 text-green-800" : bad ? "bg-red-100 text-red-800" : "bg-zinc-100 text-zinc-600"}`}>{label}</span>;
 }
 
-function FaIconTable({ icons, pages }) {
+function FaIconTable({ icons, pages, version }) {
   const change = icons.filter((i) => !i.free);
   return (
     <div className="space-y-2">
@@ -360,7 +360,7 @@ function FaIconTable({ icons, pages }) {
           </tbody>
         </table>
       </div>
-      <p className="text-[11px] text-zinc-500">Checked {pages} page{pages === 1 ? "" : "s"}. Icons added by CSS or JavaScript are not counted.</p>
+      <p className="text-[11px] text-zinc-500">Checked {pages} page{pages === 1 ? "" : "s"} against Font Awesome {version || 6} Free. Icons added by CSS or JavaScript are not counted.</p>
     </div>
   );
 }
@@ -460,7 +460,7 @@ function SiteCard({ r, open, toggle, rerun, running }) {
                               {f.freeVersion?.url && !(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) && f.google !== "yes" && <a href={f.freeVersion.url} target="_blank" rel="noreferrer" className="text-blue-700 underline">Free version link</a>}
                             </div>
                           )}
-                          {f.faIcons ? <FaIconTable icons={f.faIcons} pages={f.faPagesChecked} /> : fixedFix(f)}
+                          {f.faIcons ? <FaIconTable icons={f.faIcons} pages={f.faPagesChecked} version={f.faVersion} /> : fixedFix(f)}
                           {freeRouteLink(f) && <> <a href={freeRouteLink(f)} target="_blank" rel="noreferrer" className="text-blue-700 underline">Open font page</a></>}
                         </td>
                         <td className="py-1.5">
