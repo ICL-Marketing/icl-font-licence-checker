@@ -345,7 +345,7 @@ function FaIconTable({ icons, pages, version }) {
       <p>{change.length ? `Change ${change.length} icon${change.length === 1 ? "" : "s"}, then switch the site to Font Awesome Free.` : "No icons need changing. Switch the site to Font Awesome Free."}</p>
       <div className="overflow-x-auto">
         <table className="w-full text-[11px] font-normal">
-          <thead><tr className="text-left text-zinc-500"><th className="pr-2">Icon</th><th className="pr-2">Class</th><th className="pr-2">Style</th><th className="pr-2">Uses</th><th className="pr-2">Free?</th><th>Change to</th></tr></thead>
+          <thead><tr className="text-left text-zinc-500"><th className="pr-2">Icon</th><th className="pr-2">Class</th><th className="pr-2">Style</th><th className="pr-2">Pages</th><th className="pr-2">Free?</th><th>Change to</th></tr></thead>
           <tbody>
             {icons.map((i) => (
               <tr key={i.cls} className="border-t border-zinc-200">

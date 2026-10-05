@@ -1,4 +1,4 @@
-import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, ISSUE_FILL, freeRouteLink, isFreeFontAwesome } from "@/lib/fontlink";
+import { fontLink, isEmbeddedIconFont, issueLabel, ISSUE_FILL, isFreeFontAwesome, freeRouteLabel, nextAction } from "@/lib/fontlink";
 import ExcelJS from "exceljs";
 
 export const maxDuration = 30;
@@ -68,11 +68,11 @@ export async function POST(request) {
     for (const f of r.fonts || []) {
       if (f.status !== "PROBLEM" && f.status !== "CHECK") continue;
       if (isEmbeddedIconFont(f) || isFreeFontAwesome(f)) continue;
+      const free = freeRouteLabel(f);
       fontRows.push({ site: r.site, status: f.status, issue: issueLabel(f), font: f.family, why: f.note || "",
-        free: f.status !== "PROBLEM" || f.kind === "Hosted service" ? "" : (f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) ? "Adobe Fonts" : f.google === "yes" ? "Google Fonts" : f.freeVersion?.isFree ? `Free version: ${f.freeVersion.note}` : f.adobe === "no" ? "None found" : "Not sure: check Adobe / Google / Font Squirrel",
-        freeOk: f.status === "PROBLEM" && ((f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) || f.google === "yes" || !!f.freeVersion?.isFree),
-        siteUrl: r.finalUrl || `https://${r.site}`, fontUrl: fontLink(f), fixUrl: freeRouteLink(f),
-        fix: fixedFix(f), task: "To do", owner: "", notes: "", done: "" });
+        free, freeOk: free !== "N/A",
+        siteUrl: r.finalUrl || `https://${r.site}`, fontUrl: fontLink(f),
+        fix: nextAction(f), task: "To do", owner: "" });
     }
   }
   const order = { PROBLEM: 0, CHECK: 1, UNREACHABLE: 2 };
@@ -85,14 +85,12 @@ export async function POST(request) {
   const fonts = sheet(wb, "Fonts to fix", [
     { header: "Site", key: "site", width: 30 },
     { header: "Status", key: "status", width: 24 },
-    { header: "Font", key: "font", width: 26 },
+    { header: "Font", key: "font", width: 24 },
     { header: "Why", key: "why", width: 48 },
-    { header: "Free route", key: "free", width: 40 },
-    { header: "Suggested fix", key: "fix", width: 60 },
+    { header: "Free route", key: "free", width: 20 },
+    { header: "Adobe Embed/Next Action", key: "fix", width: 60 },
     { header: "Task status", key: "task", width: 14 },
     { header: "Owner", key: "owner", width: 14 },
-    { header: "Notes", key: "notes", width: 36 },
-    { header: "Date done", key: "done", width: 12 },
   ], fontRows, "status");
   addTaskDropdown(fonts, "task", fontRows.length);
   fonts.eachRow((row, i) => {
@@ -108,11 +106,6 @@ export async function POST(request) {
     if (r.fontUrl && /^https?:/.test(r.fontUrl)) {
       row.getCell("font").value = { text: r.font, hyperlink: r.fontUrl };
       row.getCell("font").font = { color: { argb: "FF1F4E79" }, underline: true };
-    }
-    if (r.fixUrl) {
-      const fc = row.getCell("fix");
-      fc.value = { text: r.fix, hyperlink: r.fixUrl };
-      fc.font = { color: { argb: "FF1F4E79" }, underline: true };
     }
     if (r.freeOk) {
       const c = row.getCell("free");
