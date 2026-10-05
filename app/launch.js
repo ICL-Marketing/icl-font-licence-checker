@@ -511,7 +511,7 @@ function CheckRow({ c, s, team, onSign, site }) {
   const rest = all.filter((m) => m.role !== role);
   const value = s ? `${s.notRequired ? "nr" : "ok"}:${s.name}` : "";
   const change = (v) => { if (!v) return onSign(null); const [kind, ...n] = v.split(":"); onSign(n.join(":"), kind === "nr"); };
-  const opt = (m, kind) => <option key={`${kind}:${m.name}`} value={`${kind}:${m.name}`} className="bg-white text-zinc-900">{kind === "nr" ? "Not required" : "✓ Checked by"} {kind === "nr" ? `– ${m.name}` : m.name}</option>;
+  const opt = (m, kind) => <option key={`${kind}:${m.name}`} value={`${kind}:${m.name}`} className="bg-white text-zinc-900">{kind === "nr" ? "Not required" : "✓ Signed off by"} {kind === "nr" ? `– ${m.name}` : m.name}</option>;
   const canSnag = c.state !== "pass" && c.state !== "manual";
   return (
     <div className={`grid gap-3 rounded-lg px-3 py-3 text-sm sm:grid-cols-[1fr_230px] ${done ? (s?.notRequired ? "bg-zinc-100" : "bg-green-50") : "bg-red-50"}`}>
@@ -574,7 +574,7 @@ function CheckRow({ c, s, team, onSign, site }) {
             {/* One control: pick a name to sign off, or mark it not required; "Not checked" removes it. */}
             <select value={value} onChange={(e) => change(e.target.value)} aria-label={`Signed off by, ${c.title}`}
               className={`w-full cursor-pointer rounded-full border-0 px-3 py-1.5 font-semibold text-white ${s ? (s.notRequired ? "bg-zinc-500" : "bg-green-600") : "bg-red-600"}`}>
-              <option value="" className="bg-white text-zinc-900">Not checked</option>
+              <option value="" className="bg-white text-zinc-900">Not signed off</option>
               {/* People with the matching role: sign off or mark not required. Everyone else: sign off only. */}
               {first.length > 0 && <optgroup label={role} className="bg-white text-zinc-900">{first.map((m) => opt(m, "ok"))}{first.map((m) => opt(m, "nr"))}</optgroup>}
               {rest.length > 0 && <optgroup label={first.length ? "Everyone else" : "Team"} className="bg-white text-zinc-900">{rest.map((m) => opt(m, "ok"))}{!first.length && rest.map((m) => opt(m, "nr"))}</optgroup>}
