@@ -234,7 +234,7 @@ export default function Home() {
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Licence Checker</h1>
+          <h1 className="text-2xl font-semibold">Website Checker</h1>
         </div>
       </header>
 

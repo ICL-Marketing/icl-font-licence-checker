@@ -59,7 +59,7 @@ function addTaskDropdown(ws, colKey, rowCount) {
 export async function POST(request) {
   const { results = [], kind = "fonts", launch } = await request.json().catch(() => ({}));
   const wb = new ExcelJS.Workbook();
-  wb.creator = "ICL Licence Checker";
+  wb.creator = "ICL Website Checker";
   const today = new Date().toISOString().slice(0, 10);
 
   if (kind === "fonts") {
