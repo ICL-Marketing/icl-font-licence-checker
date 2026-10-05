@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DEFAULT_SITES } from "@/data/sites";
 import { buildFontEmail, buildImageEmail, isFreeLib, segmentsToText, segmentsToHtml } from "@/lib/email";
-import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, freeRouteLink, isFreeFontAwesome, ISSUE_TONE, mergeImageSizes } from "@/lib/fontlink";
+import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, freeRouteLink, isFreeFontAwesome, ISSUE_TONE, mergeImageSizes, creditOnly } from "@/lib/fontlink";
 
 const ORDER = { PROBLEM: 4, CHECK: 3, UNREACHABLE: 2, OK: 1, SYSTEM: 0 };
 const LABEL = { PROBLEM: "PROBLEM", CHECK: "CHECK", UNREACHABLE: "COULDN'T CHECK", OK: "OK", SYSTEM: "NO WEB FONTS", RUNNING: "SCANNING" };
@@ -37,7 +37,7 @@ export default function Home() {
   const [emailTab, setEmailTab] = useState("fonts");
   const [filter, setFilter] = useState("ALL");
   const [open, setOpen] = useState({});
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState("");
   const [showList, setShowList] = useState(true);
   const stopRef = useRef(false);
   const cancelledRef = useRef(new Set());
@@ -159,21 +159,21 @@ export default function Home() {
     setShowList(true);
   }
 
-  async function exportXlsx() {
-    setExporting(true);
+  async function exportXlsx(kind) {
+    setExporting(kind);
     try {
       const r = await fetch("/api/export", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ results: Object.values(results) }),
+        body: JSON.stringify({ results: Object.values(results), kind }),
       });
       const blob = await r.blob();
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `licence-tasks-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.download = `${kind === "images" ? "stock-image" : "font"}-licence-tasks-${new Date().toISOString().slice(0, 10)}.xlsx`;
       a.click();
       URL.revokeObjectURL(a.href);
     } finally {
-      setExporting(false);
+      setExporting("");
     }
   }
 
@@ -219,11 +219,6 @@ export default function Home() {
           <p className="text-sm text-zinc-500">Two separate checks: fonts (quick, homepage + 4 pages) and stock images (every page). Run either from its tab.</p>
         </div>
         <div className="flex gap-2">
-          {all.length > 0 && (
-            <button onClick={exportXlsx} disabled={exporting} className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100 disabled:opacity-50">
-              {exporting ? "Building…" : "Download task tracker (Excel)"}
-            </button>
-          )}
           {all.length > 0 && !running && (
             <button onClick={clearAll} className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100">Clear</button>
           )}
@@ -261,6 +256,7 @@ export default function Home() {
         {tab === "fonts" && (
           <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
             <RunBar kind="fonts" done={fontDone} total={fontTotal} label="Run fonts check" running={running} sites={sites} onRun={() => run("fonts", sites)} onStop={stop} />
+            {fontRows.length > 0 && <DownloadButton label="Download font tracker (Excel)" busy={exporting === "fonts"} onClick={() => exportXlsx("fonts")} />}
             {fontRows.length > 0 && (
               <>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -277,9 +273,14 @@ export default function Home() {
                     </button>
                   ))}
                 </div>
-                <p className="mt-3 text-sm text-zinc-600">
-                  <span className="font-semibold text-green-700">{fontFine}</span> site{fontFine === 1 ? "" : "s"} fine: fonts are Google Fonts, Adobe Fonts kits, open licence, or system fonts only.
-                </p>
+                <FineList
+                  count={fontFine}
+                  text="fonts are Google Fonts, Adobe Fonts kits, open licence, or system fonts only."
+                  items={fontRows.filter((r) => r.status === "OK" || r.status === "SYSTEM").map((r) => ({
+                    site: r.site, url: r.finalUrl || `https://${r.site}`,
+                    detail: (() => { const f = [...new Set((r.fonts || []).filter((x) => x.status === "OK").map((x) => x.family))]; return f.length ? f.join(", ") : "System fonts only"; })(),
+                  }))}
+                />
                 <div className="mt-4 space-y-3">
                   {fontVisible.map((r) => (
                     <SiteCard key={r.site} r={r} open={!!open["f:" + r.site]} toggle={() => setOpen((o) => ({ ...o, ["f:" + r.site]: !o["f:" + r.site] }))} rerun={() => run("fonts", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} />
@@ -294,6 +295,7 @@ export default function Home() {
         {tab === "images" && (
           <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
             <RunBar kind="images" done={imgDone} total={imgTotal} label="Run images check" running={running} sites={sites} onRun={() => run("images", sites)} onStop={stop} />
+            {imgRows.length > 0 && <DownloadButton label="Download stock image tracker (Excel)" busy={exporting === "images"} onClick={() => exportXlsx("images")} />}
             {imgRows.length > 0 && (
               <>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -308,9 +310,17 @@ export default function Home() {
                     <div className="mt-1 text-[11px] leading-tight text-zinc-500">Site down, blocking the scanner, or timed out</div>
                   </div>
                 </div>
-                <p className="mt-3 text-sm text-zinc-600">
-                  <span className="font-semibold text-green-700">{imgFine}</span> site{imgFine === 1 ? "" : "s"} fine: no paid stock-library images found (free libraries like Unsplash and Pexels need no licence).
-                </p>
+                <FineList
+                  count={imgFine}
+                  text="no paid stock-library images found (free libraries like Unsplash and Pexels need no licence)."
+                  items={imgRows.filter((x) => x.r.imgStatus === "DONE" && !x.paid.length).map(({ r }) => {
+                    const free = (r.images || []).filter((i) => i.flag && isFreeLib(i.flag)).length;
+                    return {
+                      site: r.site, url: r.finalUrl || `https://${r.site}`,
+                      detail: `${r.pagesScanned || 0} pages, ${r.imagesChecked || 0} images checked${free ? `, ${free} from free libraries` : ""}`,
+                    };
+                  })}
+                />
                 <p className="mt-1 text-xs text-zinc-500">Flags come from file names (e.g. shutterstock_123.jpg) and embedded copyright / credit tags. The scanner cannot tell whether an image was paid for, so treat this as a list to check against purchase records.</p>
                 <div className="mt-4 space-y-3">
                   {imgVisible.map(({ r, paid }) => (
@@ -397,6 +407,39 @@ function RemoveSite({ site, onRemove }) {
   return (
     <button onClick={() => setAsking(true)} aria-label={`Remove ${site}`} title="Cancel and remove this site"
       className="shrink-0 px-3 py-3 text-lg leading-none text-zinc-400 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500">×</button>
+  );
+}
+
+// "N sites fine" line that expands to list those sites.
+function FineList({ count, text, items }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-3 text-sm text-zinc-600">
+      <button onClick={() => setOpen((v) => !v)} disabled={!items.length} className="text-left disabled:cursor-default">
+        <span className="font-semibold text-green-700">{count}</span> site{count === 1 ? "" : "s"} fine: {text}
+        {items.length > 0 && <span className="ml-2 text-xs text-green-700 underline">{open ? "Hide" : "Show"}</span>}
+      </button>
+      {open && (
+        <ul className="mt-2 grid gap-x-6 gap-y-1 rounded-lg border border-green-200 bg-green-50 p-3 text-xs sm:grid-cols-2">
+          {[...items].sort((a, b) => a.site.localeCompare(b.site)).map((i) => (
+            <li key={i.site} className="min-w-0">
+              <a href={i.url} target="_blank" rel="noreferrer" className="font-medium text-green-800 underline">{i.site}</a>
+              <span className="text-zinc-500"> · {i.detail}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function DownloadButton({ label, busy, onClick }) {
+  return (
+    <div className="mb-4">
+      <button onClick={onClick} disabled={busy} className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100 disabled:opacity-50">
+        {busy ? "Building…" : label}
+      </button>
+    </div>
   );
 }
 
@@ -574,7 +617,7 @@ function ImageCard({ r, paid, open, toggle, rerun, running, onRemove }) {
                         {i.sizes > 1 && <span className="ml-1 text-[11px] text-zinc-400">+{i.sizes - 1} other size{i.sizes === 2 ? "" : "s"}</span>}
                         {i.pages?.length > 0 && <div className="text-[11px] text-zinc-400">on {i.pages.slice(0, 3).map((p) => { try { return new URL(p).pathname || "/"; } catch { return p; } }).join(", ")}{i.pages.length > 3 ? ` +${i.pages.length - 3} more` : ""}</div>}
                       </td>
-                      <td className="py-1.5 pr-2 text-zinc-600">{i.meta ? i.meta.slice(0, 160) : "—"}</td>
+                      <td className="py-1.5 pr-2 text-zinc-600">{creditOnly(i.meta) || "—"}</td>
                       <td className="py-1.5 font-medium">Find the purchase record / licence. If none, replace the image or buy a licence.</td>
                     </tr>
                   );
@@ -644,7 +687,6 @@ function EmailCard({ e }) {
       </div>
       {open && (
         <div className="border-t border-zinc-100 px-4 py-3">
-          <p className="mb-2 text-xs text-zinc-500">Subject: <span className="text-zinc-800">{e.subject}</span></p>
           <p className="mb-2 text-[11px] text-zinc-500"><span className="rounded bg-orange-100 px-1 text-orange-900">Orange text</span> is specific to this site. Click it to edit; changes are saved in this browser and included when you copy.</p>
           <div className="whitespace-pre-wrap rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm leading-relaxed text-zinc-800">
             {e.segments.map((seg, i) => typeof seg === "string"

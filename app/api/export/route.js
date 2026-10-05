@@ -1,4 +1,4 @@
-import { fontLink, isEmbeddedIconFont, issueLabel, ISSUE_FILL, isFreeFontAwesome, freeRouteLabel, nextAction, mergeImageSizes } from "@/lib/fontlink";
+import { fontLink, isEmbeddedIconFont, issueLabel, ISSUE_FILL, isFreeFontAwesome, freeRouteLabel, nextAction, mergeImageSizes, creditOnly } from "@/lib/fontlink";
 import ExcelJS from "exceljs";
 
 export const maxDuration = 30;
@@ -56,11 +56,12 @@ function addTaskDropdown(ws, colKey, rowCount) {
 }
 
 export async function POST(request) {
-  const { results = [] } = await request.json().catch(() => ({}));
+  const { results = [], kind = "fonts" } = await request.json().catch(() => ({}));
   const wb = new ExcelJS.Workbook();
   wb.creator = "ICL font licence checker";
   const today = new Date().toISOString().slice(0, 10);
 
+  if (kind === "fonts") {
   // ---- Sheet 1: fonts to fix. One row per outstanding font, plus one per site that couldn't be checked.
   const fontRows = [];
   for (const r of results) {
@@ -114,7 +115,10 @@ export async function POST(request) {
     }
   });
 
-  // ---- Sheet 2: stock images to check. Only flagged images.
+  }
+
+  if (kind === "images") {
+  // ---- Stock images to check. Only flagged images, size variants merged.
   const imgRows = [];
   for (const r of results) {
     if (r.imgStatus !== "DONE") continue;
@@ -122,9 +126,10 @@ export async function POST(request) {
       let name = i.url;
       try { name = decodeURIComponent(new URL(i.url).pathname.split("/").pop()); } catch {}
       if (i.sizes > 1) name += ` (+${i.sizes - 1} other size${i.sizes === 2 ? "" : "s"})`;
-      imgRows.push({ site: r.site, siteUrl: r.finalUrl || `https://${r.site}`, imageUrl: i.url, flag: i.flag, image: name, meta: i.meta || "",
-        fix: /free/i.test(i.flag) ? "Free library: no licence needed, but check attribution rules." : "Find the purchase record / licence for this image. If none, replace it or buy a licence.",
-        task: "To do", owner: "", notes: "", done: "" });
+      imgRows.push({ site: r.site, siteUrl: r.finalUrl || `https://${r.site}`, imageUrl: i.url, flag: i.flag, image: name, meta: creditOnly(i.meta),
+        pages: (i.pages || []).map((u) => { try { return new URL(u).pathname || "/"; } catch { return u; } }).join("\n"),
+        fix: "Find the purchase record or licence for this image. If none, replace it or buy a licence.",
+        task: "To do", owner: "" });
     }
   }
   imgRows.sort((a, b) => a.site.localeCompare(b.site));
@@ -132,12 +137,11 @@ export async function POST(request) {
     { header: "Site", key: "site", width: 30 },
     { header: "Library", key: "flag", width: 24 },
     { header: "Image", key: "image", width: 40 },
-    { header: "Embedded credit / copyright", key: "meta", width: 44 },
-    { header: "Suggested fix", key: "fix", width: 50 },
+    { header: "Found on", key: "pages", width: 36 },
+    { header: "Credit / copyright", key: "meta", width: 28 },
+    { header: "Next action", key: "fix", width: 48 },
     { header: "Task status", key: "task", width: 14 },
     { header: "Owner", key: "owner", width: 14 },
-    { header: "Notes", key: "notes", width: 36 },
-    { header: "Date done", key: "done", width: 12 },
   ], imgRows);
   addTaskDropdown(imgs, "task", imgRows.length);
   imgs.eachRow((row, i) => {
@@ -150,11 +154,14 @@ export async function POST(request) {
     row.getCell("image").font = { color: { argb: "FF1F4E79" }, underline: true };
   });
 
+  }
+
   const buf = await wb.xlsx.writeBuffer();
+  const file = kind === "images" ? `stock-image-licence-tasks-${today}.xlsx` : `font-licence-tasks-${today}.xlsx`;
   return new Response(buf, {
     headers: {
       "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "content-disposition": `attachment; filename="font-licence-tasks-${today}.xlsx"`,
+      "content-disposition": `attachment; filename="${file}"`,
     },
   });
 }
