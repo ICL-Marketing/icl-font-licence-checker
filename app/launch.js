@@ -461,7 +461,7 @@ function LaunchCard({ k, r, mode, signed, log, shared, team, open, toggle, onSig
                   {mine.filter((x) => !(hideDone && x.done)).sort((a, b) => a.done - b.done || a.i - b.i).map(({ c }) => (
                     <CheckRow key={c.id} c={c} s={signed[c.id]} team={team} onSign={(name, nr) => onSign(c, name, nr)} marker={marker} markerReady={markerReady} snag={r.snags?.[c.id]} onSnag={(sn) => onSnag(c.id, sn)} site={r.start?.finalUrl || `https://${k}`} />
                   ))}
-                  {hideDone && !left && <p className="px-3 py-2.5 text-sm text-green-700">{who === "Automated" ? `${mine.length} checks passed automatically.` : `All ${who} checks are complete.`}</p>}
+                  {hideDone && !left && who !== "Automated" && <p className="px-3 py-2.5 text-sm text-green-700">All {who} checks are complete.</p>}
                 </div>
               </div>
             );
