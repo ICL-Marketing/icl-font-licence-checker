@@ -51,6 +51,7 @@ export default function Home() {
   const [open, setOpen] = useState({});
   const [exporting, setExporting] = useState("");
   const [showList, setShowList] = useState(true);
+  const [showImgFine, setShowImgFine] = useState(false);
   const stopRef = useRef(false);
   const cancelledRef = useRef(new Set());
   const router = useRouter();
@@ -397,18 +398,25 @@ export default function Home() {
                     <div className={`text-xs font-medium ${COLOUR.UNREACHABLE.text}`}>COULDN&apos;T CHECK</div>
                     <div className="mt-1 text-[11px] leading-tight text-zinc-500">Site down, blocking the scanner, or timed out</div>
                   </div>
+                  <button onClick={() => setShowImgFine((v) => !v)} aria-expanded={showImgFine} className={`rounded-xl border p-3 text-left ${COLOUR.OK.bg} ${showImgFine ? COLOUR.OK.border : "border-transparent"}`}>
+                    <div className={`text-3xl font-semibold ${COLOUR.OK.text}`}>{imgFine}</div>
+                    <div className={`text-xs font-medium ${COLOUR.OK.text}`}>FINE</div>
+                    <div className="mt-1 text-[11px] leading-tight text-zinc-500">No paid stock-library images (free libraries like Unsplash and Pexels need no licence). {showImgFine ? "Hide list" : "Show list"}</div>
+                  </button>
                 </div>
-                <FineList
-                  count={imgFine}
-                  text="no paid stock-library images found (free libraries like Unsplash and Pexels need no licence)."
-                  items={imgRows.filter((x) => x.r.imgStatus === "DONE" && !x.paid.length).map(({ r }) => {
-                    const free = (r.images || []).filter((i) => i.flag && isFreeLib(i.flag)).length;
-                    return {
-                      site: r.site, url: r.finalUrl || `https://${r.site}`,
-                      detail: `${r.pagesScanned || 0} pages, ${r.imagesChecked || 0} images checked${free ? `, ${free} from free libraries` : ""}`,
-                    };
-                  })}
-                />
+                {showImgFine && (
+                  <ul className="mt-3 grid gap-x-6 gap-y-1 rounded-lg border border-green-200 bg-green-50 p-3 text-xs sm:grid-cols-2">
+                    {imgRows.filter((x) => x.r.imgStatus === "DONE" && !x.paid.length).map(({ r }) => {
+                      const free = (r.images || []).filter((i) => i.flag && isFreeLib(i.flag)).length;
+                      return (
+                        <li key={r.site} className="min-w-0">
+                          <a href={r.finalUrl || `https://${r.site}`} target="_blank" rel="noreferrer" className="font-medium text-green-800 underline">{r.site}</a>
+                          <span className="text-zinc-500"> · {r.pagesScanned || 0} pages, {r.imagesChecked || 0} images checked{free ? `, ${free} from free libraries` : ""}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
                 <p className="mt-1 text-xs text-zinc-500">Flags come from file names (e.g. shutterstock_123.jpg) and embedded copyright / credit tags. The scanner cannot tell whether an image was paid for, so treat this as a list to check against purchase records.</p>
                 <div className="mt-4 space-y-3">
                   {imgVisible.map(({ r, paid }) => (
