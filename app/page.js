@@ -33,8 +33,8 @@ export default function Home() {
   const [parallel, setParallel] = useState(4);
   const [results, setResults] = useState({});
   const [running, setRunning] = useState(null); // null | "fonts" | "images"
-  const [tab, setTab] = useState("fonts");
-  const [emailTab, setEmailTab] = useState("fonts");
+  const [area, setArea] = useState("fonts"); // "fonts" | "images"
+  const [view, setView] = useState({ fonts: "results", images: "results" }); // "results" | "emails" per area
   const [filter, setFilter] = useState("ALL");
   const [open, setOpen] = useState({});
   const [exporting, setExporting] = useState("");
@@ -140,7 +140,8 @@ export default function Home() {
     stopRef.current = false;
     setRunning(kind);
     setShowList(false);
-    setTab(kind);
+    setArea(kind);
+    setView((v) => ({ ...v, [kind]: "results" }));
     const queue = [...list];
     const fn = kind === "fonts" ? scanFonts : scanImages;
     const workers = Array.from({ length: Math.max(1, parallel) }, async () => {
@@ -153,10 +154,24 @@ export default function Home() {
     setRunning(null);
   }
   function stop() { stopRef.current = true; }
-  function clearAll() {
-    setResults({});
-    try { localStorage.removeItem(STORAGE_KEY); } catch {}
-    setShowList(true);
+  // Clear one area's results only; the other area's results stay.
+  const AREA_FIELDS = {
+    fonts: ["status", "fonts", "ignoredFonts", "error", "fix", "platform", "cssCount", "fontPages", "seconds", "fontsScannedAt"],
+    images: ["imgStatus", "images", "imgError", "imgFix", "imgProgress", "imagesChecked", "pagesScanned", "pagesTotal", "hasSitemap", "imagesScannedAt"],
+  };
+  function clearArea(kind) {
+    setResults((prev) => {
+      const next = {};
+      for (const [site, r] of Object.entries(prev)) {
+        const kept = { ...r };
+        for (const k of AREA_FIELDS[kind]) delete kept[k];
+        if (kept.status || kept.imgStatus) next[site] = kept;
+      }
+      if (!Object.keys(next).length) { try { localStorage.removeItem(STORAGE_KEY); } catch {} }
+      return next;
+    });
+    setOpen({});
+    if (kind === "fonts") setFilter("ALL");
   }
 
   async function exportXlsx(kind) {
@@ -205,8 +220,8 @@ export default function Home() {
   const imageEmails = useMemo(() => all.map(buildImageEmail).filter(Boolean).sort((a, b) => a.site.localeCompare(b.site)), [all]);
 
   const tabBtn = (id, label, count) => (
-    <button onClick={() => setTab(id)}
-      className={`rounded-t-lg border border-b-0 px-4 py-2 text-sm font-medium ${tab === id ? "border-zinc-300 bg-white text-zinc-900" : "border-transparent bg-transparent text-zinc-500 hover:text-zinc-800"}`}>
+    <button onClick={() => setView((v) => ({ ...v, [area]: id }))}
+      className={`rounded-t-lg border border-b-0 px-4 py-2 text-sm font-medium ${view[area] === id ? "border-zinc-300 bg-white text-zinc-900" : "border-transparent bg-transparent text-zinc-500 hover:text-zinc-800"}`}>
       {label}{count != null && <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] text-zinc-700">{count}</span>}
     </button>
   );
@@ -216,14 +231,20 @@ export default function Home() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Font &amp; image licence checker</h1>
-          <p className="text-sm text-zinc-500">Two separate checks: fonts (quick, homepage + 4 pages) and stock images (every page). Run either from its tab.</p>
-        </div>
-        <div className="flex gap-2">
-          {all.length > 0 && !running && (
-            <button onClick={clearAll} className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100">Clear</button>
-          )}
+          <p className="text-sm text-zinc-500">Two separate checks: fonts (quick, homepage + 4 pages) and stock images (every page).</p>
         </div>
       </header>
+
+      <nav className="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-zinc-200/70 p-1 sm:inline-grid sm:w-auto" aria-label="Licence area">
+        {[["fonts", "Font licensing", fontRows.length ? fontCounts.PROBLEM + fontCounts.CHECK : null],
+          ["images", "Image licensing", imgRows.length ? imgPaidSites : null]].map(([id, label, n]) => (
+          <button key={id} onClick={() => setArea(id)} aria-current={area === id ? "page" : undefined}
+            className={`rounded-lg px-4 py-2 text-sm font-semibold ${area === id ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"}`}>
+            {label}{n != null && <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] text-zinc-700">{n}</span>}
+            {running === id && <span className="ml-2 text-[11px] font-normal text-blue-600">scanning…</span>}
+          </button>
+        ))}
+      </nav>
 
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
         <button onClick={() => setShowList((v) => !v)} className="flex w-full items-center justify-between text-left text-sm font-medium">
@@ -246,17 +267,18 @@ export default function Home() {
         )}
       </section>
 
-      <section className="mt-5">
+      <section className="mt-4">
         <div className="flex gap-1 border-b border-zinc-300">
-          {tabBtn("fonts", "Fonts", fontRows.length ? fontCounts.PROBLEM + fontCounts.CHECK : null)}
-          {tabBtn("images", "Stock images", imgRows.length ? imgPaidSites : null)}
-          {tabBtn("emails", "Client emails", fontEmails.length + imageEmails.length || null)}
+          {tabBtn("results", area === "fonts" ? "Fonts found" : "Stock images found", null)}
+          {tabBtn("emails", "Client emails", (area === "fonts" ? fontEmails : imageEmails).length || null)}
         </div>
 
-        {tab === "fonts" && (
+        {area === "fonts" && (
           <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
-            <RunBar kind="fonts" done={fontDone} total={fontTotal} label="Run fonts check" running={running} sites={sites} onRun={() => run("fonts", sites)} onStop={stop} />
-            {fontRows.length > 0 && <DownloadButton label="Download font tracker (Excel)" busy={exporting === "fonts"} onClick={() => exportXlsx("fonts")} />}
+            <AreaBar kind="fonts" done={fontDone} total={fontTotal} label={fontRows.length ? "Rescan fonts" : "Run fonts check"} running={running} sites={sites}
+              onRun={() => run("fonts", sites)} onStop={stop} onClear={fontRows.length ? () => clearArea("fonts") : null}
+              download={fontRows.length ? { label: "Download font tracker (Excel)", busy: exporting === "fonts", onClick: () => exportXlsx("fonts") } : null} />
+            {view.fonts === "results" ? (<>
             {fontRows.length > 0 && (
               <>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -289,13 +311,19 @@ export default function Home() {
                 </div>
               </>
             )}
+            </>) : (
+              <EmailList kind="fonts" emails={fontEmails} scanned={fontRows.length > 0}
+                intro="One ready-to-send email per site, only for what the client has to answer: paid fonts with no licence found, demo fonts, font subscriptions to confirm, and fonts of unknown origin. Anything we can fix ourselves at no cost is left out. Sites with no issues get no email." />
+            )}
           </div>
         )}
 
-        {tab === "images" && (
+        {area === "images" && (
           <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
-            <RunBar kind="images" done={imgDone} total={imgTotal} label="Run images check" running={running} sites={sites} onRun={() => run("images", sites)} onStop={stop} />
-            {imgRows.length > 0 && <DownloadButton label="Download stock image tracker (Excel)" busy={exporting === "images"} onClick={() => exportXlsx("images")} />}
+            <AreaBar kind="images" done={imgDone} total={imgTotal} label={imgRows.length ? "Rescan images" : "Run images check"} running={running} sites={sites}
+              onRun={() => run("images", sites)} onStop={stop} onClear={imgRows.length ? () => clearArea("images") : null}
+              download={imgRows.length ? { label: "Download stock image tracker (Excel)", busy: exporting === "images", onClick: () => exportXlsx("images") } : null} />
+            {view.images === "results" ? (<>
             {imgRows.length > 0 && (
               <>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -330,26 +358,10 @@ export default function Home() {
                 </div>
               </>
             )}
-          </div>
-        )}
-
-        {tab === "emails" && (
-          <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
-            <p className="text-sm text-zinc-600">
-              One ready-to-send email per site, only for what the client has to answer: paid fonts with no licence found, demo fonts, font subscriptions to confirm, and fonts of unknown origin. Anything we can fix ourselves at no cost is left out. Copy, paste into your email client, and your signature does the rest. Sites with no issues get no email.
-            </p>
-            <div className="mt-3 flex gap-2">
-              {[["fonts", "Font emails", fontEmails.length], ["images", "Image emails", imageEmails.length]].map(([id, label, n]) => (
-                <button key={id} onClick={() => setEmailTab(id)}
-                  className={`rounded-md border px-3 py-1.5 text-sm ${emailTab === id ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>
-                  {label} <span className="ml-1 opacity-70">{n}</span>
-                </button>
-              ))}
-            </div>
-            <div className="mt-4 space-y-4">
-              {(emailTab === "fonts" ? fontEmails : imageEmails).map((e) => <EmailCard key={e.kind + e.site} e={e} />)}
-              {!(emailTab === "fonts" ? fontEmails : imageEmails).length && <p className="text-sm text-zinc-500">No sites need a {emailTab === "fonts" ? "font" : "image"} email{emailTab === "fonts" ? (fontRows.length ? "." : " (run the fonts check first).") : (imgRows.length ? "." : " (run the images check first).")}</p>}
-            </div>
+            </>) : (
+              <EmailList kind="images" emails={imageEmails} scanned={imgRows.length > 0}
+                intro="One ready-to-send email per site that has images from paid stock libraries. It is a heads-up for the client, not a demand: most of these are likely already licensed. Sites with no paid-library images get no email." />
+            )}
           </div>
         )}
       </section>
@@ -433,34 +445,51 @@ function FineList({ count, text, items }) {
   );
 }
 
-function DownloadButton({ label, busy, onClick }) {
+// Run / rescan, stop, download and clear for one area. Clear asks first.
+function AreaBar({ kind, done, total, label, running, sites, onRun, onStop, onClear, download }) {
+  const [asking, setAsking] = useState(false);
+  const btn = "rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100 disabled:opacity-50";
   return (
     <div className="mb-4">
-      <button onClick={onClick} disabled={busy} className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100 disabled:opacity-50">
-        {busy ? "Building…" : label}
-      </button>
-    </div>
-  );
-}
-
-function RunBar({ kind, done, total, label, running, sites, onRun, onStop }) {
-  return (
-    <div className="mb-4 flex flex-wrap items-center gap-3">
-      {running === kind ? (
-        <button onClick={onStop} className="rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white">Stop</button>
-      ) : (
-        <button onClick={onRun} disabled={!!running || !sites.length} className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
-          {label} on {sites.length} site{sites.length === 1 ? "" : "s"}
-        </button>
-      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {running === kind ? (
+          <button onClick={onStop} className="rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white">Stop</button>
+        ) : (
+          <button onClick={onRun} disabled={!!running || !sites.length} className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
+            {label} on {sites.length} site{sites.length === 1 ? "" : "s"}
+          </button>
+        )}
+        {download && <button onClick={download.onClick} disabled={download.busy} className={btn}>{download.busy ? "Building…" : download.label}</button>}
+        {onClear && !running && (asking ? (
+          <span className="flex items-center gap-2 text-sm">
+            <span className="text-zinc-600">Clear all {kind === "fonts" ? "font" : "image"} results?</span>
+            <button onClick={() => { setAsking(false); onClear(); }} className="rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white">Clear</button>
+            <button onClick={() => setAsking(false)} className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100">Keep</button>
+          </span>
+        ) : (
+          <button onClick={() => setAsking(true)} className={`${btn} sm:ml-auto`}>Clear {kind === "fonts" ? "font" : "image"} results</button>
+        ))}
+      </div>
       {total > 0 && (
-        <div className="min-w-[220px] flex-1">
+        <div className="mt-3">
           <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-200">
             <div className="h-full bg-zinc-800 transition-all" style={{ width: `${total ? (done / total) * 100 : 0}%` }} />
           </div>
           <p className="mt-1 text-xs text-zinc-500">{running === kind ? `Scanning… ${done} of ${total} done` : `${done} site${done === 1 ? "" : "s"} scanned`}</p>
         </div>
       )}
+    </div>
+  );
+}
+
+function EmailList({ kind, emails, scanned, intro }) {
+  return (
+    <div>
+      <p className="text-sm text-zinc-600">{intro} Copy, paste into your email client, and your signature does the rest.</p>
+      <div className="mt-4 space-y-4">
+        {emails.map((e) => <EmailCard key={e.kind + e.site} e={e} />)}
+        {!emails.length && <p className="text-sm text-zinc-500">No sites need {kind === "fonts" ? "a font" : "an image"} email{scanned ? "." : ` (run the ${kind} check first).`}</p>}
+      </div>
     </div>
   );
 }
