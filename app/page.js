@@ -528,7 +528,6 @@ function EmailCard({ e }) {
           <span className="ml-2 text-xs text-zinc-500">{e.count} {e.kind === "fonts" ? "font" : "image"}{e.count === 1 ? "" : "s"}</span>
           <span className="ml-2 text-xs text-zinc-400">{open ? "▲" : "▼"}</span>
         </button>
-        <button onClick={() => copy("subject", e.subject)} className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs hover:bg-zinc-100">{copied === "subject" ? "Copied" : "Copy subject"}</button>
         <button onClick={() => copy("body", e.body)} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{copied === "body" ? "Copied" : "Copy email"}</button>
       </div>
       {open && (

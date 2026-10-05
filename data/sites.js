@@ -68,7 +68,6 @@ export const DEFAULT_SITES = [
   "highci.com",
   "holywowpr.com",
   "hotelcaferoyal.com",
-  "icldigital.com",
   "iiom.global",
   "isolatrading.co.uk",
   "jamesmossman.co.uk",
