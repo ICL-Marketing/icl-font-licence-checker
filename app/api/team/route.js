@@ -12,7 +12,7 @@ export async function POST(request) {
   if (!storeConfigured()) return Response.json({ shared: false });
   const b = await request.json().catch(() => ({}));
   if (!Array.isArray(b.team)) return Response.json({ error: "team required" }, { status: 400 });
-  const ROLES = ["Development", "Designer", "Account Manager", "Content"];
+  const ROLES = ["Development", "Senior Developer", "Designer", "Account Manager", "Content"];
   const seen = new Map();
   for (const x of b.team) {
     const name = String(typeof x === "string" ? x : x?.name || "").trim().slice(0, 60);

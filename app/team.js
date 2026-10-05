@@ -5,7 +5,7 @@ import { TEAM } from "@/data/team";
 
 // Team members ({name, role}) for the "Checked by" dropdowns. Stored in this browser, always A–Z by name.
 export const TEAM_KEY = "flc-team-v1";
-export const ROLES = ["Development", "Designer", "Account Manager", "Content"];
+export const ROLES = ["Development", "Senior Developer", "Designer", "Account Manager", "Content"];
 
 // Accepts plain names (older saved lists) or {name, role} objects.
 export function normaliseTeam(list) {

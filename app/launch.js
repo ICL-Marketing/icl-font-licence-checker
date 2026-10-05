@@ -360,7 +360,7 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
 }
 
 // Which team role each check owner maps to (people with that role are listed first).
-const OWNER_ROLE = { Designer: "Designer", Developer: "Development", "Senior Developer": "Development", "Account Manager": "Account Manager", Content: "Content" };
+const OWNER_ROLE = { Designer: "Designer", Developer: "Development", "Senior Developer": "Senior Developer", "Account Manager": "Account Manager", Content: "Content" };
 
 // What the scan found, shown as a short note on rows still needing a person.
 const SCAN_NOTE = { fail: "Scan found problems", review: "Scan found things to look at", manual: "Manual check" };
