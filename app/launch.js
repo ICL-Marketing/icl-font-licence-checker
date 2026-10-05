@@ -20,7 +20,7 @@ const hostOf = (u) => { try { return hostKey(new URL(u).host); } catch { return 
 const keyFor = (input) => { let s = String(input || "").trim(); if (!/^https?:\/\//i.test(s)) s = "https://" + s; return hostOf(s); };
 
 
-export default function LaunchArea({ post, onRunning, mode = "launch" }) {
+export default function LaunchArea({ post, onRunning, onCount, mode = "launch" }) {
   const { runs: RUNS_KEY, sign: SIGN_KEY, log: LOG_KEY } = keysFor(mode);
   const storeKey = (key) => (mode === "post" ? `${key}#post` : key); // shared-store id for sign-offs
   const [url, setUrl] = useState("");
@@ -311,6 +311,14 @@ export default function LaunchArea({ post, onRunning, mode = "launch" }) {
       patch(key, { markerBusy: "", marker: { ...(runs[key]?.marker || {}), refreshError: String(e.message) } });
     }
   }
+
+  // Sites not fully signed off (or not finished scanning), for the tab counter.
+  const outstanding = useMemo(() => Object.entries(runs).filter(([key, r]) => {
+    if (r.status !== "DONE") return true;
+    const signed = signoffs[key] || {};
+    return evaluateLaunch(r).some((c) => c.state !== "pass" && !signed[c.id]);
+  }).length, [runs, signoffs]);
+  useEffect(() => { onCount?.(outstanding); }, [outstanding, onCount]);
 
   const list = useMemo(() => Object.entries(runs).sort((a, b) => (b[1].scannedAt || "9").localeCompare(a[1].scannedAt || "9")), [runs]);
 

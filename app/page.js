@@ -37,6 +37,8 @@ export default function Home() {
   const [results, setResults] = useState({});
   const [running, setRunning] = useState(null); // null | "fonts" | "images"
   const [launchRunning, setLaunchRunning] = useState(false); // false | "launch" | "post"
+  const [launchCount, setLaunchCount] = useState(0);
+  const [postCount, setPostCount] = useState(0);
   const [area, setAreaState] = useState("fonts"); // "fonts" | "images" | "launch" | "post"
   const TAB_SLUG = { fonts: "fonts", images: "images", launch: "launch", post: "post-launch" };
   const setArea = (id) => {
@@ -284,8 +286,8 @@ export default function Home() {
       <nav className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 rounded-xl bg-zinc-200/70 p-1 sm:inline-grid sm:w-auto" aria-label="Licence area">
         {[["fonts", "Font Licenses", fontRows.length ? fontCounts.PROBLEM + fontCounts.CHECK : null],
           ["images", "Image Licenses", imgRows.length ? imgPaidSites : null],
-          ["launch", "Launch Checks", null],
-          ["post", "Post Launch Checks", null]].map(([id, label, n]) => (
+          ["launch", "Launch Checks", launchCount || null],
+          ["post", "Post Launch Checks", postCount || null]].map(([id, label, n]) => (
           <button key={id} onClick={() => setArea(id)} aria-current={area === id ? "page" : undefined}
             className={`rounded-lg px-4 py-2 text-sm font-semibold ${area === id ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"}`}>
             {label}{n != null && <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] text-zinc-700">{n}</span>}
@@ -295,8 +297,8 @@ export default function Home() {
       </nav>
 
       {/* All areas stay mounted so a running scan carries on when you switch tabs. */}
-      <section className={`mt-5 ${area === "launch" ? "" : "hidden"}`}><LaunchArea post={post} mode="launch" onRunning={(v) => setLaunchRunning(v ? "launch" : false)} /></section>
-      <section className={`mt-5 ${area === "post" ? "" : "hidden"}`}><LaunchArea post={post} mode="post" onRunning={(v) => setLaunchRunning(v ? "post" : false)} /></section>
+      <section className={`mt-5 ${area === "launch" ? "" : "hidden"}`}><LaunchArea post={post} mode="launch" onRunning={(v) => setLaunchRunning(v ? "launch" : false)} onCount={setLaunchCount} /></section>
+      <section className={`mt-5 ${area === "post" ? "" : "hidden"}`}><LaunchArea post={post} mode="post" onRunning={(v) => setLaunchRunning(v ? "post" : false)} onCount={setPostCount} /></section>
 
       <div className={area !== "launch" && area !== "post" ? "" : "hidden"}>
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
