@@ -795,7 +795,7 @@ function EmailCard({ e, open, toggle }) {
       <div className="flex flex-wrap items-center gap-2 px-4 py-3">
         <button onClick={toggle} className="flex-1 text-left">
           <span className="font-medium">{e.site}</span>
-          <span className="ml-2 text-xs text-zinc-500">{e.count} {e.kind === "fonts" ? "font" : "image"}{e.count === 1 ? "" : "s"}</span>
+          <span className="ml-2 text-xs text-zinc-500">{e.count} {e.kind === "fonts" ? "font" : "image"}{e.count === 1 ? "" : "s"}{e.attach ? " · spreadsheet to attach" : ""}</span>
           {edited && <span className="ml-2 rounded bg-orange-100 px-1.5 py-0.5 text-[11px] font-semibold text-orange-800">Edited</span>}
           <span className="ml-2 inline-block align-middle text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>
         </button>

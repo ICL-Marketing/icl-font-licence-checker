@@ -218,8 +218,55 @@ export async function POST(request) {
     }
   }
 
+  if (kind === "client-images") {
+    // ---- One client's stock images, written for the client to fill in and send back.
+    const r = results[0] || {};
+    const rows = [];
+    for (const i of mergeImageSizes((r.images || []).filter((x) => x.flag && !/free/i.test(x.flag)))) {
+      let name = i.url;
+      try { name = decodeURIComponent(new URL(i.url).pathname.split("/").pop()); } catch {}
+      const pages = i.pages?.length ? i.pages : i.page ? [i.page] : [];
+      const sig = stockLicenceSignal(i);
+      rows.push({ image: name, imageUrl: i.url, library: i.flag, libUrl: stockLibraryLink(i.url, i.flag), pageText: pages.map((u) => { try { return new URL(u).pathname || "/"; } catch { return u; } }).join("\n"), pageUrl: pages[0] || "",
+        assessment: sig.status === "Likely licensed" ? "Likely licensed" : sig.status === "Possible preview" ? "May be a watermarked preview – worth checking" : "Could not tell",
+        status: "", notes: "" });
+    }
+    rows.sort((a, b) => a.library.localeCompare(b.library) || a.image.localeCompare(b.image));
+    const ws = sheet(wb, "Stock images", [
+      { header: "Image", key: "image", width: 44 },
+      { header: "From", key: "library", width: 16 },
+      { header: "View on library", key: "lib", width: 22 },
+      { header: "Used on", key: "pageText", width: 34 },
+      { header: "Our assessment", key: "assessment", width: 34 },
+      { header: "Status (please fill in)", key: "status", width: 26 },
+      { header: "Notes", key: "notes", width: 36 },
+    ], rows);
+    ws.spliceRows(1, 0, [`Stock images on ${r.site || ""}`], ["Please mark each image as Licensed, Replace or Remove in the Status column and send this back to us."]);
+    ws.getRow(1).font = { bold: true, size: 14 };
+    ws.getRow(2).font = { color: { argb: "FF6B7280" } };
+    ws.getRow(3).font = { bold: true };
+    ws.views = [{ state: "frozen", ySplit: 3 }];
+    ws.autoFilter = undefined;
+    const STATES = ["Licensed", "Replace", "Remove", "Not sure"];
+    rows.forEach((row, i) => {
+      const x = ws.getRow(i + 4);
+      x.alignment = { wrapText: true, vertical: "top" };
+      x.getCell(1).value = { text: row.image, hyperlink: row.imageUrl };
+      x.getCell(1).font = { color: { argb: "FF1F4E79" }, underline: true };
+      if (row.libUrl) { x.getCell(3).value = { text: `View on ${row.library}`, hyperlink: row.libUrl }; x.getCell(3).font = { color: { argb: "FF1F4E79" }, underline: true }; }
+      if (row.pageUrl) { x.getCell(4).value = { text: row.pageText, hyperlink: row.pageUrl }; x.getCell(4).font = { color: { argb: "FF1F4E79" }, underline: true }; }
+      x.getCell(5).fill = { type: "pattern", pattern: "solid", fgColor: { argb: /Likely/.test(row.assessment) ? "FFD4EDDA" : /preview/.test(row.assessment) ? "FFF8D7DA" : "FFFFF3CD" } };
+      x.getCell(6).dataValidation = { type: "list", allowBlank: true, formulae: [`"${STATES.join(",")}"`] };
+    });
+    if (rows.length) ws.addConditionalFormatting({ ref: `F4:F${rows.length + 3}`, rules: [
+      { type: "cellIs", operator: "equal", formulae: ['"Licensed"'], priority: 1, style: { fill: { type: "pattern", pattern: "solid", bgColor: { argb: "FFD4EDDA" } } } },
+      { type: "cellIs", operator: "equal", formulae: ['"Replace"'], priority: 2, style: { fill: { type: "pattern", pattern: "solid", bgColor: { argb: "FFFFF3CD" } } } },
+      { type: "cellIs", operator: "equal", formulae: ['"Remove"'], priority: 3, style: { fill: { type: "pattern", pattern: "solid", bgColor: { argb: "FFF8D7DA" } } } },
+    ] });
+  }
+
   const buf = await wb.xlsx.writeBuffer();
-  const file = kind === "launch" ? `launch-checklist-${String(launch?.site || "site").replace(/[^a-z0-9.-]/gi, "")}-${today}.xlsx` : kind === "images" ? `stock-image-licence-tasks-${today}.xlsx` : `font-licence-tasks-${today}.xlsx`;
+  const file = kind === "client-images" ? `stock-images-${String(results[0]?.site || "site").replace(/[^a-z0-9.-]/gi, "")}-${today}.xlsx` : kind === "launch" ? `launch-checklist-${String(launch?.site || "site").replace(/[^a-z0-9.-]/gi, "")}-${today}.xlsx` : kind === "images" ? `stock-image-licence-tasks-${today}.xlsx` : `font-licence-tasks-${today}.xlsx`;
   return new Response(buf, {
     headers: {
       "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
