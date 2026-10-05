@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import LaunchArea from "@/app/launch";
 import { DEFAULT_SITES } from "@/data/sites";
 import { buildFontEmail, buildImageEmail, isFreeLib, segmentsToText, segmentsToHtml } from "@/lib/email";
 import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, freeRouteLink, isFreeFontAwesome, ISSUE_TONE, mergeImageSizes, creditOnly, imageAdminLink, stockLibraryLink, stockLicenceSignal } from "@/lib/fontlink";
@@ -33,7 +34,7 @@ export default function Home() {
   const [parallel, setParallel] = useState(4);
   const [results, setResults] = useState({});
   const [running, setRunning] = useState(null); // null | "fonts" | "images"
-  const [area, setArea] = useState("fonts"); // "fonts" | "images"
+  const [area, setArea] = useState("fonts"); // "fonts" | "images" | "launch"
   const [view, setView] = useState({ fonts: "results", images: "results" }); // "results" | "emails" per area
   const [filter, setFilter] = useState("ALL");
   const [open, setOpen] = useState({});
@@ -237,9 +238,10 @@ export default function Home() {
         </div>
       </header>
 
-      <nav className="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-zinc-200/70 p-1 sm:inline-grid sm:w-auto" aria-label="Licence area">
+      <nav className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-zinc-200/70 p-1 sm:inline-grid sm:w-auto" aria-label="Licence area">
         {[["fonts", "Fonts", fontRows.length ? fontCounts.PROBLEM + fontCounts.CHECK : null],
-          ["images", "Images", imgRows.length ? imgPaidSites : null]].map(([id, label, n]) => (
+          ["images", "Images", imgRows.length ? imgPaidSites : null],
+          ["launch", "Launch checks", null]].map(([id, label, n]) => (
           <button key={id} onClick={() => setArea(id)} aria-current={area === id ? "page" : undefined}
             className={`rounded-lg px-4 py-2 text-sm font-semibold ${area === id ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"}`}>
             {label}{n != null && <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] text-zinc-700">{n}</span>}
@@ -248,6 +250,9 @@ export default function Home() {
         ))}
       </nav>
 
+      {area === "launch" && <section className="mt-5"><LaunchArea post={post} /></section>}
+
+      {area !== "launch" && <>
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
         <button onClick={() => setShowList((v) => !v)} className="flex w-full items-center justify-between text-left text-sm font-medium">
           <span>Sites to check ({sites.length})</span>
@@ -371,6 +376,7 @@ export default function Home() {
       <footer className="mt-10 text-xs text-zinc-400">
         <p>PROBLEM means investigate, not guilty. Fonts loaded only by JavaScript can be missed. Image flags are filename and metadata only; cross-check against purchase records.</p>
       </footer>
+      </>}
     </main>
   );
 }

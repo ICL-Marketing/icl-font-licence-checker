@@ -1,5 +1,6 @@
 import { fontLink, isEmbeddedIconFont, issueLabel, ISSUE_FILL, isFreeFontAwesome, freeRouteLabel, nextAction, mergeImageSizes, creditOnly, imageAdminLink, stockLibraryLink, stockLicenceSignal } from "@/lib/fontlink";
 import ExcelJS from "exceljs";
+import { AUTO_SIGNER, STATE_LABEL } from "@/lib/launchChecks";
 
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
@@ -56,7 +57,7 @@ function addTaskDropdown(ws, colKey, rowCount) {
 }
 
 export async function POST(request) {
-  const { results = [], kind = "fonts" } = await request.json().catch(() => ({}));
+  const { results = [], kind = "fonts", launch } = await request.json().catch(() => ({}));
   const wb = new ExcelJS.Workbook();
   wb.creator = "ICL Licence Checker";
   const today = new Date().toISOString().slice(0, 10);
@@ -169,8 +170,56 @@ export async function POST(request) {
 
   }
 
+  if (kind === "launch" && launch) {
+    // ---- Launch checklist for one site. Names come from a hidden sheet so the list can be any length.
+    const names = [...(launch.team || []), AUTO_SIGNER];
+    const ns = wb.addWorksheet("Names", { state: "veryHidden" });
+    names.forEach((n, i) => { ns.getCell(i + 1, 1).value = n; });
+    const signed = launch.signed || {};
+    const rows = (launch.checks || []).map((c) => {
+      const s = c.state === "pass" ? { name: AUTO_SIGNER, at: launch.scannedAt } : signed[c.id];
+      return {
+        section: c.section, owner: c.owner, check: c.title, result: STATE_LABEL[c.state] || c.state, state: c.state,
+        details: [c.summary, ...(c.items || []).slice(0, 15).map((i) => `• ${i.text}`)].filter(Boolean).join("\n"),
+        done: s ? "Yes" : "No", by: s?.name || "", date: s?.at ? new Date(s.at).toISOString().slice(0, 10) : "",
+      };
+    });
+    const ws = sheet(wb, "Launch checklist", [
+      { header: "Section", key: "section", width: 16 },
+      { header: "Responsible", key: "owner", width: 18 },
+      { header: "Check", key: "check", width: 48 },
+      { header: "Automatic result", key: "result", width: 20 },
+      { header: "Details", key: "details", width: 70 },
+      { header: "Signed off", key: "done", width: 11 },
+      { header: "Signed off by", key: "by", width: 24 },
+      { header: "Date", key: "date", width: 12 },
+    ], rows);
+    ws.spliceRows(1, 0, [`Launch checklist: ${launch.url || launch.site}`], [`Scanned ${launch.scannedAt ? new Date(launch.scannedAt).toISOString().slice(0, 16).replace("T", " ") : ""}`]);
+    ws.getRow(1).font = { bold: true, size: 14 };
+    ws.getRow(2).font = { color: { argb: "FF6B7280" } };
+    ws.getRow(3).font = { bold: true };
+    ws.views = [{ state: "frozen", ySplit: 3 }];
+    ws.autoFilter = undefined;
+    const STATE_FILL = { pass: "FFD4EDDA", fail: "FFF8D7DA", review: "FFFFF3CD", manual: "FFE5E7EB" };
+    rows.forEach((r, i) => {
+      const row = ws.getRow(i + 4);
+      row.alignment = { wrapText: true, vertical: "top" };
+      const c = row.getCell(4);
+      c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: STATE_FILL[r.state] || "FFF1F1F1" } };
+      c.font = { bold: true };
+      row.getCell(6).dataValidation = { type: "list", allowBlank: false, formulae: ['"Yes,No"'] };
+      row.getCell(7).dataValidation = { type: "list", allowBlank: true, formulae: [`Names!$A$1:$A$${names.length}`] };
+    });
+    if (rows.length) {
+      ws.addConditionalFormatting({ ref: `F4:F${rows.length + 3}`, rules: [
+        { type: "cellIs", operator: "equal", formulae: ['"Yes"'], priority: 1, style: { fill: { type: "pattern", pattern: "solid", bgColor: { argb: "FFD4EDDA" } }, font: { bold: true, color: { argb: "FF1E6B34" } } } },
+        { type: "cellIs", operator: "equal", formulae: ['"No"'], priority: 2, style: { fill: { type: "pattern", pattern: "solid", bgColor: { argb: "FFF8D7DA" } }, font: { bold: true, color: { argb: "FF9B1C1C" } } } },
+      ] });
+    }
+  }
+
   const buf = await wb.xlsx.writeBuffer();
-  const file = kind === "images" ? `stock-image-licence-tasks-${today}.xlsx` : `font-licence-tasks-${today}.xlsx`;
+  const file = kind === "launch" ? `launch-checklist-${String(launch?.site || "site").replace(/[^a-z0-9.-]/gi, "")}-${today}.xlsx` : kind === "images" ? `stock-image-licence-tasks-${today}.xlsx` : `font-licence-tasks-${today}.xlsx`;
   return new Response(buf, {
     headers: {
       "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
