@@ -219,6 +219,9 @@ export default function Home() {
   const fontEmails = useMemo(() => all.map(buildFontEmail).filter(Boolean).sort((a, b) => a.site.localeCompare(b.site)), [all]);
   const imageEmails = useMemo(() => all.map(buildImageEmail).filter(Boolean).sort((a, b) => a.site.localeCompare(b.site)), [all]);
 
+  // Only one accordion open at a time.
+  const toggleOne = (key) => setOpen((o) => (o[key] ? {} : { [key]: true }));
+
   const tabBtn = (id, label, count) => (
     <button onClick={() => setView((v) => ({ ...v, [area]: id }))}
       className={`rounded-t-lg border border-b-0 px-4 py-2 text-sm font-medium ${view[area] === id ? "border-zinc-300 bg-white text-zinc-900" : "border-transparent bg-transparent text-zinc-500 hover:text-zinc-800"}`}>
@@ -305,7 +308,7 @@ export default function Home() {
                 />
                 <div className="mt-4 space-y-3">
                   {fontVisible.map((r) => (
-                    <SiteCard key={r.site} r={r} open={!!open["f:" + r.site]} toggle={() => setOpen((o) => ({ ...o, ["f:" + r.site]: !o["f:" + r.site] }))} rerun={() => run("fonts", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} />
+                    <SiteCard key={r.site} r={r} open={!!open["f:" + r.site]} toggle={() => toggleOne("f:" + r.site)} rerun={() => run("fonts", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} />
                   ))}
                   {!fontVisible.length && <p className="text-sm text-zinc-500">{filter === "ALL" ? "Nothing outstanding." : "Nothing in this group."}</p>}
                 </div>
@@ -352,7 +355,7 @@ export default function Home() {
                 <p className="mt-1 text-xs text-zinc-500">Flags come from file names (e.g. shutterstock_123.jpg) and embedded copyright / credit tags. The scanner cannot tell whether an image was paid for, so treat this as a list to check against purchase records.</p>
                 <div className="mt-4 space-y-3">
                   {imgVisible.map(({ r, paid }) => (
-                    <ImageCard key={r.site} r={r} paid={paid} open={!!open["i:" + r.site]} toggle={() => setOpen((o) => ({ ...o, ["i:" + r.site]: !o["i:" + r.site] }))} rerun={() => run("images", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} />
+                    <ImageCard key={r.site} r={r} paid={paid} open={!!open["i:" + r.site]} toggle={() => toggleOne("i:" + r.site)} rerun={() => run("images", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} />
                   ))}
                   {!imgVisible.length && <p className="text-sm text-zinc-500">No paid stock-library images found on any scanned site.</p>}
                 </div>
@@ -483,11 +486,12 @@ function AreaBar({ kind, done, total, label, running, sites, onRun, onStop, onCl
 }
 
 function EmailList({ kind, emails, scanned, intro }) {
+  const [openSite, setOpenSite] = useState(null);
   return (
     <div>
       <p className="text-sm text-zinc-600">{intro} Copy, paste into your email client, and your signature does the rest.</p>
       <div className="mt-4 space-y-4">
-        {emails.map((e) => <EmailCard key={e.kind + e.site} e={e} />)}
+        {emails.map((e) => <EmailCard key={e.kind + e.site} e={e} open={openSite === e.site} toggle={() => setOpenSite((s) => (s === e.site ? null : e.site))} />)}
         {!emails.length && <p className="text-sm text-zinc-500">No sites need {kind === "fonts" ? "a font" : "an image"} email{scanned ? "." : ` (run the ${kind} check first).`}</p>}
       </div>
     </div>
@@ -677,10 +681,9 @@ const EDITS_KEY = "flc-email-edits-v1";
 function loadEdits() { try { return JSON.parse(localStorage.getItem(EDITS_KEY) || "{}"); } catch { return {}; } }
 function saveEdits(all) { try { localStorage.setItem(EDITS_KEY, JSON.stringify(all)); } catch {} }
 
-function EmailCard({ e }) {
+function EmailCard({ e, open, toggle }) {
   const key = `${e.kind}|${e.site}`;
   const [copied, setCopied] = useState(false);
-  const [open, setOpen] = useState(false);
   const [edits, setEdits] = useState({});
   useEffect(() => { const t = setTimeout(() => setEdits(loadEdits()[key] || {}), 0); return () => clearTimeout(t); }, [key]);
   const text = segmentsToText(e.segments, edits);
@@ -713,7 +716,7 @@ function EmailCard({ e }) {
   return (
     <div className="rounded-xl border border-zinc-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-        <button onClick={() => setOpen((v) => !v)} className="flex-1 text-left">
+        <button onClick={toggle} className="flex-1 text-left">
           <span className="font-medium">{e.site}</span>
           <span className="ml-2 text-xs text-zinc-500">{e.count} {e.kind === "fonts" ? "font" : "image"}{e.count === 1 ? "" : "s"}</span>
           {edited && <span className="ml-2 rounded bg-orange-100 px-1.5 py-0.5 text-[11px] font-semibold text-orange-800">Edited</span>}
