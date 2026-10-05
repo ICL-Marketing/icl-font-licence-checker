@@ -375,6 +375,8 @@ function LaunchCard({ k, r, mode, signed, log, shared, team, open, toggle, onSig
   const owners = ["Designer", "Developer", "Senior Developer", "Account Manager"];
   return (
     <div className="rounded-xl bg-white shadow-sm ring-1 ring-zinc-200">
+      {/* Header and toolbar stay visible while scrolling through the checks. */}
+      <div className={`rounded-t-xl bg-white ${open ? "sticky top-0 z-10 shadow-[0_6px_12px_-8px_rgba(0,0,0,0.25)]" : ""}`}>
       <div className="flex items-start">
         <button onClick={toggle} className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 py-3 pl-4 pr-2 text-left">
           {r.status === "RUNNING" && <span className="text-blue-600" title="Scanning"><SpinnerIcon className="h-5 w-5" /></span>}
@@ -411,8 +413,7 @@ function LaunchCard({ k, r, mode, signed, log, shared, team, open, toggle, onSig
         </div>
       )}
       {open && r.status !== "RUNNING" && (
-        <div className="border-t border-zinc-100 px-4 py-3">
-          <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 px-4 py-2.5">
             {r.status === "PAUSED" && <button onClick={onFinish} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 disabled:opacity-50"><PlayIcon className="h-3.5 w-3.5" /> Finish scan ({workLeft(r.work)} left)</button>}
             {r.status === "DONE" && todo > 0 && todo < checks.length && (
               <button onClick={onRescanUnsigned} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 disabled:opacity-50" title="Re-runs only the parts of the scan the unsigned checks need"><RefreshIcon className="h-3.5 w-3.5" /> Rescan {todo} unsigned check{todo === 1 ? "" : "s"}</button>
@@ -426,7 +427,11 @@ function LaunchCard({ k, r, mode, signed, log, shared, team, open, toggle, onSig
               </label>
             )}
             {r.scannedAt && <span className="text-[11px] text-zinc-400">Scanned {new Date(r.scannedAt).toLocaleString("en-GB")}{r.stopped ? " (stopped early)" : ""}</span>}
-          </div>
+        </div>
+      )}
+      </div>
+      {open && r.status !== "RUNNING" && (
+        <div className="border-t border-zinc-100 px-4 py-3">
           {r.status === "DONE" && [...owners, "Automated"].map((who) => {
             // Checks the scan verified itself sit in their own group at the bottom; nobody needs to sign them.
             const mine = checks.filter((c) => (who === "Automated" ? c.state === "pass" : c.owner === who && c.state !== "pass")).map((c, i) => ({ c, i, done: c.state === "pass" || !!signed[c.id] }));
