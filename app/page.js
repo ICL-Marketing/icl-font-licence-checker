@@ -691,6 +691,8 @@ function EmailCard({ e }) {
           <div className="whitespace-pre-wrap rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm leading-relaxed text-zinc-800">
             {e.segments.map((seg, i) => typeof seg === "string"
               ? <span key={i}>{seg}</span>
+              : seg.link
+              ? <a key={seg.id} href={seg.href} target="_blank" rel="noreferrer" className="text-blue-700 underline">{seg.v}</a>
               : seg.href
               ? <span key={seg.id}><span
                   contentEditable
