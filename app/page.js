@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import LaunchArea from "@/app/launch";
 import { DEFAULT_SITES } from "@/data/sites";
 import { buildFontEmail, buildImageEmail, isFreeLib, segmentsToText, segmentsToHtml } from "@/lib/email";
@@ -48,6 +49,14 @@ export default function Home() {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); } catch {}
     if (!saved?.results) return;
+    // Nothing is scanning straight after a page load, so any "running" result
+    // was cut off by a reload or closed tab. Mark it as interrupted.
+    for (const r of Object.values(saved.results)) {
+      if (r.status === "RUNNING") Object.assign(r, { status: "UNREACHABLE", error: "Scan was interrupted (page reloaded or closed). Press Re-scan." });
+      if (r.imgStatus === "RUNNING") Object.assign(r, { imgStatus: "UNREACHABLE", imgProgress: undefined,
+        imgError: `Scan was interrupted${r.imgTotal || r.imgProgress ? ` at ${r.imgProgress || `page ${r.imgDone} of ${r.imgTotal}`}` : ""} (page reloaded or closed). Re-scan this site.`,
+        imgFix: "Open the site and press Re-scan, or run the images check again." });
+    }
     const t = setTimeout(() => {
       setResults(saved.results);
       if (saved.text) setText(saved.text);
@@ -205,7 +214,15 @@ export default function Home() {
   const fontDone = fontRows.filter((r) => r.status !== "RUNNING").length;
   const fontTotal = running === "fonts" ? sites.length : fontRows.length;
   const fontFine = fontCounts.OK + fontCounts.SYSTEM;
-  const fontVisible = fontRows.filter((r) => r.status !== "OK" && r.status !== "SYSTEM" && (filter === "ALL" || r.status === filter));
+  // Green (free fixes) first, then amber, then red; couldn't-check sites last.
+  const toneOrder = (r) => {
+    if (r.status === "RUNNING") return -1;
+    const tones = (r.fonts || []).filter((f) => (f.status === "PROBLEM" || f.status === "CHECK") && !isEmbeddedIconFont(f) && !isFreeFontAwesome(f)).map((f) => ISSUE_TONE[issueLabel(f)]);
+    if (!tones.length) return 4;
+    return Math.max(...tones.map((t) => TONE_RANK[t] || 0));
+  };
+  const fontVisible = fontRows.filter((r) => r.status !== "OK" && r.status !== "SYSTEM" && (filter === "ALL" || r.status === filter))
+    .sort((a, b) => toneOrder(a) - toneOrder(b) || a.site.localeCompare(b.site));
 
   // Images view
   const imgRows = useMemo(() => all.filter((r) => r.imgStatus).map((r) => ({ r, paid: paidImages(r) }))
@@ -232,10 +249,14 @@ export default function Home() {
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Website Checker</h1>
-        </div>
+      <header className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold">Website Checker</h1>
+        <Link href="/settings" aria-label="Settings" title="Settings" className="rounded-md p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5" aria-hidden="true">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        </Link>
       </header>
 
       <nav className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-zinc-200/70 p-1 sm:inline-grid sm:w-auto" aria-label="Licence area">
@@ -284,6 +305,7 @@ export default function Home() {
           <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
             <AreaBar kind="fonts" done={fontDone} total={fontTotal} label={fontRows.length ? "Rescan fonts" : "Run fonts check"} running={running} sites={sites}
               onRun={() => run("fonts", sites)} onStop={stop} onClear={fontRows.length ? () => clearArea("fonts") : null}
+              retry={{ sites: fontRows.filter((r) => r.status === "UNREACHABLE").map((r) => r.site), onClick: () => run("fonts", fontRows.filter((r) => r.status === "UNREACHABLE").map((r) => r.site)) }}
               download={fontRows.length ? { label: "Download font tracker (Excel)", busy: exporting === "fonts", onClick: () => exportXlsx("fonts") } : null} />
             {view.fonts === "results" ? (<>
             {fontRows.length > 0 && (
@@ -329,6 +351,7 @@ export default function Home() {
           <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
             <AreaBar kind="images" done={imgDone} total={imgTotal} label={imgRows.length ? "Rescan images" : "Run images check"} running={running} sites={sites}
               onRun={() => run("images", sites)} onStop={stop} onClear={imgRows.length ? () => clearArea("images") : null}
+              retry={{ sites: imgRows.filter((x) => x.r.imgStatus === "UNREACHABLE").map((x) => x.r.site), onClick: () => run("images", imgRows.filter((x) => x.r.imgStatus === "UNREACHABLE").map((x) => x.r.site)) }}
               download={imgRows.length ? { label: "Download stock image tracker (Excel)", busy: exporting === "images", onClick: () => exportXlsx("images") } : null} />
             {view.images === "results" ? (<>
             {imgRows.length > 0 && (
@@ -454,7 +477,7 @@ function FineList({ count, text, items }) {
 }
 
 // Run / rescan, stop, download and clear for one area. Clear asks first.
-function AreaBar({ kind, done, total, label, running, sites, onRun, onStop, onClear, download }) {
+function AreaBar({ kind, done, total, label, running, sites, onRun, onStop, onClear, download, retry }) {
   const [asking, setAsking] = useState(false);
   const btn = "rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100 disabled:opacity-50";
   return (
@@ -466,6 +489,9 @@ function AreaBar({ kind, done, total, label, running, sites, onRun, onStop, onCl
           <button onClick={onRun} disabled={!!running || !sites.length} className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
             {label} on {sites.length} site{sites.length === 1 ? "" : "s"}
           </button>
+        )}
+        {retry?.sites.length > 0 && !running && (
+          <button onClick={retry.onClick} className={btn}>Re-scan {retry.sites.length} unfinished site{retry.sites.length === 1 ? "" : "s"}</button>
         )}
         {download && <button onClick={download.onClick} disabled={download.busy} className={btn}>{download.busy ? "Building…" : download.label}</button>}
         {onClear && !running && (asking ? (

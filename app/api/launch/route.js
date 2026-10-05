@@ -1,4 +1,4 @@
-import { launchStart, launchPages, checkUrls } from "@/lib/launch";
+import { launchStart, launchPages, checkUrls, psiAudit } from "@/lib/launch";
 
 // Launch checks, one short step per request; the browser drives the sequence.
 export const maxDuration = 60;
@@ -15,6 +15,7 @@ export async function POST(request) {
       ]));
     }
     if (body.step === "pages") return Response.json(await launchPages(strings(body.urls, 12)));
+    if (body.step === "psi") return Response.json(typeof body.url === "string" && /^https?:\/\//.test(body.url) ? await psiAudit(body.url) : { ok: false, error: "url required" });
     if (body.step === "urls") return Response.json(await checkUrls(strings(body.urls, 40)));
     return Response.json({ error: "Unknown step" }, { status: 400 });
   } catch (e) {
