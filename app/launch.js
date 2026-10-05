@@ -300,7 +300,6 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
         <div className="border-t border-zinc-100 px-4 py-3">
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <button onClick={onRescan} disabled={busy} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">Rescan</button>
-            {r.status === "DONE" && <button onClick={() => download("excel")} disabled={!!exporting} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-50">{exporting === "excel" ? "Building…" : "Download checklist (Excel)"}</button>}
             {r.status === "DONE" && <button onClick={() => download("word")} disabled={!!exporting} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-50">{exporting === "word" ? "Building…" : "Download sign-off log (Word)"}</button>}
             {r.status === "DONE" && (
               <label className="flex items-center gap-1.5 text-xs text-zinc-600">
