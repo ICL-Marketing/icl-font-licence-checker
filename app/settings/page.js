@@ -66,7 +66,7 @@ export default function Settings() {
                       <ul className="mt-1 list-disc pl-5">{(test.checks || []).slice(0, 10).map((c, i) => <li key={i}>{c.name}{c.impact ? ` (${c.impact})` : ""}{c.elements != null ? ` – ${c.elements} elements` : ""}</li>)}</ul>
                     </>
                   ) : <p className="text-red-700">✗ {test.error}</p>}
-                  {test.raw && <details className="mt-1"><summary className="cursor-pointer text-zinc-500">Raw response (for troubleshooting)</summary><pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-zinc-50 p-2 text-[10px]">{test.raw.summary}{"\n\n---\n\n"}{test.raw.checks}</pre></details>}
+                  {test.raw && <details className="mt-1"><summary className="cursor-pointer text-zinc-500">Raw response (for troubleshooting)</summary><pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-zinc-50 p-2 text-[10px]">{test.raw.summary}{"\n\n---\n\n"}{test.raw.checks}{"\n\n--- elements (sample) ---\n\n"}{test.raw.elements || "(none)"}</pre></details>}
                 </div>
               )}
             </div>
