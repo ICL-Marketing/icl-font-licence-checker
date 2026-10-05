@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DEFAULT_SITES } from "@/data/sites";
 import { buildFontEmail, buildImageEmail, isFreeLib, segmentsToText, segmentsToHtml } from "@/lib/email";
-import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, freeRouteLink, isFreeFontAwesome, ISSUE_TONE, mergeImageSizes, creditOnly, imageAdminLink, stockLibraryLink } from "@/lib/fontlink";
+import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, freeRouteLink, isFreeFontAwesome, ISSUE_TONE, mergeImageSizes, creditOnly, imageAdminLink, stockLibraryLink, stockLicenceSignal } from "@/lib/fontlink";
 
 const ORDER = { PROBLEM: 4, CHECK: 3, UNREACHABLE: 2, OK: 1, SYSTEM: 0 };
 const LABEL = { PROBLEM: "PROBLEM", CHECK: "CHECK", UNREACHABLE: "COULDN'T CHECK", OK: "OK", SYSTEM: "NO WEB FONTS", RUNNING: "SCANNING" };
@@ -601,6 +601,7 @@ function ImageCard({ r, paid, open, toggle, rerun, running, onRemove }) {
                 <tr className="text-left text-zinc-500">
                   <th className="py-1 pr-2">Library</th>
                   <th className="py-1 pr-2">Image</th>
+                  <th className="py-1 pr-2">Licence check</th>
                   <th className="py-1 pr-2">Check on library</th>
                   <th className="py-1 pr-2">Embedded credit / copyright</th>
                   <th className="py-1">Suggested fix</th>
@@ -617,6 +618,10 @@ function ImageCard({ r, paid, open, toggle, rerun, running, onRemove }) {
                         <a href={i.url} target="_blank" rel="noreferrer" className="break-all font-mono text-[11px] text-blue-700 underline">{name.slice(0, 80)}</a>
                         {i.sizes > 1 && <span className="ml-1 text-[11px] text-zinc-400">+{i.sizes - 1} other size{i.sizes === 2 ? "" : "s"}</span>}
                         {i.pages?.length > 0 && <div className="text-[11px] text-zinc-400">on {i.pages.slice(0, 3).map((p) => { try { return new URL(p).pathname || "/"; } catch { return p; } }).join(", ")}{i.pages.length > 3 ? ` +${i.pages.length - 3} more` : ""}</div>}
+                      </td>
+                      <td className="py-1.5 pr-2" title={stockLicenceSignal(i).reason}>
+                        {(() => { const st = stockLicenceSignal(i).status; return <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${st === "Likely licensed" ? "bg-green-600" : st === "Possible watermarked preview" ? "bg-red-600" : "bg-amber-500"}`}>{st}</span>; })()}
+                        <div className="mt-0.5 text-[11px] text-zinc-500">{stockLicenceSignal(i).reason}</div>
                       </td>
                       <td className="py-1.5 pr-2 whitespace-nowrap">{stockLibraryLink(i.url, i.flag) ? <a href={stockLibraryLink(i.url, i.flag)} target="_blank" rel="noreferrer" className="text-blue-700 underline">View on {i.flag}</a> : "—"}</td>
                       <td className="py-1.5 pr-2 text-zinc-600">{creditOnly(i.meta) || "—"}</td>
