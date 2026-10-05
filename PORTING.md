@@ -34,6 +34,8 @@ inside the PHP max execution time.
 | `POST /api/export` | `{kind, results}` or `{kind:"launch", launch}` | `.xlsx` | `app/api/export/route.js` (ExcelJS → PhpSpreadsheet) |
 | `POST /api/signoff-log` | `{site, url, scannedAt, checks, signed, log}` | `.docx` | `app/api/signoff-log/route.js` (docx → PhpWord) |
 | `GET/POST /api/signoffs`, `/api/team` | | shared sign-offs / team names | `lib/store.js` (replace with DB tables) |
+| `GET /api/marker` | | Marker.io connection test (lists MCP tools) | `lib/marker.js` (small MCP-over-HTTP client; Guzzle in PHP) |
+| `POST /api/marker` | `{title, description, project}` | `{ok, link}` snag created in Marker.io | `lib/marker.js` → `createIssue()` |
 
 ## Plain-JavaScript logic that can be reused directly in the browser
 
@@ -75,3 +77,4 @@ Server-only files (need PHP equivalents): `lib/scanner.js`, `lib/launch.js`.
 
 - `CHECKER_PASSWORD` – shared login password.
 - `PSI_API_KEY` – Google PageSpeed Insights key (free).
+- `MARKER_MCP_URL`, `MARKER_MCP_TOKEN` – Marker.io MCP server address and personal access token (expires every 90 days).

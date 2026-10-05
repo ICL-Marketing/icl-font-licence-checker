@@ -22,6 +22,8 @@ const keyFor = (input) => { let s = String(input || "").trim(); if (!/^https?:\/
 
 export default function LaunchArea({ post, onRunning }) {
   const [url, setUrl] = useState("");
+  const [markerLink, setMarkerLink] = useState("");
+  const [markerReady, setMarkerReady] = useState(null); // null unknown, true/false from /api/marker
   const [runs, setRuns] = useState({});
   const [signoffs, setSignoffs] = useState({});
   const [logs, setLogs] = useState({});
@@ -41,6 +43,7 @@ export default function LaunchArea({ post, onRunning }) {
       setTeam(loadTeam());
     }, 0);
     // Shared store (when set up) wins over this browser's copy.
+    fetch("/api/marker").then((r) => r.json()).then((j) => setMarkerReady(!!(j.configured && j.ok))).catch(() => setMarkerReady(false));
     fetch("/api/team").then((r) => r.json()).then((j) => { if (j.shared && Array.isArray(j.team) && j.team.length) setTeam(normaliseTeam(j.team)); }).catch(() => {});
     for (const key of Object.keys(load(RUNS_KEY, {}))) refreshSignoffs(key);
     return () => clearTimeout(t);
@@ -94,9 +97,10 @@ export default function LaunchArea({ post, onRunning }) {
     setRuns((prev) => { const next = { ...prev }; delete next[key]; save(RUNS_KEY, next); return next; });
   }
 
-  async function runCheck(input) {
+  async function runCheck(input, markerProject) {
     const key = keyFor(input);
     if (!key) return;
+    if (markerProject !== undefined) { const all = load(MARKER_KEY, {}); if (markerProject.trim()) all[key] = markerProject.trim(); else delete all[key]; save(MARKER_KEY, all); }
     stopRef.current = false;
     setRunning(key);
     onRunning?.(true);
@@ -216,9 +220,11 @@ export default function LaunchArea({ post, onRunning }) {
 
   return (
     <div className="rounded-xl border border-zinc-300 bg-white p-4">
-      <form onSubmit={(e) => { e.preventDefault(); if (!running && url.trim()) runCheck(url.trim()); }} className="flex flex-wrap items-center gap-2">
-        <input value={url} onChange={(e) => setUrl(e.target.value)} disabled={!!running} placeholder="Paste a link, e.g. https://www.example.co.uk"
-          className="min-w-0 flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm" aria-label="Website to check" />
+      <form onSubmit={(e) => { e.preventDefault(); if (!running && url.trim()) { runCheck(url.trim(), markerLink); setMarkerLink(""); } }} className="flex flex-wrap items-center gap-2">
+        <input value={url} onChange={(e) => { setUrl(e.target.value); const k = keyFor(e.target.value); if (k) setMarkerLink(load(MARKER_KEY, {})[k] || ""); }} disabled={!!running} placeholder="Website link, e.g. https://www.example.co.uk"
+          className="min-w-0 flex-1 basis-64 rounded-md border border-zinc-300 px-3 py-2 text-sm" aria-label="Website to check" />
+        <input value={markerLink} onChange={(e) => setMarkerLink(e.target.value)} disabled={!!running} placeholder="Marker.io project link (optional)"
+          className="min-w-0 flex-1 basis-64 rounded-md border border-zinc-300 px-3 py-2 text-sm" aria-label="Marker.io project link" />
         {running
           ? <button type="button" onClick={() => { stopRef.current = true; }} className="rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white">Stop</button>
           : <button type="submit" disabled={!url.trim()} className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">Run launch check</button>}
@@ -229,7 +235,8 @@ export default function LaunchArea({ post, onRunning }) {
         {list.map(([key, r]) => (
           <LaunchCard key={key} k={key} r={r} signed={signoffs[key] || {}} log={logs[key] || []} shared={shared} team={team} open={openKey === key}
             toggle={() => { if (openKey !== key) refreshSignoffs(key); setOpenKey((o) => (o === key ? null : key)); }} onSign={(check, name) => sign(key, check, name)}
-            onRescan={() => runCheck(r.input || key)} onRemove={() => removeRun(key)} busy={!!running} />
+            onRescan={() => runCheck(r.input || key)} onRemove={() => removeRun(key)} busy={!!running} markerReady={markerReady}
+            onSnag={(id, snag) => patch(key, { snags: { ...(r.snags || {}), [id]: snag } })} />
         ))}
         {!list.length && <p className="text-sm text-zinc-500">No launch checks yet.</p>}
       </div>
@@ -237,7 +244,7 @@ export default function LaunchArea({ post, onRunning }) {
   );
 }
 
-function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onRescan, onRemove, busy }) {
+function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onRescan, onRemove, busy, markerReady, onSnag }) {
   const checks = useMemo(() => (r.status === "DONE" ? evaluateLaunch(r) : []), [r]);
   const auto = checks.filter((c) => c.state === "pass").length;
   const signedCount = checks.filter((c) => c.state !== "pass" && signed[c.id]).length;
@@ -335,7 +342,7 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
                 </h3>
                 <div className="space-y-2">
                   {mine.filter((x) => !(hideDone && x.done)).sort((a, b) => a.done - b.done || a.i - b.i).map(({ c }) => (
-                    <CheckRow key={c.id} c={c} s={signed[c.id]} team={team} onSign={(name) => onSign(c, name)} marker={marker} />
+                    <CheckRow key={c.id} c={c} s={signed[c.id]} team={team} onSign={(name) => onSign(c, name)} marker={marker} markerReady={markerReady} snag={r.snags?.[c.id]} onSnag={(sn) => onSnag(c.id, sn)} />
                   ))}
                   {hideDone && !left && <p className="px-3 py-2.5 text-sm text-green-700">All {who} checks are complete.</p>}
                 </div>
@@ -388,9 +395,22 @@ function snagText(c) {
   return lines.join("\n");
 }
 
-function CheckRow({ c, s, team, onSign, marker }) {
+function CheckRow({ c, s, team, onSign, marker, markerReady, snag, onSnag }) {
   const [more, setMore] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [snagError, setSnagError] = useState("");
+  async function createSnag() {
+    setCreating(true); setSnagError("");
+    try {
+      const r = await fetch("/api/marker", { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: c.title, description: snagText(c).split("\n").slice(1).join("\n"), project: marker || "" }) });
+      const j = await r.json();
+      if (j.ok) onSnag({ at: new Date().toISOString(), link: j.link || "", tool: j.tool });
+      else setSnagError(j.error || "Marker.io did not accept the snag.");
+    } catch (e) { setSnagError(`Could not reach Marker.io: ${e.message}`); }
+    finally { setCreating(false); }
+  }
   async function copySnag() {
     try { await navigator.clipboard.writeText(snagText(c)); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
     if (/^https?:\/\//.test(marker || "")) window.open(marker, "_blank", "noopener");
@@ -430,11 +450,19 @@ function CheckRow({ c, s, team, onSign, marker }) {
         {(c.items.length > 0 || c.links.length > 0) && (
           <div className="mt-1 text-xs">
             {c.links.map((l) => <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="mr-3 text-blue-700 underline">{l.text}</a>)}
-            {c.state !== "pass" && c.state !== "manual" && (
+            {c.state !== "pass" && c.state !== "manual" && (snag ? (
+              <span className="mr-3 text-[11px] font-medium text-green-700">✓ Snag sent to Marker.io {new Date(snag.at).toLocaleDateString("en-GB")}{snag.link && <> · <a href={snag.link} target="_blank" rel="noreferrer" className="underline">open</a></>}</span>
+            ) : markerReady ? (
+              <button onClick={createSnag} disabled={creating} className="mr-3 rounded bg-zinc-900 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+                title={marker ? `Creates the snag in ${marker}` : "Creates the snag in Marker.io (add the project link on the scan to file it in the right project)"}>
+                {creating ? "Sending…" : "Create snag in Marker.io"}
+              </button>
+            ) : (
               <button onClick={copySnag} className="mr-3 rounded border border-zinc-300 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-100" title="Copies the problem as text; opens your Marker.io project if a link is set">
                 {copied ? "Copied – paste into Marker.io" : "Copy snag for Marker.io"}
               </button>
-            )}
+            ))}
+            {snagError && <span className="mr-3 text-[11px] text-red-700">{snagError}</span>}
             {more && (
               <ol className="mt-1 max-h-80 list-decimal space-y-1.5 overflow-auto rounded bg-white/70 py-2 pl-7 pr-2 text-[11px] text-zinc-700">
                 {c.items.map((i, n) => <li key={n} className="break-words pl-1">{i.href ? <a href={i.href} target="_blank" rel="noreferrer" className="hover:underline">{i.text}</a> : i.text}</li>)}
