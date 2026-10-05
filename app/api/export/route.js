@@ -1,4 +1,4 @@
-import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, ISSUE_FILL } from "@/lib/fontlink";
+import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, ISSUE_FILL, freeRouteLink } from "@/lib/fontlink";
 import ExcelJS from "exceljs";
 
 export const maxDuration = 30;
@@ -50,7 +50,7 @@ export async function POST(request) {
       fontRows.push({ site: r.site, status: f.status, issue: issueLabel(f), font: f.family, why: f.note || "",
         free: f.status !== "PROBLEM" || f.kind === "Hosted service" ? "" : (f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) ? "Adobe Fonts" : f.google === "yes" ? "Google Fonts" : f.freeVersion?.isFree ? `Free version: ${f.freeVersion.note}` : f.adobe === "no" ? "None found" : "Not sure: check Adobe / Google / Font Squirrel",
         freeOk: f.status === "PROBLEM" && ((f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) || f.google === "yes" || !!f.freeVersion?.isFree),
-        siteUrl: r.finalUrl || `https://${r.site}`, fontUrl: fontLink(f),
+        siteUrl: r.finalUrl || `https://${r.site}`, fontUrl: fontLink(f), fixUrl: freeRouteLink(f),
         fix: fixedFix(f), task: "To do", owner: "", notes: "", done: "" });
     }
   }
@@ -87,6 +87,11 @@ export async function POST(request) {
     if (r.fontUrl && /^https?:/.test(r.fontUrl)) {
       row.getCell("font").value = { text: r.font, hyperlink: r.fontUrl };
       row.getCell("font").font = { color: { argb: "FF1F4E79" }, underline: true };
+    }
+    if (r.fixUrl) {
+      const fc = row.getCell("fix");
+      fc.value = { text: r.fix, hyperlink: r.fixUrl };
+      fc.font = { color: { argb: "FF1F4E79" }, underline: true };
     }
     if (r.freeOk) {
       const c = row.getCell("free");

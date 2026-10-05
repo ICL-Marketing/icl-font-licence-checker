@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DEFAULT_SITES } from "@/data/sites";
 import { buildFontEmail, buildImageEmail, isFreeLib } from "@/lib/email";
-import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel } from "@/lib/fontlink";
+import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, freeRouteLink } from "@/lib/fontlink";
 
 const ORDER = { PROBLEM: 4, CHECK: 3, UNREACHABLE: 2, OK: 1, SYSTEM: 0 };
 const LABEL = { PROBLEM: "PROBLEM", CHECK: "CHECK", UNREACHABLE: "COULDN'T CHECK", OK: "OK", SYSTEM: "NO WEB FONTS", RUNNING: "SCANNING" };
@@ -423,6 +423,7 @@ function SiteCard({ r, open, toggle, rerun, running }) {
                             </div>
                           )}
                           {fixedFix(f)}
+                          {freeRouteLink(f) && <> <a href={freeRouteLink(f)} target="_blank" rel="noreferrer" className="text-blue-700 underline">Open font page</a></>}
                         </td>
                         <td className="py-1.5">
                           <a href={f.source} target="_blank" rel="noreferrer" title={[f.meta?.copyright, f.meta?.manufacturer, f.meta?.licence].filter(Boolean).join("\n")} className="break-all font-mono text-[11px] text-blue-700 underline">{f.source.slice(0, 160)}</a>
