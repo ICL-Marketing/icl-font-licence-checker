@@ -245,8 +245,10 @@ export default function Home() {
     if (!tones.length) return 4;
     return Math.max(...tones.map((t) => TONE_RANK[t] || 0));
   };
+  // Among sites with the same worst issue, those that also have a green (free fix) pill come first.
+  const hasGreen = (r) => (r.fonts || []).some((f) => (f.status === "PROBLEM" || f.status === "CHECK") && !isEmbeddedIconFont(f) && !isFreeFontAwesome(f) && ISSUE_TONE[issueLabel(f)] === "green") ? 0 : 1;
   const fontVisible = fontRows.filter((r) => r.status !== "OK" && r.status !== "SYSTEM" && (filter === "ALL" || r.status === filter))
-    .sort((a, b) => toneOrder(a) - toneOrder(b) || a.site.localeCompare(b.site));
+    .sort((a, b) => toneOrder(a) - toneOrder(b) || hasGreen(a) - hasGreen(b) || a.site.localeCompare(b.site));
 
   // Images view
   const imgRows = useMemo(() => all.filter((r) => r.imgStatus).map((r) => ({ r, paid: paidImages(r) }))
@@ -567,7 +569,8 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove }) {
   const fonts = r.fonts || [];
   const todo = fonts.filter((f) => (f.status === "PROBLEM" || f.status === "CHECK") && !isEmbeddedIconFont(f) && !isFreeFontAwesome(f))
     .sort((a, b) => (TONE_RANK[ISSUE_TONE[issueLabel(b)]] || 0) - (TONE_RANK[ISSUE_TONE[issueLabel(a)]] || 0));
-  const labels = [...new Set(todo.map(issueLabel))];
+  // Pills: green first, then amber, then red.
+  const labels = [...new Set(todo.map(issueLabel))].sort((a, b) => (TONE_RANK[ISSUE_TONE[a]] || 0) - (TONE_RANK[ISSUE_TONE[b]] || 0));
   const worst = labels.map((l) => ISSUE_TONE[l]).sort((a, b) => TONE_RANK[b] - TONE_RANK[a])[0];
   const c = r.status === "RUNNING" || r.status === "UNREACHABLE" || !worst
     ? (COLOUR[r.status] || COLOUR.PENDING)
