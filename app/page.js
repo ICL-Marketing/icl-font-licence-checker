@@ -338,6 +338,33 @@ function Badge({ ok, bad, label }) {
   return <span className={`rounded px-1.5 py-0.5 font-semibold ${ok ? "bg-green-100 text-green-800" : bad ? "bg-red-100 text-red-800" : "bg-zinc-100 text-zinc-600"}`}>{label}</span>;
 }
 
+function FaIconTable({ icons, pages }) {
+  const change = icons.filter((i) => !i.free);
+  return (
+    <div className="space-y-2">
+      <p>{change.length ? `Change ${change.length} icon${change.length === 1 ? "" : "s"}, then switch the site to Font Awesome Free.` : "No icons need changing. Switch the site to Font Awesome Free."}</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[11px] font-normal">
+          <thead><tr className="text-left text-zinc-500"><th className="pr-2">Icon</th><th className="pr-2">Class</th><th className="pr-2">Style</th><th className="pr-2">Uses</th><th className="pr-2">Free?</th><th>Change to</th></tr></thead>
+          <tbody>
+            {icons.map((i) => (
+              <tr key={i.cls} className="border-t border-zinc-200">
+                <td className="pr-2">{i.icon}</td>
+                <td className="pr-2 font-mono">{i.cls}</td>
+                <td className="pr-2">{i.style}</td>
+                <td className="pr-2 tabular-nums">{i.uses}</td>
+                <td className={`pr-2 font-semibold ${i.free ? "text-green-700" : "text-red-700"}`}>{i.free ? "Yes" : "No, Pro only"}</td>
+                <td className={i.free ? "" : "font-mono font-semibold"}>{i.changeTo}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[11px] text-zinc-500">Checked {pages} page{pages === 1 ? "" : "s"}. Icons added by CSS or JavaScript are not counted.</p>
+    </div>
+  );
+}
+
 function RunBar({ kind, done, total, label, running, sites, onRun, onStop }) {
   return (
     <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -433,7 +460,7 @@ function SiteCard({ r, open, toggle, rerun, running }) {
                               {f.freeVersion?.url && !(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) && f.google !== "yes" && <a href={f.freeVersion.url} target="_blank" rel="noreferrer" className="text-blue-700 underline">Free version link</a>}
                             </div>
                           )}
-                          {fixedFix(f)}
+                          {f.faIcons ? <FaIconTable icons={f.faIcons} pages={f.faPagesChecked} /> : fixedFix(f)}
                           {freeRouteLink(f) && <> <a href={freeRouteLink(f)} target="_blank" rel="noreferrer" className="text-blue-700 underline">Open font page</a></>}
                         </td>
                         <td className="py-1.5">
