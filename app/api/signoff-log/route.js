@@ -46,19 +46,19 @@ export async function POST(request) {
     const s = c.state === "pass" ? { name: AUTO_SIGNER, at: b.scannedAt } : signed[c.id];
     return [
       `${c.title}\n${c.section === "Launch actions" ? "On launch day" : "Before launch"}`,
-      s ? { text: s.name, fill: "D4EDDA" } : { text: "Not signed off", fill: "F8D7DA" },
+      s ? { text: s.notRequired ? `Not required – ${s.name}` : s.name, fill: s.notRequired ? "E5E7EB" : "D4EDDA" } : { text: "Not signed off", fill: "F8D7DA" },
       s ? fmt(s.at) : "",
     ];
   });
 
   const doc = new Document({
     creator: "ICL Website Checker",
-    title: `Launch sign-off log – ${b.site || ""}`,
+    title: `${b.mode === "post" ? "Post-launch" : "Launch"} sign-off log – ${b.site || ""}`,
     styles: { default: { document: { run: { font: "Calibri", size: 20 } } } },
     sections: [{
       properties: { page: { margin: { top: 900, bottom: 900, left: 900, right: 900 } } },
       children: [
-        new Paragraph({ heading: HeadingLevel.TITLE, children: [new TextRun({ text: "Launch sign-off log" })] }),
+        new Paragraph({ heading: HeadingLevel.TITLE, children: [new TextRun({ text: `${b.mode === "post" ? "Post-launch" : "Launch"} sign-off log` })] }),
         new Paragraph({ children: [new TextRun({ text: "Website: ", bold: true }), new TextRun(b.url || b.site || "")] }),
         new Paragraph({ children: [new TextRun({ text: "Scanned: ", bold: true }), new TextRun(fmt(b.scannedAt))] }),
         new Paragraph({ text: "" }),
@@ -77,7 +77,7 @@ export async function POST(request) {
   });
 
   const buf = await Packer.toBuffer(doc);
-  const file = `launch-sign-off-log-${String(b.site || "site").replace(/[^a-z0-9.-]/gi, "")}-${new Date().toISOString().slice(0, 10)}.docx`;
+  const file = `${b.mode === "post" ? "post-launch" : "launch"}-sign-off-log-${String(b.site || "site").replace(/[^a-z0-9.-]/gi, "")}-${new Date().toISOString().slice(0, 10)}.docx`;
   return new Response(buf, {
     headers: {
       "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

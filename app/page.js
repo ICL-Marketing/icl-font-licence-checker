@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, CopyIcon, CheckIcon } from "@/app/icons";
 import LaunchArea from "@/app/launch";
 import { DEFAULT_SITES } from "@/data/sites";
 import { buildFontEmail, buildImageEmail, isFreeLib, segmentsToText, segmentsToHtml } from "@/lib/email";
@@ -35,8 +36,13 @@ export default function Home() {
   const [parallel, setParallel] = useState(4);
   const [results, setResults] = useState({});
   const [running, setRunning] = useState(null); // null | "fonts" | "images"
-  const [launchRunning, setLaunchRunning] = useState(false);
-  const [area, setArea] = useState("fonts"); // "fonts" | "images" | "launch"
+  const [launchRunning, setLaunchRunning] = useState(false); // false | "launch" | "post"
+  const [area, setAreaState] = useState("fonts"); // "fonts" | "images" | "launch" | "post"
+  const TAB_SLUG = { fonts: "fonts", images: "images", launch: "launch", post: "post-launch" };
+  const setArea = (id) => {
+    setAreaState(id);
+    try { window.history.replaceState(null, "", `?tab=${TAB_SLUG[id]}`); } catch {}
+  };
   const [view, setView] = useState({ fonts: "results", images: "results" }); // "results" | "emails" per area
   const [filter, setFilter] = useState("ALL");
   const [open, setOpen] = useState({});
@@ -45,6 +51,13 @@ export default function Home() {
   const stopRef = useRef(false);
   const cancelledRef = useRef(new Set());
   const router = useRouter();
+
+  // Each tab has its own URL (?tab=…), so links to a tab can be shared.
+  useEffect(() => {
+    const slug = new URLSearchParams(window.location.search).get("tab");
+    const id = Object.keys(TAB_SLUG).find((k) => TAB_SLUG[k] === slug);
+    if (id) setTimeout(() => setAreaState(id), 0);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let saved = null;
@@ -221,7 +234,7 @@ export default function Home() {
     return c;
   }, [fontRows]);
   const fontDone = fontRows.filter((r) => r.status !== "RUNNING").length;
-  const fontTotal = running === "fonts" ? sites.length : fontRows.length;
+  const fontTotal = Math.max(sites.length, fontRows.length);
   const fontFine = fontCounts.OK + fontCounts.SYSTEM;
   // Green (free fixes) first, then amber, then red; couldn't-check sites last.
   const toneOrder = (r) => {
@@ -237,7 +250,7 @@ export default function Home() {
   const imgRows = useMemo(() => all.filter((r) => r.imgStatus).map((r) => ({ r, paid: paidImages(r) }))
     .sort((a, b) => (b.r.imgStatus === "RUNNING") - (a.r.imgStatus === "RUNNING") || b.paid.length - a.paid.length || a.r.site.localeCompare(b.r.site)), [all]);
   const imgDone = imgRows.filter((x) => x.r.imgStatus !== "RUNNING").length;
-  const imgTotal = running === "images" ? sites.length : imgRows.length;
+  const imgTotal = Math.max(sites.length, imgRows.length);
   const imgPaidSites = imgRows.filter((x) => x.paid.length).length;
   const imgUnreachable = imgRows.filter((x) => x.r.imgStatus === "UNREACHABLE").length;
   const imgFine = imgRows.filter((x) => x.r.imgStatus === "DONE" && !x.paid.length).length;
@@ -268,22 +281,24 @@ export default function Home() {
         </Link>
       </header>
 
-      <nav className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-zinc-200/70 p-1 sm:inline-grid sm:w-auto" aria-label="Licence area">
+      <nav className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 rounded-xl bg-zinc-200/70 p-1 sm:inline-grid sm:w-auto" aria-label="Licence area">
         {[["fonts", "Font Licenses", fontRows.length ? fontCounts.PROBLEM + fontCounts.CHECK : null],
           ["images", "Image Licenses", imgRows.length ? imgPaidSites : null],
-          ["launch", "Launch Checks", null]].map(([id, label, n]) => (
+          ["launch", "Launch Checks", null],
+          ["post", "Post Launch Checks", null]].map(([id, label, n]) => (
           <button key={id} onClick={() => setArea(id)} aria-current={area === id ? "page" : undefined}
             className={`rounded-lg px-4 py-2 text-sm font-semibold ${area === id ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"}`}>
             {label}{n != null && <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] text-zinc-700">{n}</span>}
-            {(running === id || (id === "launch" && launchRunning)) && <span className="ml-2 text-[11px] font-normal text-blue-600">scanning…</span>}
+            {(running === id || (id === "launch" && launchRunning === "launch") || (id === "post" && launchRunning === "post")) && <span className="ml-2 text-[11px] font-normal text-blue-600">scanning…</span>}
           </button>
         ))}
       </nav>
 
       {/* All areas stay mounted so a running scan carries on when you switch tabs. */}
-      <section className={`mt-5 ${area === "launch" ? "" : "hidden"}`}><LaunchArea post={post} onRunning={setLaunchRunning} /></section>
+      <section className={`mt-5 ${area === "launch" ? "" : "hidden"}`}><LaunchArea post={post} mode="launch" onRunning={(v) => setLaunchRunning(v ? "launch" : false)} /></section>
+      <section className={`mt-5 ${area === "post" ? "" : "hidden"}`}><LaunchArea post={post} mode="post" onRunning={(v) => setLaunchRunning(v ? "post" : false)} /></section>
 
-      <div className={area !== "launch" ? "" : "hidden"}>
+      <div className={area !== "launch" && area !== "post" ? "" : "hidden"}>
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
         <button onClick={() => setShowList((v) => !v)} className="flex w-full items-center justify-between text-left text-sm font-medium">
           <span>Sites to check ({sites.length})</span>
@@ -459,7 +474,7 @@ function RemoveSite({ site, onRemove }) {
   }
   return (
     <button onClick={() => setAsking(true)} aria-label={`Remove ${site}`} title="Cancel and remove this site"
-      className="shrink-0 px-3 py-3 text-lg leading-none text-zinc-400 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500">×</button>
+      className="shrink-0 px-3 py-3.5 text-zinc-400 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500"><CloseIcon /></button>
   );
 }
 
@@ -489,29 +504,32 @@ function FineList({ count, text, items }) {
 // Run / rescan, stop, download and clear for one area. Clear asks first.
 function AreaBar({ kind, done, total, label, running, sites, onRun, onStop, onClear, download, retry }) {
   const [asking, setAsking] = useState(false);
-  const btn = "rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100 disabled:opacity-50";
+  const btn = "inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100 disabled:opacity-50";
+  const primary = "inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50";
+  const unfinished = retry?.sites.length > 0;
   return (
     <div className="mb-4">
       <div className="flex flex-wrap items-center gap-2">
         {running === kind ? (
-          <button onClick={onStop} className="rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white">Stop</button>
+          <button onClick={onStop} className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700"><StopIcon /> Stop</button>
         ) : (
-          <button onClick={onRun} disabled={!!running || !sites.length} className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
-            {label} on {sites.length} site{sites.length === 1 ? "" : "s"}
-          </button>
+          <>
+            {/* Finishing what is left is the main action when some sites did not complete. */}
+            {unfinished && <button onClick={retry.onClick} className={primary}><RefreshIcon /> Re-scan {retry.sites.length} unfinished site{retry.sites.length === 1 ? "" : "s"}</button>}
+            <button onClick={onRun} disabled={!!running || !sites.length} className={unfinished ? btn : primary}>
+              {/Rescan/.test(label) ? <RefreshIcon /> : <PlayIcon />} {label} on {sites.length} site{sites.length === 1 ? "" : "s"}
+            </button>
+          </>
         )}
-        {retry?.sites.length > 0 && !running && (
-          <button onClick={retry.onClick} className={btn}>Re-scan {retry.sites.length} unfinished site{retry.sites.length === 1 ? "" : "s"}</button>
-        )}
-        {download && <button onClick={download.onClick} disabled={download.busy} className={btn}>{download.busy ? "Building…" : download.label}</button>}
+        {download && <button onClick={download.onClick} disabled={download.busy} className={btn}><DownloadIcon /> {download.busy ? "Building…" : download.label}</button>}
         {onClear && !running && (asking ? (
-          <span className="flex items-center gap-2 text-sm">
+          <span className="flex items-center gap-2 text-sm sm:ml-auto">
             <span className="text-zinc-600">Clear all {kind === "fonts" ? "font" : "image"} results?</span>
-            <button onClick={() => { setAsking(false); onClear(); }} className="rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white">Clear</button>
+            <button onClick={() => { setAsking(false); onClear(); }} className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white"><TrashIcon className="h-3.5 w-3.5" /> Clear</button>
             <button onClick={() => setAsking(false)} className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100">Keep</button>
           </span>
         ) : (
-          <button onClick={() => setAsking(true)} className={`${btn} sm:ml-auto`}>Clear {kind === "fonts" ? "font" : "image"} results</button>
+          <button onClick={() => setAsking(true)} className={`${btn} text-red-700 hover:bg-red-50 sm:ml-auto`}><TrashIcon /> Clear {kind === "fonts" ? "font" : "image"} results</button>
         ))}
       </div>
       {total > 0 && (
@@ -519,7 +537,7 @@ function AreaBar({ kind, done, total, label, running, sites, onRun, onStop, onCl
           <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-200">
             <div className="h-full bg-zinc-800 transition-all" style={{ width: `${total ? (done / total) * 100 : 0}%` }} />
           </div>
-          <p className="mt-1 text-xs text-zinc-500">{running === kind ? `Scanning… ${done} of ${total} done` : `${done} site${done === 1 ? "" : "s"} scanned`}</p>
+          <p className="mt-1 text-xs text-zinc-500">{running === kind ? `Scanning… ${done} of ${total} done` : done < total ? `${done} of ${total} sites scanned` : `${done} site${done === 1 ? "" : "s"} scanned`}</p>
         </div>
       )}
     </div>
@@ -571,7 +589,7 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove }) {
         <span className="font-medium">{r.site}</span>
         {r.platform && <span className="text-xs text-zinc-400">{r.platform}</span>}
         <span className="basis-full text-sm text-zinc-700 sm:basis-auto sm:flex-1">{headline}</span>
-        {r.status !== "RUNNING" && <span className="text-xs text-zinc-400">{open ? "▲" : "▼"}</span>}
+        {r.status !== "RUNNING" && <span className="text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>}
       </button>
       <RemoveSite site={r.site} onRemove={onRemove} />
       </div>
@@ -636,7 +654,7 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove }) {
             {oks.length > 0 && <span title={[...new Set(oks.map((f) => f.family))].join(", ")} className="text-green-700">{oks.length} font{oks.length === 1 ? "" : "s"} fine</span>}
             {r.ignoredFonts?.length > 0 && <span title={r.ignoredFonts.join(", ")}>{r.ignoredFonts.length} icon/UI font{r.ignoredFonts.length === 1 ? "" : "s"} ignored</span>}
             {r.seconds != null && <span>{r.seconds}s</span>}
-            {!running && <button onClick={rerun} className="underline">Re-scan</button>}
+            {!running && <button onClick={rerun} className="inline-flex items-center gap-1 underline"><RefreshIcon className="h-3 w-3" /> Re-scan</button>}
           </div>
         </div>
       )}
@@ -663,7 +681,7 @@ function ImageCard({ r, paid, open, toggle, rerun, running, onRemove }) {
         <span className="font-medium">{r.site}</span>
         <span className="basis-full text-sm text-zinc-700 sm:basis-auto sm:flex-1">{headline}</span>
         {st !== "RUNNING" && r.pagesScanned > 0 && <span className="text-xs text-zinc-400">{r.pagesScanned} pages</span>}
-        {st !== "RUNNING" && <span className="text-xs text-zinc-400">{open ? "▲" : "▼"}</span>}
+        {st !== "RUNNING" && <span className="text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>}
       </button>
       <RemoveSite site={r.site} onRemove={onRemove} />
       </div>
@@ -720,7 +738,7 @@ function ImageCard({ r, paid, open, toggle, rerun, running, onRemove }) {
             {r.pagesScanned > 0 && <span>{r.pagesScanned} page{r.pagesScanned === 1 ? "" : "s"} checked{r.hasSitemap ? " (sitemap)" : " (crawled)"}</span>}
             {r.imagesChecked > 0 && <span>{r.imagesChecked} images seen</span>}
             {freeCount > 0 && <span className="text-green-700">{freeCount} free-library image{freeCount === 1 ? "" : "s"} (no licence needed)</span>}
-            {!running && <button onClick={rerun} className="underline">Re-scan</button>}
+            {!running && <button onClick={rerun} className="inline-flex items-center gap-1 underline"><RefreshIcon className="h-3 w-3" /> Re-scan</button>}
           </div>
         </div>
       )}
@@ -771,9 +789,9 @@ function EmailCard({ e, open, toggle }) {
           <span className="font-medium">{e.site}</span>
           <span className="ml-2 text-xs text-zinc-500">{e.count} {e.kind === "fonts" ? "font" : "image"}{e.count === 1 ? "" : "s"}</span>
           {edited && <span className="ml-2 rounded bg-orange-100 px-1.5 py-0.5 text-[11px] font-semibold text-orange-800">Edited</span>}
-          <span className="ml-2 text-xs text-zinc-400">{open ? "▲" : "▼"}</span>
+          <span className="ml-2 inline-block align-middle text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>
         </button>
-        <button onClick={copy} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{copied ? "Copied" : "Copy email"}</button>
+        <button onClick={copy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy email</>}</button>
       </div>
       {open && (
         <div className="border-t border-zinc-100 px-4 py-3">

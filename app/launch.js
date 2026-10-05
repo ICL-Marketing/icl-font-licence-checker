@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadTeam, normaliseTeam } from "@/app/team";
-import { evaluateLaunch } from "@/lib/launchChecks";
+import { evaluateLaunch, CHECK_STAGES } from "@/lib/launchChecks";
+import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, ExternalIcon, FlagIcon, CopyIcon, CheckIcon } from "@/app/icons";
 
-const RUNS_KEY = "flc-launch-v1";
-const SIGN_KEY = "flc-launch-signoffs-v1";
-const LOG_KEY = "flc-launch-log-v1";
+// Launch and post-launch checks keep separate results and sign-offs.
+const keysFor = (mode) => { const sfx = mode === "post" ? "-post" : ""; return { runs: `flc-launch-v1${sfx}`, sign: `flc-launch-signoffs-v1${sfx}`, log: `flc-launch-log-v1${sfx}` }; };
 const MARKER_KEY = "flc-marker-v1"; // {site: Marker.io project link}
 const MAX_LINKS = 800;
 const MAX_IMAGES = 600;
@@ -20,7 +20,9 @@ const hostOf = (u) => { try { return hostKey(new URL(u).host); } catch { return 
 const keyFor = (input) => { let s = String(input || "").trim(); if (!/^https?:\/\//i.test(s)) s = "https://" + s; return hostOf(s); };
 
 
-export default function LaunchArea({ post, onRunning }) {
+export default function LaunchArea({ post, onRunning, mode = "launch" }) {
+  const { runs: RUNS_KEY, sign: SIGN_KEY, log: LOG_KEY } = keysFor(mode);
+  const storeKey = (key) => (mode === "post" ? `${key}#post` : key); // shared-store id for sign-offs
   const [url, setUrl] = useState("");
   const [markerLink, setMarkerLink] = useState("");
   const [markerReady, setMarkerReady] = useState(null); // null unknown, true/false from /api/marker
@@ -48,11 +50,11 @@ export default function LaunchArea({ post, onRunning }) {
     fetch("/api/team").then((r) => r.json()).then((j) => { if (j.shared && Array.isArray(j.team) && j.team.length) setTeam(normaliseTeam(j.team)); }).catch(() => {});
     for (const key of Object.keys(load(RUNS_KEY, {}))) refreshSignoffs(key);
     return () => clearTimeout(t);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function refreshSignoffs(key) {
     try {
-      const j = await (await fetch(`/api/signoffs?site=${encodeURIComponent(key)}`)).json();
+      const j = await (await fetch(`/api/signoffs?site=${encodeURIComponent(storeKey(key))}`)).json();
       if (!j.shared) return;
       setShared(true);
       setSignoffs((prev) => ({ ...prev, [key]: j.signoffs || {} }));
@@ -66,15 +68,15 @@ export default function LaunchArea({ post, onRunning }) {
     return next;
   });
   // Every sign-off change is logged: who, which check, when.
-  async function sign(key, check, name) {
+  async function sign(key, check, name, notRequired = false) {
     const at = new Date().toISOString();
     const prevSign = signoffs[key]?.[check.id];
     const entry = name
-      ? { at, checkId: check.id, check: check.title, action: prevSign ? `Changed from ${prevSign.name}` : "Signed off", name }
+      ? { at, checkId: check.id, check: check.title, action: notRequired ? "Marked not required" : prevSign ? `Changed from ${prevSign.name}` : "Signed off", name }
       : { at, checkId: check.id, check: check.title, action: "Sign-off removed", name: prevSign?.name || "" };
     setSignoffs((prev) => {
       const site = { ...(prev[key] || {}) };
-      if (name) site[check.id] = { name, at }; else delete site[check.id];
+      if (name) site[check.id] = { name, at, ...(notRequired ? { notRequired: true } : {}) }; else delete site[check.id];
       const next = { ...prev, [key]: site };
       save(SIGN_KEY, next);
       return next;
@@ -86,7 +88,7 @@ export default function LaunchArea({ post, onRunning }) {
     });
     if (shared) {
       try {
-        const j = await post("/api/signoffs", { site: key, checkId: check.id, check: check.title, name });
+        const j = await post("/api/signoffs", { site: storeKey(key), checkId: check.id, check: check.title, name, notRequired: !!notRequired });
         if (j.shared) {
           setSignoffs((prev) => ({ ...prev, [key]: j.signoffs || {} }));
           setLogs((prev) => ({ ...prev, [key]: j.log || [] }));
@@ -101,7 +103,7 @@ export default function LaunchArea({ post, onRunning }) {
   // One launch check, as a resumable sequence of short requests. Progress is
   // saved after every batch (r.work), so an interrupted check can be finished
   // later with runCheck(input, undefined, { resume: true }) instead of starting over.
-  async function runCheck(input, markerProject, { resume = false } = {}) {
+  async function runCheck(input, markerProject, { resume = false, only = null } = {}) {
     const key = keyFor(input);
     if (!key) return;
     if (markerProject !== undefined) { const all = load(MARKER_KEY, {}); if (markerProject.trim()) all[key] = markerProject.trim(); else delete all[key]; save(MARKER_KEY, all); }
@@ -111,10 +113,29 @@ export default function LaunchArea({ post, onRunning }) {
     setOpenKey(key);
     const prev = load(RUNS_KEY, {})[key];
     let w = resume && prev?.work ? prev.work : null;
-    patch(key, { input, status: "RUNNING", phase: w ? "Finishing the check" : "Reading the site", done: 0, total: 1, error: "" });
+    // Partial rescan: start from the last results and redo only the stages listed in `only`.
+    if (!w && only && prev?.status === "DONE" && prev.pages) {
+      const statusOf = {};
+      for (const p of prev.pages) { statusOf[p.url] = { status: p.status, error: p.error || "" }; if (p.finalUrl && !statusOf[p.finalUrl]) statusOf[p.finalUrl] = statusOf[p.url]; }
+      w = { stage: only.includes("start") ? "start" : "links", only, startInfo: prev.start, site: prev.start.host, pageQueue: [], queued: [], pages: prev.pages, leftover: prev.complete?.pages ? 0 : 1,
+        linkSources: prev.linkSources || {}, linkTexts: prev.linkTexts || {}, imageSources: prev.imageSources || {}, statusOf,
+        linkList: only.includes("links") ? null : [], linksLeft: 0, linkStatus: only.includes("links") ? {} : (prev.linkStatus || {}),
+        imgAll: Object.keys(prev.imageSources || {}).length, imgList: only.includes("images") ? null : [], imageInfo: only.includes("images") ? {} : (prev.imageInfo || {}),
+        psiList: only.includes("psi") ? null : Object.keys(prev.psi || {}), psiQueue: null, psi: only.includes("psi") ? {} : (prev.psi || {}), psiError: only.includes("psi") ? "" : (prev.psiError || ""), psiDone: 0, psiTried: [],
+        okCount: prev.pages.filter((p) => p.status >= 200 && p.status < 400 && !p.notHtml && !p.error).length, keepMarker: !only.includes("marker") ? prev.marker : undefined };
+    }
+    patch(key, { input, status: "RUNNING", phase: w ? (only ? "Rescanning unsigned checks" : "Finishing the check") : "Reading the site", done: 0, total: 1, error: "" });
     const progress = (phase, done, total) => patch(key, { work: w, phase, done, total });
     const paused = () => { patch(key, { status: "PAUSED", work: w, phase: "" }); };
     try {
+      if (w?.stage === "start") {
+        // Partial rescan of site-level facts (SSL, redirects, robots, sitemap, email) keeping the pages.
+        const start = await post("/api/launch", { step: "start", url: input });
+        if (start.error) { patch(key, { status: "DONE", work: null, error: start.error }); return; }
+        const startInfo = { ...start }; delete startInfo.pageQueue;
+        w.startInfo = startInfo;
+        w.stage = "links";
+      }
       if (!w) {
         const start = await post("/api/launch", { step: "start", url: input });
         if (start.error) { patch(key, { status: "ERROR", error: start.error, work: null }); return; }
@@ -130,8 +151,9 @@ export default function LaunchArea({ post, onRunning }) {
         const queued = new Set(w.queued);
         while (w.pageQueue.length && !stopRef.current) {
           progress("Checking pages", w.pages.length, w.pages.length + w.pageQueue.length);
-          const batch = w.pageQueue.splice(0, 10);
+          const batch = w.pageQueue.slice(0, 10);
           const out = await post("/api/launch", { step: "pages", urls: batch });
+          w.pageQueue.splice(0, batch.length);
           if (out.error) { w.leftover += batch.length; continue; }
           for (const p of out.pages || []) {
             w.statusOf[p.url] = { status: p.status, error: p.error || "" };
@@ -166,8 +188,9 @@ export default function LaunchArea({ post, onRunning }) {
         }
         while (w.linkList.length && !stopRef.current) {
           progress("Checking links", Object.keys(w.linkStatus).length, Object.keys(w.linkStatus).length + w.linkList.length);
-          const batch = w.linkList.splice(0, 40);
+          const batch = w.linkList.slice(0, 40);
           const out = await post("/api/launch", { step: "urls", urls: batch });
+          w.linkList.splice(0, batch.length);
           Object.assign(w.linkStatus, out.results || {});
           if (out.remaining?.length) w.linkList.unshift(...out.remaining);
         }
@@ -181,8 +204,9 @@ export default function LaunchArea({ post, onRunning }) {
         if (!w.imgList) { const all = Object.keys(w.imageSources); w.imgAll = all.length; w.imgList = all.slice(0, MAX_IMAGES); }
         while (w.imgList.length && !stopRef.current) {
           progress("Checking images", Object.keys(w.imageInfo).length, Object.keys(w.imageInfo).length + w.imgList.length);
-          const batch = w.imgList.splice(0, 40);
+          const batch = w.imgList.slice(0, 40);
           const out = await post("/api/launch", { step: "urls", urls: batch });
+          w.imgList.splice(0, batch.length);
           Object.assign(w.imageInfo, out.results || {});
           if (out.remaining?.length) w.imgList.unshift(...out.remaining);
         }
@@ -196,8 +220,10 @@ export default function LaunchArea({ post, onRunning }) {
           const okUrls = w.pages.filter((p) => p.status >= 200 && p.status < 400 && !p.notHtml && !p.error).map((p) => p.url);
           w.okCount = okUrls.length;
           w.psiList = okUrls.slice(0, MAX_PSI);
-          w.psiQueue = [...w.psiList];
         }
+        // Anything not yet answered is still to do (an audit in flight when the page closed is redone).
+        w.psiQueue = w.psiList.filter((u) => !(u in w.psi) && !(w.psiTried || []).includes(u));
+        w.psiTried = w.psiTried || [];
         progress("Accessibility audit (Google PageSpeed)", w.psiDone, w.psiList.length);
         await Promise.all(Array.from({ length: 6 }, async () => {
           while (w.psiQueue.length && !stopRef.current && !w.psiError) {
@@ -205,8 +231,8 @@ export default function LaunchArea({ post, onRunning }) {
             let out = await post("/api/launch", { step: "psi", url: u });
             if (!out.ok && !out.fatal) out = await post("/api/launch", { step: "psi", url: u }); // one retry
             if (out.fatal) { w.psiError = out.error; break; }
-            if (out.ok) w.psi[u] = out;
-            w.psiDone++;
+            if (out.ok) w.psi[u] = out; else w.psiTried.push(u);
+            w.psiDone = Object.keys(w.psi).length + w.psiTried.length;
             progress("Accessibility audit (Google PageSpeed)", w.psiDone, w.psiList.length);
           }
         }));
@@ -215,9 +241,9 @@ export default function LaunchArea({ post, onRunning }) {
       }
 
       // 5) Marker.io accessibility monitoring for this project (when a project link is set).
-      let markerInfo = null;
+      let markerInfo = w.keepMarker || null;
       const projLink = load(MARKER_KEY, {})[key] || "";
-      if (projLink && markerReady !== false) {
+      if (projLink && markerReady !== false && !w.keepMarker) {
         progress("Reading Marker.io accessibility results", 0, 1);
         try { markerInfo = await post("/api/marker-monitor", { project: projLink }); } catch (e) { markerInfo = { ok: false, error: e.message }; }
         if (markerInfo?.raw) delete markerInfo.raw;
@@ -246,6 +272,19 @@ export default function LaunchArea({ post, onRunning }) {
       onRunning?.(false);
       refreshSignoffs(key);
     }
+  }
+
+  // Rescan only what the unsigned checks need. Falls back to a full rescan when
+  // an unsigned check depends on re-reading every page.
+  function rescanUnsigned(key) {
+    const r = runs[key];
+    if (!r || r.status !== "DONE") return runCheck(r?.input || key);
+    const signed = signoffs[key] || {};
+    const unsigned = evaluateLaunch(r).filter((c) => c.state !== "pass" && !signed[c.id]);
+    const stages = new Set(unsigned.flatMap((c) => CHECK_STAGES[c.id] || []));
+    if (!stages.size) return;
+    if (stages.has("pages")) return runCheck(r.input || key);
+    return runCheck(r.input || key, undefined, { only: [...stages] });
   }
 
   // Ask Marker.io to rescan the site, wait for it, then pull the new results in.
@@ -283,25 +322,25 @@ export default function LaunchArea({ post, onRunning }) {
         <input value={markerLink} onChange={(e) => setMarkerLink(e.target.value)} disabled={!!running} placeholder="Marker.io project link" required
           className="min-w-0 flex-1 basis-64 rounded-md border border-zinc-300 px-3 py-2 text-sm" aria-label="Marker.io project link" />
         {running
-          ? <button type="button" onClick={() => { stopRef.current = true; }} className="rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white">Stop</button>
-          : <button type="submit" disabled={!url.trim() || !/^https?:\/\//.test(markerLink.trim())} title={!/^https?:\/\//.test(markerLink.trim()) ? "Add the Marker.io project link first" : ""} className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">Run launch check</button>}
+          ? <button type="button" onClick={() => { stopRef.current = true; }} className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700"><StopIcon /> Stop</button>
+          : <button type="submit" disabled={!url.trim() || !/^https?:\/\//.test(markerLink.trim())} title={!/^https?:\/\//.test(markerLink.trim()) ? "Add the Marker.io project link first" : ""} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"><PlayIcon /> Run {mode === "post" ? "post-launch" : "launch"} check</button>}
       </form>
       <p className="mt-2 text-xs text-zinc-500">Checks every page in the sitemap (up to 500), the links and images on them, and runs Google&apos;s accessibility audit on each page (up to 100). Anything the scan can&apos;t fully verify needs a person to tick it off. Completed checks drop to the bottom.</p>
 
       <div className="mt-4 space-y-3">
         {list.map(([key, r]) => (
-          <LaunchCard key={key} k={key} r={r} signed={signoffs[key] || {}} log={logs[key] || []} shared={shared} team={team} open={openKey === key}
-            toggle={() => { if (openKey !== key) refreshSignoffs(key); setOpenKey((o) => (o === key ? null : key)); }} onSign={(check, name) => sign(key, check, name)}
-            onRescan={() => runCheck(r.input || key)} onFinish={() => runCheck(r.input || key, undefined, { resume: true })} onRemove={() => removeRun(key)} busy={!!running} markerReady={markerCreate} onMarkerRescan={() => markerRescan(key)}
+          <LaunchCard key={key} k={key} r={r} mode={mode} signed={signoffs[key] || {}} log={logs[key] || []} shared={shared} team={team} open={openKey === key}
+            toggle={() => { if (openKey !== key) refreshSignoffs(key); setOpenKey((o) => (o === key ? null : key)); }} onSign={(check, name, nr) => sign(key, check, name, nr)}
+            onRescan={() => runCheck(r.input || key)} onFinish={() => runCheck(r.input || key, undefined, { resume: true })} onRescanUnsigned={() => rescanUnsigned(key)} onRemove={() => removeRun(key)} busy={!!running} markerReady={markerCreate} onMarkerRescan={() => markerRescan(key)}
             onSnag={(id, snag) => patch(key, { snags: { ...(r.snags || {}), [id]: snag } })} />
         ))}
-        {!list.length && <p className="text-sm text-zinc-500">No launch checks yet.</p>}
+        {!list.length && <p className="text-sm text-zinc-500">No {mode === "post" ? "post-launch" : "launch"} checks yet.</p>}
       </div>
     </div>
   );
 }
 
-function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onRescan, onFinish, onRemove, busy, markerReady, onSnag, onMarkerRescan }) {
+function LaunchCard({ k, r, mode, signed, log, shared, team, open, toggle, onSign, onRescan, onFinish, onRescanUnsigned, onRemove, busy, markerReady, onSnag, onMarkerRescan }) {
   const checks = useMemo(() => (r.status === "DONE" ? evaluateLaunch(r) : []), [r]);
   const auto = checks.filter((c) => c.state === "pass").length;
   const signedCount = checks.filter((c) => c.state !== "pass" && signed[c.id]).length;
@@ -321,12 +360,12 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
       const slim = checks.map(({ id, section, owner, title, state, summary, items }) => ({ id, section, owner, title, state, summary, items: items.slice(0, 15) }));
       const res = await fetch(word ? "/api/signoff-log" : "/api/export", { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify(word
-          ? { site: k, url: r.start?.finalUrl, scannedAt: r.scannedAt, checks: slim, signed, log }
+          ? { site: k, url: r.start?.finalUrl, scannedAt: r.scannedAt, checks: slim, signed, log, mode }
           : { kind: "launch", launch: { site: k, url: r.start?.finalUrl, scannedAt: r.scannedAt, checks: slim, signed, team: team.map((m) => m.name) } }) });
       const blob = await res.blob();
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `${word ? "launch-sign-off-log" : "launch-checklist"}-${k}-${new Date().toISOString().slice(0, 10)}.${word ? "docx" : "xlsx"}`;
+      a.download = `${mode === "post" ? "post-launch" : "launch"}-sign-off-log-${k}-${new Date().toISOString().slice(0, 10)}.${word ? "docx" : "xlsx"}`;
       a.click();
       URL.revokeObjectURL(a.href);
     } finally { setExporting(""); }
@@ -342,16 +381,18 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
           {r.status === "RUNNING" && <span className="rounded-full bg-blue-500 px-2 py-0.5 text-[11px] font-semibold text-white">SCANNING</span>}
           {r.status === "ERROR" && <span className="rounded-full bg-purple-600 px-2 py-0.5 text-[11px] font-semibold text-white">COULDN&apos;T CHECK</span>}
           {r.status === "PAUSED" && <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-white">NOT FINISHED</span>}
-          {r.status === "DONE" && (todo ? <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${fails ? "bg-red-600" : "bg-amber-500"}`}>{todo} TO SIGN OFF</span>
-            : <span className="rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">READY TO LAUNCH</span>)}
           <span className="font-medium">{k}</span>
           <span className="basis-full text-sm text-zinc-600 sm:basis-auto sm:flex-1">
             {r.status === "RUNNING" ? `${r.phase}… ${r.total > 1 ? `${r.done} of ${r.total}` : ""}`
               : r.status === "ERROR" ? r.error
               : r.status === "PAUSED" ? `Stopped part way (${workLeft(r.work)} left). Press Finish scan to carry on from where it got to.${r.error ? ` ${r.error}` : ""}`
-              : `${auto} passed automatically · ${signedCount} signed off · ${fails} with problems · ${r.pages?.length || 0} pages`}
+              : `${auto} Automatically Signed Off / ${signedCount} Manually Signed Off`}
           </span>
-          {r.status !== "RUNNING" && <span className="text-xs text-zinc-400">{open ? "▲" : "▼"}</span>}
+          {/* Remaining count sits on the right. */}
+          {r.status === "DONE" && (todo
+            ? <span className={`ml-auto rounded-full px-2.5 py-0.5 text-[11px] font-semibold text-white ${fails ? "bg-red-600" : "bg-amber-500"}`}>{todo} REMAINING</span>
+            : <span className="ml-auto rounded-full bg-green-600 px-2.5 py-0.5 text-[11px] font-semibold text-white">ALL SIGNED OFF</span>)}
+          {r.status !== "RUNNING" && <span className="text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>}
         </button>
         {asking ? (
           <div className="flex shrink-0 items-center gap-2 py-2.5 pr-3 text-xs">
@@ -360,7 +401,7 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
             <button onClick={() => setAsking(false)} className="rounded-md border border-zinc-300 px-2 py-1 text-zinc-700 hover:bg-zinc-100">Keep</button>
           </div>
         ) : (
-          <button onClick={() => setAsking(true)} disabled={r.status === "RUNNING"} aria-label={`Remove ${k}`} className="shrink-0 px-3 py-3 text-lg leading-none text-zinc-400 hover:text-red-600 disabled:opacity-30">×</button>
+          <button onClick={() => setAsking(true)} disabled={r.status === "RUNNING"} aria-label={`Remove ${k}`} className="shrink-0 px-3 py-3.5 text-zinc-400 hover:text-red-600 disabled:opacity-30"><CloseIcon /></button>
         )}
       </div>
       {r.status === "RUNNING" && (
@@ -373,17 +414,20 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
       {open && r.status !== "RUNNING" && (
         <div className="border-t border-zinc-100 px-4 py-3">
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            {r.status === "PAUSED" && <button onClick={onFinish} disabled={busy} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">Finish scan ({workLeft(r.work)} left)</button>}
-            <button onClick={onRescan} disabled={busy} className={`rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${r.status === "PAUSED" ? "border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100" : "bg-zinc-900 text-white"}`}>{r.status === "PAUSED" ? "Start again" : "Rescan"}</button>
+            {r.status === "PAUSED" && <button onClick={onFinish} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 disabled:opacity-50"><PlayIcon className="h-3.5 w-3.5" /> Finish scan ({workLeft(r.work)} left)</button>}
+            {r.status === "DONE" && todo > 0 && todo < checks.length && (
+              <button onClick={onRescanUnsigned} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 disabled:opacity-50" title="Re-runs only the parts of the scan the unsigned checks need"><RefreshIcon className="h-3.5 w-3.5" /> Rescan {todo} unsigned check{todo === 1 ? "" : "s"}</button>
+            )}
+            <button onClick={onRescan} disabled={busy} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${r.status === "PAUSED" || (r.status === "DONE" && todo > 0 && todo < checks.length) ? "border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100" : "bg-zinc-900 text-white hover:bg-zinc-700"}`}><RefreshIcon className="h-3.5 w-3.5" /> {r.status === "PAUSED" ? "Start again" : "Rescan everything"}</button>
             {r.status === "DONE" && r.markerLink && (r.markerBusy
               ? <span className="text-xs text-blue-700">{r.markerBusy}</span>
-              : <button onClick={onMarkerRescan} disabled={busy} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-50" title="Runs a fresh Marker.io accessibility scan and pulls the results in">Re-run Marker.io scan</button>)}
-            {r.status === "DONE" && <button onClick={() => download("word")} disabled={!!exporting} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-50">{exporting === "word" ? "Building…" : "Download sign-off log (Word)"}</button>}
+              : <button onClick={onMarkerRescan} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-50" title="Runs a fresh Marker.io accessibility scan and pulls the results in"><RefreshIcon className="h-3.5 w-3.5" /> Re-run Marker.io scan</button>)}
+            {r.status === "DONE" && <button onClick={() => download("word")} disabled={!!exporting} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-50"><DownloadIcon className="h-3.5 w-3.5" /> {exporting === "word" ? "Building…" : "Download sign-off log (Word)"}</button>}
             {r.status === "DONE" && (
               <span className="flex items-center gap-1.5 text-xs">
                 <input value={marker} onChange={(e) => saveMarker(e.target.value)} placeholder="Marker.io project link" aria-label="Marker.io project link"
                   className="w-56 rounded-md border border-zinc-300 px-2 py-1.5 text-xs" />
-                {/^https?:\/\//.test(marker) && <a href={marker} target="_blank" rel="noreferrer" className="rounded-md bg-zinc-100 px-2.5 py-1.5 font-medium text-zinc-800 hover:bg-zinc-200">Open in Marker.io ↗</a>}
+                {/^https?:\/\//.test(marker) && <a href={marker} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2.5 py-1.5 font-medium text-zinc-800 hover:bg-zinc-200">Open in Marker.io <ExternalIcon /></a>}
               </span>
             )}
             {r.status === "DONE" && (
@@ -394,20 +438,22 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
             )}
             {r.scannedAt && <span className="text-[11px] text-zinc-400">Scanned {new Date(r.scannedAt).toLocaleString("en-GB")}{r.stopped ? " (stopped early)" : ""}</span>}
           </div>
-          {r.status === "DONE" && owners.map((who) => {
-            const mine = checks.filter((c) => c.owner === who).map((c, i) => ({ c, i, done: c.state === "pass" || !!signed[c.id] }));
+          {r.status === "DONE" && [...owners, "Automated"].map((who) => {
+            // Checks the scan verified itself sit in their own group at the bottom; nobody needs to sign them.
+            const mine = checks.filter((c) => (who === "Automated" ? c.state === "pass" : c.owner === who && c.state !== "pass")).map((c, i) => ({ c, i, done: c.state === "pass" || !!signed[c.id] }));
+            if (!mine.length) return null;
             const left = mine.filter((x) => !x.done).length;
             return (
               <div key={who} className="mb-4">
                 <h3 className="mb-1 flex flex-wrap items-center gap-2 text-sm font-semibold">
                   {who}
-                  <span className={`text-[11px] font-normal ${left ? "text-zinc-500" : "text-green-700"}`}>{mine.length - left} of {mine.length} complete</span>
+                  <span className={`text-[11px] font-normal ${left ? "text-zinc-500" : "text-green-700"}`}>{who === "Automated" ? `${mine.length} passed automatically` : `${mine.length - left} of ${mine.length} complete`}</span>
                 </h3>
                 <div className="space-y-2">
                   {mine.filter((x) => !(hideDone && x.done)).sort((a, b) => a.done - b.done || a.i - b.i).map(({ c }) => (
-                    <CheckRow key={c.id} c={c} s={signed[c.id]} team={team} onSign={(name) => onSign(c, name)} marker={marker} markerReady={markerReady} snag={r.snags?.[c.id]} onSnag={(sn) => onSnag(c.id, sn)} site={r.start?.finalUrl || `https://${k}`} />
+                    <CheckRow key={c.id} c={c} s={signed[c.id]} team={team} onSign={(name, nr) => onSign(c, name, nr)} marker={marker} markerReady={markerReady} snag={r.snags?.[c.id]} onSnag={(sn) => onSnag(c.id, sn)} site={r.start?.finalUrl || `https://${k}`} />
                   ))}
-                  {hideDone && !left && <p className="px-3 py-2.5 text-sm text-green-700">All {who} checks are complete.</p>}
+                  {hideDone && !left && <p className="px-3 py-2.5 text-sm text-green-700">{who === "Automated" ? `${mine.length} checks passed automatically.` : `All ${who} checks are complete.`}</p>}
                 </div>
               </div>
             );
@@ -416,7 +462,7 @@ function LaunchCard({ k, r, signed, log, shared, team, open, toggle, onSign, onR
             <div className="rounded-lg border border-zinc-200">
               <button onClick={() => setShowLog((v) => !v)} className="flex w-full items-center justify-between px-3 py-2 text-left text-sm">
                 <span className="font-semibold">Sign-off log ({log.length})</span>
-                <span className="text-xs text-zinc-400">{shared ? "Shared with the team" : "Saved in this browser only"} · {showLog ? "Hide" : "Show"}</span>
+                <span className="inline-flex items-center gap-1 text-xs text-zinc-400">{shared ? "Shared with the team" : "Saved in this browser only"} {showLog ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>
               </button>
               {showLog && (
                 <table className="w-full border-t border-zinc-100 text-xs">
@@ -458,37 +504,12 @@ const OWNER_ROLE = { Designer: "Designer", Developer: "Development", "Senior Dev
 // What the scan found, shown as a short note on rows still needing a person.
 const SCAN_NOTE = { fail: "Scan found problems", review: "Scan found things to look at", manual: "Manual check" };
 
-// Ready-to-paste snag text for Marker.io (or any ticket tool).
-function snagText(c) {
-  const lines = [c.title];
-  for (const f of c.facts || []) if (f.ok === false) lines.push(`- ${f.text}`);
-  if (c.items.length) c.items.slice(0, 30).forEach((i, n) => lines.push(`${n + 1}. ${i.text}`));
-  else if (c.summary && !(c.facts || []).some((f) => f.ok === false)) lines.push(c.summary);
-  if (c.items.length > 30) lines.push(`…and ${c.items.length - 30} more`);
-  return lines.join("\n");
-}
-
-function CheckRow({ c, s, team, onSign, marker, markerReady, snag, onSnag, site }) {
-  const [more, setMore] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [snagError, setSnagError] = useState("");
-  async function createSnag() {
-    setCreating(true); setSnagError("");
-    try {
-      const r = await fetch("/api/marker", { method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: c.title, description: snagText(c).split("\n").slice(1).join("\n"), project: marker || "" }) });
-      const j = await r.json();
-      if (j.ok) onSnag({ at: new Date().toISOString(), link: j.link || "", tool: j.tool });
-      else setSnagError(j.error || "Marker.io did not accept the snag.");
-    } catch (e) { setSnagError(`Could not reach Marker.io: ${e.message}`); }
-    finally { setCreating(false); }
-  }
-  // Snags are raised on the page itself (Marker.io widget / extension): copy the
-  // text, then open the affected page. One click per finding, or the whole list.
-  const firstPage = c.items.find((i) => i.href && !/marker\.io/.test(i.href))?.href || site;
-  async function copySnag(text, pageUrl) {
-    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
+// Snags are raised on the page itself (Marker.io widget / extension): copy the
+// text, then open the affected page. One button per finding.
+function CheckRow({ c, s, team, onSign, site }) {
+  const [copiedIdx, setCopiedIdx] = useState(-1);
+  async function addSnag(text, pageUrl, idx) {
+    try { await navigator.clipboard.writeText(text); setCopiedIdx(idx); setTimeout(() => setCopiedIdx(-1), 2000); } catch {}
     if (pageUrl) window.open(pageUrl, "_blank", "noopener");
   }
   const auto = c.state === "pass";
@@ -497,15 +518,20 @@ function CheckRow({ c, s, team, onSign, marker, markerReady, snag, onSnag, site 
   const all = s?.name && !team.some((m) => m.name === s.name) ? [...team, { name: s.name, role: "" }] : team;
   const first = all.filter((m) => m.role === role);
   const rest = all.filter((m) => m.role !== role);
+  const value = s ? `${s.notRequired ? "nr" : "ok"}:${s.name}` : "";
+  const change = (v) => { if (!v) return onSign(null); const [kind, ...n] = v.split(":"); onSign(n.join(":"), kind === "nr"); };
+  const opt = (m, kind) => <option key={`${kind}:${m.name}`} value={`${kind}:${m.name}`} className="bg-white text-zinc-900">{kind === "nr" ? "Not required" : "✓ Checked by"} {kind === "nr" ? `– ${m.name}` : m.name}</option>;
+  const canSnag = c.state !== "pass" && c.state !== "manual";
   return (
-    <div className={`grid gap-3 rounded-lg px-3 py-3 text-sm sm:grid-cols-[1fr_230px] ${done ? "bg-green-50" : "bg-red-50"}`}>
+    <div className={`grid gap-3 rounded-lg px-3 py-3 text-sm sm:grid-cols-[1fr_230px] ${done ? (s?.notRequired ? "bg-zinc-100" : "bg-green-50") : "bg-red-50"}`}>
       <div className="min-w-0">
         <p className="font-medium">{c.title}</p>
-        <p className="text-[11px] text-zinc-500">
-          {c.section === "Launch actions" ? "On launch day" : "Before launch"}
-          {!done && <span className={`ml-2 font-semibold ${c.state === "fail" ? "text-red-700" : c.state === "review" ? "text-amber-700" : "text-zinc-600"}`}>· {SCAN_NOTE[c.state]}</span>}
-          {s && c.state === "fail" && <span className="ml-2 font-semibold text-red-700">· Scan still shows problems</span>}
-        </p>
+        {(!done || (s && c.state === "fail")) && (
+          <p className="text-[11px]">
+            {!done && <span className={`font-semibold ${c.state === "fail" ? "text-red-700" : c.state === "review" ? "text-amber-700" : "text-zinc-600"}`}>{SCAN_NOTE[c.state]}</span>}
+            {s && c.state === "fail" && <span className="font-semibold text-red-700">Scan still shows problems</span>}
+          </p>
+        )}
         {c.facts?.length > 0 && (
           <ul className="mt-1 space-y-0.5 text-xs">
             {c.facts.map((f, i) => (
@@ -517,56 +543,42 @@ function CheckRow({ c, s, team, onSign, marker, markerReady, snag, onSnag, site 
             ))}
           </ul>
         )}
-        {/* The summary itself opens the details when there are any. */}
-        {c.summary && (c.items.length
-          ? <button onClick={() => setMore((v) => !v)} className="mt-0.5 text-left text-xs text-zinc-700 hover:text-blue-700" aria-expanded={more}>
-              {c.summary} <span className="whitespace-nowrap font-medium text-blue-700">{more ? "Hide ▴" : "Show ▾"}</span>
-            </button>
-          : <p className="mt-0.5 text-xs text-zinc-600">{c.summary}</p>)}
-        {(c.items.length > 0 || c.links.length > 0) && (
-          <div className="mt-1 text-xs">
-            {c.links.map((l) => <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="mr-3 text-blue-700 underline">{l.text}</a>)}
-            {c.state !== "pass" && c.state !== "manual" && (snag ? (
-              <span className="mr-3 text-[11px] font-medium text-green-700">✓ Snag sent to Marker.io {new Date(snag.at).toLocaleDateString("en-GB")}{snag.link && <> · <a href={snag.link} target="_blank" rel="noreferrer" className="underline">open</a></>}</span>
-            ) : markerReady ? (
-              <button onClick={createSnag} disabled={creating} className="mr-3 rounded bg-zinc-900 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
-                title={marker ? `Creates the snag in ${marker}` : "Creates the snag in Marker.io (add the project link on the scan to file it in the right project)"}>
-                {creating ? "Sending…" : "Create snag in Marker.io"}
-              </button>
-            ) : (
-              <button onClick={() => copySnag(snagText(c), firstPage)} className="mr-3 rounded border border-zinc-300 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-100" title="Copies the finding, then opens the affected page so you can raise the snag there with Marker.io">
-                {copied ? "Copied – now raise it on the page" : "Snag on page ↗"}
-              </button>
+        {c.summary && <p className="mt-0.5 text-xs text-zinc-600">{c.summary}</p>}
+        {c.links.length > 0 && <p className="mt-1 text-xs">{c.links.map((l) => <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="mr-3 inline-flex items-center gap-1 text-blue-700 underline">{l.text} <ExternalIcon /></a>)}</p>}
+        {c.items.length > 0 && (
+          <ol className="mt-1.5 list-decimal space-y-1.5 rounded bg-white/70 py-2 pl-7 pr-2 text-[11px] text-zinc-700">
+            {c.items.map((i, n) => (
+              <li key={n} className="break-words pl-1">
+                {i.href ? <a href={i.href} target="_blank" rel="noreferrer" className="hover:underline">{i.text}</a> : i.text}
+                {i.href && !/marker\.io/.test(i.href) && canSnag && (
+                  <button onClick={() => addSnag(`${c.title}\n${i.snag || i.text}`, i.href, n)} className="ml-2 inline-flex items-center gap-1 rounded border border-zinc-300 bg-white px-1.5 py-0 text-[10px] font-medium text-zinc-700 hover:bg-zinc-100" title="Copies this finding and opens the page so you can add the snag with Marker.io">
+                    {copiedIdx === n ? <><CheckIcon className="h-3 w-3" /> Copied – add it on the page</> : <><FlagIcon className="h-3 w-3" /> Add Snag to Marker</>}
+                  </button>
+                )}
+              </li>
             ))}
-            {snagError && <span className="mr-3 text-[11px] text-red-700">{snagError}</span>}
-            {more && (
-              <ol className="mt-1 max-h-80 list-decimal space-y-1.5 overflow-auto rounded bg-white/70 py-2 pl-7 pr-2 text-[11px] text-zinc-700">
-                {c.items.map((i, n) => (
-                  <li key={n} className="break-words pl-1">
-                    {i.href ? <a href={i.href} target="_blank" rel="noreferrer" className="hover:underline">{i.text}</a> : i.text}
-                    {i.href && !/marker\.io/.test(i.href) && c.state !== "pass" && (
-                      <button onClick={() => copySnag(`${c.title}\n${i.text}`, i.href)} className="ml-2 rounded border border-zinc-300 bg-white px-1.5 py-0 text-[10px] font-medium text-zinc-600 hover:bg-zinc-100" title="Copy this one and open its page">Snag ↗</button>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
+          </ol>
+        )}
+        {canSnag && !c.items.length && c.facts?.some((f) => f.ok === false) && (
+          <button onClick={() => addSnag(`${c.title}\n${c.facts.filter((f) => f.ok === false).map((f) => `- ${f.text}`).join("\n")}`, site, 99)} className="mt-1.5 inline-flex items-center gap-1 rounded border border-zinc-300 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-100">
+            {copiedIdx === 99 ? <><CheckIcon className="h-3 w-3" /> Copied – add it on the page</> : <><FlagIcon className="h-3 w-3" /> Add Snag to Marker</>}
+          </button>
         )}
       </div>
       <div className="text-xs">
         {auto ? (
-          <span className="inline-flex w-full items-center gap-1.5 rounded-full bg-green-600 px-3 py-1.5 font-semibold text-white"><span aria-hidden>✓</span> Passed automatically</span>
+          <span className="inline-flex w-full items-center gap-1.5 rounded-full bg-green-600 px-3 py-1.5 font-semibold text-white"><CheckIcon className="h-3.5 w-3.5" /> Passed automatically</span>
         ) : (
           <>
-            {/* One control: pick a name to sign off, "Not checked" to remove it. */}
-            <select value={s?.name || ""} onChange={(e) => onSign(e.target.value || null)} aria-label={`Signed off by, ${c.title}`}
-              className={`w-full cursor-pointer rounded-full border-0 px-3 py-1.5 font-semibold text-white ${s ? "bg-green-600" : "bg-red-600"}`}>
+            {/* One control: pick a name to sign off, or mark it not required; "Not checked" removes it. */}
+            <select value={value} onChange={(e) => change(e.target.value)} aria-label={`Signed off by, ${c.title}`}
+              className={`w-full cursor-pointer rounded-full border-0 px-3 py-1.5 font-semibold text-white ${s ? (s.notRequired ? "bg-zinc-500" : "bg-green-600") : "bg-red-600"}`}>
               <option value="" className="bg-white text-zinc-900">Not checked</option>
-              {first.length > 0 && <optgroup label={role} className="bg-white text-zinc-900">{first.map((m) => <option key={m.name} value={m.name} className="bg-white text-zinc-900">✓ Checked by {m.name}</option>)}</optgroup>}
-              {rest.length > 0 && <optgroup label={first.length ? "Everyone else" : "Team"} className="bg-white text-zinc-900">{rest.map((m) => <option key={m.name} value={m.name} className="bg-white text-zinc-900">✓ Checked by {m.name}</option>)}</optgroup>}
+              {first.length > 0 && <optgroup label={role} className="bg-white text-zinc-900">{first.map((m) => opt(m, "ok"))}</optgroup>}
+              {rest.length > 0 && <optgroup label={first.length ? "Everyone else" : "Team"} className="bg-white text-zinc-900">{rest.map((m) => opt(m, "ok"))}</optgroup>}
+              <optgroup label="Not required" className="bg-white text-zinc-900">{[...first, ...rest].map((m) => opt(m, "nr"))}</optgroup>
             </select>
-            {s && <p className="mt-1 px-1 text-[11px] text-green-700">{new Date(s.at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</p>}
+            {s && <p className="mt-1 px-1 text-[11px] text-zinc-600">{s.notRequired ? "Not required · " : ""}{new Date(s.at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</p>}
           </>
         )}
       </div>

@@ -17,7 +17,7 @@ export async function POST(request) {
   if (!b.site || !b.checkId) return Response.json({ error: "site and checkId required" }, { status: 400 });
   try {
     const name = typeof b.name === "string" && b.name.trim() ? b.name.trim().slice(0, 80) : null;
-    return Response.json({ shared: true, ...(await setSignoff(b.site, { checkId: String(b.checkId).slice(0, 60), check: String(b.check || "").slice(0, 200), name })) });
+    return Response.json({ shared: true, ...(await setSignoff(b.site, { checkId: String(b.checkId).slice(0, 60), check: String(b.check || "").slice(0, 200), name, notRequired: !!b.notRequired })) });
   } catch (e) {
     return Response.json({ error: String(e?.message || e) }, { status: 500 });
   }
