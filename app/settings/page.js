@@ -44,7 +44,7 @@ export default function Settings() {
         {mk?.ok && (
           <div className="text-sm">
             <p className="font-semibold text-green-700">✓ Connected.</p>
-            <p className="mt-1">{mk.createTool ? <>Snags will be created with <code>{mk.createTool}</code>.</> : <span className="text-red-700">Marker.io does not offer a way to create snags, only to read them.</span>}</p>
+            <p className="mt-1">{mk.createTool ? <>Snags will be created with <code>{mk.createTool}</code>.</> : <span className="text-amber-700">Marker.io does not let apps create snags (its MCP can only read issues and comment on them), so findings use &quot;Copy snag&quot;, which copies the text and opens the project for you to paste into a new issue.</span>}</p>
             <details className="mt-2 text-xs text-zinc-600"><summary className="cursor-pointer">What Marker.io allows ({mk.tools.length})</summary>
               <ul className="mt-1 space-y-1">{mk.tools.map((t) => <li key={t.name}><code>{t.name}</code> – {t.description} {t.fields.length > 0 && <span className="text-zinc-400">({t.fields.join(", ")})</span>}</li>)}</ul>
             </details>

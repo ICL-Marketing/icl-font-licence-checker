@@ -43,7 +43,7 @@ export default function LaunchArea({ post, onRunning }) {
       setTeam(loadTeam());
     }, 0);
     // Shared store (when set up) wins over this browser's copy.
-    fetch("/api/marker").then((r) => r.json()).then((j) => setMarkerReady(!!(j.configured && j.ok))).catch(() => setMarkerReady(false));
+    fetch("/api/marker").then((r) => r.json()).then((j) => setMarkerReady(!!(j.configured && j.ok && j.createTool))).catch(() => setMarkerReady(false));
     fetch("/api/team").then((r) => r.json()).then((j) => { if (j.shared && Array.isArray(j.team) && j.team.length) setTeam(normaliseTeam(j.team)); }).catch(() => {});
     for (const key of Object.keys(load(RUNS_KEY, {}))) refreshSignoffs(key);
     return () => clearTimeout(t);
