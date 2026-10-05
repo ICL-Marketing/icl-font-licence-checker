@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadTeam, normaliseTeam } from "@/app/team";
 import { evaluateLaunch, CHECK_STAGES } from "@/lib/launchChecks";
-import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, ExternalIcon, FlagIcon, CheckIcon, SpinnerIcon } from "@/app/icons";
+import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, ExternalIcon, FlagIcon, CheckIcon, SpinnerIcon, InfoIcon } from "@/app/icons";
 
 // Launch and post-launch checks keep separate results and sign-offs.
 const keysFor = (mode) => { const sfx = mode === "post" ? "-post" : ""; return { runs: `flc-launch-v1${sfx}`, sign: `flc-launch-signoffs-v1${sfx}`, log: `flc-launch-log-v1${sfx}` }; };
@@ -534,7 +534,12 @@ function CheckRow({ c, s, team, onSign, site }) {
             ))}
           </ul>
         )}
-        {c.summary && <p className="mt-0.5 text-xs text-zinc-600">{c.summary}</p>}
+        {c.summary && (
+          <p className="mt-0.5 flex gap-1.5 text-xs text-zinc-600">
+            <span aria-hidden className="flex w-4 shrink-0 justify-center pt-0.5 text-blue-600"><InfoIcon /></span>
+            <span>{c.summary}</span>
+          </p>
+        )}
         {c.items.length > 0 && (
           <button onClick={() => setShowList((v) => !v)} aria-expanded={showList} className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700 hover:bg-zinc-100">
             {showList ? <><ChevronUpIcon className="h-3.5 w-3.5" /> Hide {c.items.length === 1 ? "detail" : `${c.items.length} details`}</> : <><ChevronDownIcon className="h-3.5 w-3.5" /> Show {c.items.length === 1 ? "detail" : `${c.items.length} details`}</>}

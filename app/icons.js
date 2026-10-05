@@ -20,3 +20,4 @@ export const SearchIcon = I(<><circle cx="11" cy="11" r="7" /><path d="M20 20l-3
 export function SpinnerIcon({ className = "h-4 w-4" }) {
   return <svg {...base} className={`animate-spin ${className}`}><path d="M21 12a9 9 0 1 1-6.2-8.56" /></svg>;
 }
+export const InfoIcon = I(<><circle cx="12" cy="12" r="9" /><path d="M12 8h.01" /><path d="M11 12h1v4h1" /></>, "h-3.5 w-3.5");
