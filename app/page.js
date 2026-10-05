@@ -253,8 +253,8 @@ export default function Home() {
                       <div className={`text-3xl font-semibold ${COLOUR[s].text}`}>{fontCounts[s]}</div>
                       <div className={`text-xs font-medium ${COLOUR[s].text}`}>{LABEL[s]}</div>
                       <div className="mt-1 text-[11px] leading-tight text-zinc-500">
-                        {s === "PROBLEM" && "Commercial font on our own server"}
-                        {s === "CHECK" && "Needs a human: subscription or unknown file"}
+                        {s === "PROBLEM" && "Paid, demo, Font Awesome Pro or no licence info"}
+                        {s === "CHECK" && "Hosted subscription to confirm"}
                         {s === "UNREACHABLE" && "Site down, blocking the scanner, or timed out"}
                       </div>
                     </button>
