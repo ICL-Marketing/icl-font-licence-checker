@@ -409,15 +409,15 @@ function SiteCard({ r, open, toggle, rerun, running }) {
                         <td className="py-1.5 pr-2 font-medium">
                           {f.status === "PROBLEM" && f.adobe && (
                             <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-                              <Badge ok={(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || ""))} bad={f.adobe === "no"} label={(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) ? "On Adobe Fonts" : f.adobe === "no" ? "Not on Adobe Fonts" : "Adobe: not sure"} />
-                              {f.adobe !== "yes" && <Badge ok={f.google === "yes"} bad={f.google === "no"} label={f.google === "yes" ? "On Google Fonts" : f.google === "no" ? "Not on Google Fonts" : "Google: not sure"} />}
-                              {f.adobe !== "yes" && f.google !== "yes" && f.freeVersion && <Badge ok={f.freeVersion.isFree} bad={!f.freeVersion.isFree} label={f.freeVersion.isFree ? "Free version exists" : "No free version"} />}
-                              {f.freeRoute === "none" && (
+                              <Badge ok={(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || ""))} bad={f.adobe === "no" && !(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || ""))} label={(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) ? "On Adobe Fonts" : f.adobe === "no" ? "Not on Adobe Fonts" : "Adobe: not sure"} />
+                              {!(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) && <Badge ok={f.google === "yes"} bad={f.google === "no"} label={f.google === "yes" ? "On Google Fonts" : f.google === "no" ? "Not on Google Fonts" : "Google: not sure"} />}
+                              {!(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) && f.google !== "yes" && f.freeVersion && <Badge ok={f.freeVersion.isFree} bad={!f.freeVersion.isFree} label={f.freeVersion.isFree ? "Free version exists" : "No free version"} />}
+                              {f.freeRoute === "none" && !(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) && (
                                 <span className="text-zinc-500">
                                   Search: <a href={f.adobeSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Adobe</a> · <a href={f.googleSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Google</a> · <a href={f.squirrelSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Font Squirrel</a>
                                 </span>
                               )}
-                              {f.freeVersion?.url && f.adobe !== "yes" && f.google !== "yes" && <a href={f.freeVersion.url} target="_blank" rel="noreferrer" className="text-blue-700 underline">Free version link</a>}
+                              {f.freeVersion?.url && !(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) && f.google !== "yes" && <a href={f.freeVersion.url} target="_blank" rel="noreferrer" className="text-blue-700 underline">Free version link</a>}
                             </div>
                           )}
                           {f.fix}
