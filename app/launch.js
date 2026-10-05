@@ -575,9 +575,9 @@ function CheckRow({ c, s, team, onSign, site }) {
             <select value={value} onChange={(e) => change(e.target.value)} aria-label={`Signed off by, ${c.title}`}
               className={`w-full cursor-pointer rounded-full border-0 px-3 py-1.5 font-semibold text-white ${s ? (s.notRequired ? "bg-zinc-500" : "bg-green-600") : "bg-red-600"}`}>
               <option value="" className="bg-white text-zinc-900">Not checked</option>
-              {first.length > 0 && <optgroup label={role} className="bg-white text-zinc-900">{first.map((m) => opt(m, "ok"))}</optgroup>}
-              {rest.length > 0 && <optgroup label={first.length ? "Everyone else" : "Team"} className="bg-white text-zinc-900">{rest.map((m) => opt(m, "ok"))}</optgroup>}
-              <optgroup label="Not required" className="bg-white text-zinc-900">{[...first, ...rest].map((m) => opt(m, "nr"))}</optgroup>
+              {/* People with the matching role: sign off or mark not required. Everyone else: sign off only. */}
+              {first.length > 0 && <optgroup label={role} className="bg-white text-zinc-900">{first.map((m) => opt(m, "ok"))}{first.map((m) => opt(m, "nr"))}</optgroup>}
+              {rest.length > 0 && <optgroup label={first.length ? "Everyone else" : "Team"} className="bg-white text-zinc-900">{rest.map((m) => opt(m, "ok"))}{!first.length && rest.map((m) => opt(m, "nr"))}</optgroup>}
             </select>
             {s && <p className="mt-1 px-1 text-[11px] text-zinc-600">{s.notRequired ? "Not required · " : ""}{new Date(s.at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</p>}
           </>
