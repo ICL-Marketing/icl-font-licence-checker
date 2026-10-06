@@ -395,7 +395,9 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
         : "Checks every page in the sitemap (up to 500), the links and images on them, and runs Google's accessibility audit on each page (up to 100). Anything the scan can't fully verify needs a person to tick it off. Completed checks drop to the bottom."}</p>
 
       <div className="mt-4 space-y-3">
-        {list.map(([key, r]) => (
+        {/* One report at a time: the list shows summaries; opening a site shows just that report. */}
+        {openKey && runs[openKey] && !runs[openKey].archived && <button onClick={() => setOpenKey(null)} className="inline-flex items-center gap-1 text-sm text-zinc-600 hover:text-zinc-900">← All sites</button>}
+        {list.filter(([key]) => !openKey || !runs[openKey] || runs[openKey].archived || key === openKey).map(([key, r]) => (
           <LaunchCard key={key} k={key} r={r} mode={mode} client={clientForSite(clients, key)} signed={signoffs[key] || {}} log={logs[key] || []} shared={shared} team={team} open={openKey === key}
             toggle={() => { if (openKey !== key) refreshSignoffs(key); setOpenKey((o) => (o === key ? null : key)); }} onSign={(check, name, nr) => sign(key, check, name, nr)}
             onRescan={() => runCheck(r.input || key)} onFinish={() => runCheck(r.input || key, undefined, { resume: true })} onRescanUnsigned={() => rescanUnsigned(key)} onRemove={() => archiveRun(key)} busy={!!running} markerReady={markerCreate}

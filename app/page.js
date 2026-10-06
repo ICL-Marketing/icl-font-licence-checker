@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon } from "@/app/icons";
+import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, CopyIcon, CheckIcon, SpinnerIcon } from "@/app/icons";
 import LaunchArea from "@/app/launch";
 import { DEFAULT_SITES } from "@/data/sites";
 import { loadClients } from "@/app/clients";
@@ -63,11 +63,14 @@ export default function Home() {
   const TAB_SLUG = { fonts: "fonts", images: "images", launch: "launch", post: "post-launch" };
   const setArea = (id) => {
     setAreaState(id);
-    try { window.history.replaceState(null, "", `?tab=${TAB_SLUG[id]}`); } catch {}
+    try { const u = new URL(window.location.href); u.searchParams.set("tab", TAB_SLUG[id]); const sel = selected[id]; if (sel) u.searchParams.set("site", sel); else u.searchParams.delete("site"); window.history.replaceState(null, "", u.search); } catch {}
   };
-  const [view, setView] = useState({ fonts: "results", images: "results" }); // "results" | "emails" per area
-  const [openEmail, setOpenEmail] = useState({ fonts: null, images: null }); // which site's email is open per area
-  const goToEmail = (kind, site) => { setOpenEmail((o) => ({ ...o, [kind]: site })); setView((v) => ({ ...v, [kind]: "emails" })); };
+  // One report page per site: which site is open in each area (null = the list).
+  const [selected, setSelected] = useState({ fonts: null, images: null });
+  const selectSite = (kind, site) => {
+    setSelected((o) => ({ ...o, [kind]: site }));
+    try { const u = new URL(window.location.href); if (site) u.searchParams.set("site", site); else u.searchParams.delete("site"); window.history.replaceState(null, "", u.search); } catch {}
+  };
   const [filter, setFilter] = useState("ALL");
   const [open, setOpen] = useState({});
   const [exporting, setExporting] = useState("");
@@ -86,9 +89,10 @@ export default function Home() {
 
   // Each tab has its own URL (?tab=…), so links to a tab can be shared.
   useEffect(() => {
-    const slug = new URLSearchParams(window.location.search).get("tab");
-    const id = Object.keys(TAB_SLUG).find((k) => TAB_SLUG[k] === slug);
-    if (id) setTimeout(() => setAreaState(id), 0);
+    const q = new URLSearchParams(window.location.search);
+    const id = Object.keys(TAB_SLUG).find((k) => TAB_SLUG[k] === q.get("tab"));
+    const site = q.get("site");
+    setTimeout(() => { if (id) setAreaState(id); if (id && site && (id === "fonts" || id === "images")) setSelected((o) => ({ ...o, [id]: site })); }, 0);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -223,7 +227,6 @@ export default function Home() {
     setRunning(kind);
     setShowList(false);
     setArea(kind);
-    setView((v) => ({ ...v, [kind]: "results" }));
     const queue = [...list];
     const fn = kind === "fonts" ? scanFonts : scanImages;
     const workers = Array.from({ length: Math.max(1, parallel) }, async () => {
@@ -311,14 +314,6 @@ export default function Home() {
   const imageEmails = useMemo(() => all.map((r) => buildImageEmail(r, clientForSite(clients, r.site))).filter(Boolean).sort((a, b) => a.site.localeCompare(b.site)), [all, clients]);
 
   // Only one accordion open at a time.
-  const toggleOne = (key) => setOpen((o) => (o[key] ? {} : { [key]: true }));
-
-  const tabBtn = (id, label, count) => (
-    <button onClick={() => setView((v) => ({ ...v, [area]: id }))}
-      className={`rounded-t-lg border border-b-0 px-4 py-2 text-sm font-medium ${view[area] === id ? "border-zinc-300 bg-white text-zinc-900" : "border-transparent bg-transparent text-zinc-500 hover:text-zinc-800"}`}>
-      {label}{count != null && <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] text-zinc-700">{count}</span>}
-    </button>
-  );
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6">
@@ -372,18 +367,20 @@ export default function Home() {
       </section>
 
       <section className="mt-4">
-        <div className="flex gap-1 border-b border-zinc-300">
-          {tabBtn("results", area === "fonts" ? "Fonts found" : "Stock images found", null)}
-          {tabBtn("emails", "Client emails", (area === "fonts" ? fontEmails : imageEmails).length || null)}
-        </div>
-
         {area === "fonts" && (
-          <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
+          <div className="rounded-xl border border-zinc-300 bg-white p-4">
             <AreaBar kind="fonts" done={fontDone} total={fontTotal} label={fontRows.length ? "Rescan fonts" : "Run fonts check"} running={running} sites={sites}
               onRun={() => run("fonts", sites)} onStop={stop} onClear={fontRows.length ? () => clearArea("fonts") : null}
               retry={{ sites: fontRows.filter((r) => r.status === "UNREACHABLE").map((r) => r.site), onClick: () => run("fonts", fontRows.filter((r) => r.status === "UNREACHABLE").map((r) => r.site)) }}
               download={fontRows.length ? { label: "Download font tracker (Excel)", busy: exporting === "fonts", onClick: () => exportXlsx("fonts") } : null} />
-            {view.fonts === "results" ? (<>
+            {selected.fonts && fontRows.some((r) => r.site === selected.fonts) ? (
+              <SiteReport kind="fonts" site={selected.fonts} onBack={() => selectSite("fonts", null)}>
+                {(() => { const r = fontRows.find((x) => x.site === selected.fonts); const e = fontEmails.find((x) => x.site === r.site); return (<>
+                  <SiteCard r={r} open toggle={() => selectSite("fonts", null)} rerun={() => run("fonts", [r.site])} running={!!running} onRemove={() => { removeSite(r.site); selectSite("fonts", null); }} onFixed={(fams, on) => setFontFixed(r.site, fams, on)} />
+                  {e ? <EmailCard e={e} result={results[r.site]} client={clientForSite(clients, r.site)} open toggle={() => {}} /> : <p className="mt-4 text-sm text-zinc-500">No client email needed for this site (nothing the client has to answer).</p>}
+                </>); })()}
+              </SiteReport>
+            ) : (<>
             {fontRows.length > 0 && (
               <>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -414,6 +411,7 @@ export default function Home() {
                         <li key={r.site} className="min-w-0">
                           <a href={r.finalUrl || `https://${r.site}`} target="_blank" rel="noreferrer" className="font-medium text-green-800 underline">{r.site}</a>
                           <span className="text-zinc-500"> · {fixed ? `${fixed} fixed${f.length ? `, ${f.join(", ")}` : ""}` : f.length ? f.join(", ") : "System fonts only"}</span>
+                          {fixed > 0 && <button onClick={() => setFontFixed(r.site, fontFixedList(r).map((x) => x.family), false)} className="ml-2 text-[11px] text-green-700 underline">undo fixes</button>}
                         </li>
                       );
                     })}
@@ -421,26 +419,30 @@ export default function Home() {
                 )}
                 <div className="mt-4 space-y-3">
                   {fontVisible.map((r) => (
-                    <SiteCard key={r.site} r={r} open={!!open["f:" + r.site]} toggle={() => toggleOne("f:" + r.site)} rerun={() => run("fonts", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} onEmail={fontEmails.some((e) => e.site === r.site) ? () => goToEmail("fonts", r.site) : null} onFixed={(fams, on) => setFontFixed(r.site, fams, on)} />
+                    <SiteCard key={r.site} r={r} open={false} toggle={() => selectSite("fonts", r.site)} rerun={() => run("fonts", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} onFixed={(fams, on) => setFontFixed(r.site, fams, on)} />
                   ))}
                   {!fontVisible.length && <p className="text-sm text-zinc-500">{filter === "ALL" ? "Nothing outstanding." : "Nothing in this group."}</p>}
                 </div>
               </>
             )}
-            </>) : (
-              <EmailList kind="fonts" emails={fontEmails} scanned={fontRows.length > 0} results={results} clients={clients} openSite={openEmail.fonts} setOpenSite={(fn) => setOpenEmail((o) => ({ ...o, fonts: typeof fn === "function" ? fn(o.fonts) : fn }))}
-                intro="One ready-to-send email per site, only for what the client has to answer: paid fonts with no licence found, demo fonts, font subscriptions to confirm, and fonts of unknown origin. Anything we can fix ourselves at no cost is left out. Sites with no issues get no email." />
-            )}
+            </>)}
           </div>
         )}
 
         {area === "images" && (
-          <div className="rounded-b-xl border border-t-0 border-zinc-300 bg-white p-4">
+          <div className="rounded-xl border border-zinc-300 bg-white p-4">
             <AreaBar kind="images" done={imgDone} total={imgTotal} label={imgRows.length ? "Rescan images" : "Run images check"} running={running} sites={sites}
               onRun={() => run("images", sites)} onStop={stop} onClear={imgRows.length ? () => clearArea("images") : null}
               retry={{ sites: imgRows.filter((x) => x.r.imgStatus === "UNREACHABLE").map((x) => x.r.site), onClick: () => run("images", imgRows.filter((x) => x.r.imgStatus === "UNREACHABLE").map((x) => x.r.site)) }}
               download={imgRows.length ? { label: "Download stock image tracker (Excel)", busy: exporting === "images", onClick: () => exportXlsx("images") } : null} />
-            {view.images === "results" ? (<>
+            {selected.images && imgRows.some((x) => x.r.site === selected.images) ? (
+              <SiteReport kind="images" site={selected.images} onBack={() => selectSite("images", null)}>
+                {(() => { const { r, paid } = imgRows.find((x) => x.r.site === selected.images); const e = imageEmails.find((x) => x.site === r.site); return (<>
+                  <ImageCard r={r} paid={paid} open toggle={() => selectSite("images", null)} rerun={() => run("images", [r.site])} running={!!running} onRemove={() => { removeSite(r.site); selectSite("images", null); }} onFixed={(keys, on) => setImageFixed(r.site, keys, on)} />
+                  {e ? <EmailCard e={e} result={results[r.site]} client={clientForSite(clients, r.site)} open toggle={() => {}} /> : <p className="mt-4 text-sm text-zinc-500">No client email needed for this site.</p>}
+                </>); })()}
+              </SiteReport>
+            ) : (<>
             {imgRows.length > 0 && (
               <>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -468,6 +470,7 @@ export default function Home() {
                         <li key={r.site} className="min-w-0">
                           <a href={r.finalUrl || `https://${r.site}`} target="_blank" rel="noreferrer" className="font-medium text-green-800 underline">{r.site}</a>
                           <span className="text-zinc-500"> · {fixedImagesOf(r).length ? `${fixedImagesOf(r).length} fixed, ` : ""}{r.pagesScanned || 0} pages, {r.imagesChecked || 0} images checked{free ? `, ${free} from free libraries` : ""}</span>
+                          {fixedImagesOf(r).length > 0 && <button onClick={() => setImageFixed(r.site, fixedImagesOf(r).map((i) => imageKey(i.url, i.flag)), false)} className="ml-2 text-[11px] text-green-700 underline">undo fixes</button>}
                         </li>
                       );
                     })}
@@ -476,16 +479,13 @@ export default function Home() {
                 <p className="mt-1 text-xs text-zinc-500">Flags come from file names (e.g. shutterstock_123.jpg) and embedded copyright / credit tags. The scanner cannot tell whether an image was paid for, so treat this as a list to check against purchase records.</p>
                 <div className="mt-4 space-y-3">
                   {imgVisible.map(({ r, paid }) => (
-                    <ImageCard key={r.site} r={r} paid={paid} open={!!open["i:" + r.site]} toggle={() => toggleOne("i:" + r.site)} rerun={() => run("images", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} onEmail={imageEmails.some((e) => e.site === r.site) ? () => goToEmail("images", r.site) : null} onFixed={(keys, on) => setImageFixed(r.site, keys, on)} />
+                    <ImageCard key={r.site} r={r} paid={paid} open={false} toggle={() => selectSite("images", r.site)} rerun={() => run("images", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} onFixed={(keys, on) => setImageFixed(r.site, keys, on)} />
                   ))}
                   {!imgVisible.length && <p className="text-sm text-zinc-500">No paid stock-library images found on any scanned site.</p>}
                 </div>
               </>
             )}
-            </>) : (
-              <EmailList kind="images" emails={imageEmails} scanned={imgRows.length > 0} results={results} clients={clients} openSite={openEmail.images} setOpenSite={(fn) => setOpenEmail((o) => ({ ...o, images: typeof fn === "function" ? fn(o.images) : fn }))}
-                intro="One ready-to-send email per site that has images from paid stock libraries. It is a heads-up for the client, not a demand: most of these are likely already licensed. Sites with no paid-library images get no email." />
-            )}
+            </>)}
           </div>
         )}
       </section>
@@ -597,14 +597,12 @@ function AreaBar({ kind, done, total, label, running, sites, onRun, onStop, onCl
   );
 }
 
-function EmailList({ kind, emails, scanned, intro, results, clients, openSite, setOpenSite }) {
+// One site's report page: back link, the site card (open) and its client email.
+function SiteReport({ onBack, children }) {
   return (
     <div>
-      <p className="text-sm text-zinc-600">{intro} Copy, paste into your email client, and your signature does the rest.</p>
-      <div className="mt-4 space-y-4">
-        {emails.map((e) => <EmailCard key={e.kind + e.site} e={e} result={results?.[e.site]} client={clientForSite(clients, e.site)} open={openSite === e.site} toggle={() => setOpenSite((s) => (s === e.site ? null : e.site))} />)}
-        {!emails.length && <p className="text-sm text-zinc-500">No sites need {kind === "fonts" ? "a font" : "an image"} email{scanned ? "." : ` (run the ${kind} check first).`}</p>}
-      </div>
+      <button onClick={onBack} className="mb-3 inline-flex items-center gap-1 text-sm text-zinc-600 hover:text-zinc-900">← All sites</button>
+      <div className="space-y-4">{children}</div>
     </div>
   );
 }
@@ -614,7 +612,7 @@ const TONE_CHIP = { red: "bg-red-600", amber: "bg-amber-500", green: "bg-orange-
 const TONE_BORDER = { red: "border-red-500", amber: "border-amber-500", green: "border-orange-400" };
 const TONE_RANK = { red: 3, amber: 2, green: 1 };
 
-function SiteCard({ r, open, toggle, rerun, running, onRemove, onEmail, onFixed }) {
+function SiteCard({ r, open, toggle, rerun, running, onRemove, onFixed }) {
   const fonts = r.fonts || [];
   const todo = fontTodo(r).sort((a, b) => (TONE_RANK[ISSUE_TONE[issueLabel(b)]] || 0) - (TONE_RANK[ISSUE_TONE[issueLabel(a)]] || 0));
   const fixedFonts = fontFixedList(r);
@@ -647,7 +645,6 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove, onEmail, onFixed 
         <span className="basis-full text-sm text-zinc-700 sm:basis-auto sm:flex-1">{headline}</span>
         {r.status !== "RUNNING" && <span className="text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>}
       </button>
-      {onEmail && <button onClick={onEmail} title="Open this site's client email" className="inline-flex shrink-0 items-center gap-1 self-center rounded-md px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50"><MailIcon className="h-3.5 w-3.5" /> Email</button>}
       <RemoveSite site={r.site} onRemove={onRemove} />
       </div>
       {open && r.status !== "RUNNING" && (
@@ -728,7 +725,7 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove, onEmail, onFixed 
   );
 }
 
-function ImageCard({ r, paid, open, toggle, rerun, running, onRemove, onEmail, onFixed }) {
+function ImageCard({ r, paid, open, toggle, rerun, running, onRemove, onFixed }) {
   const fixedImgs = fixedImagesOf(r);
   const st = r.imgStatus === "RUNNING" ? "RUNNING" : r.imgStatus === "UNREACHABLE" ? "UNREACHABLE" : paid.length ? "PAID" : "OK";
   const c = COLOUR[st];
@@ -752,7 +749,6 @@ function ImageCard({ r, paid, open, toggle, rerun, running, onRemove, onEmail, o
         {st !== "RUNNING" && r.pagesScanned > 0 && <span className="text-xs text-zinc-400">{r.pagesScanned} pages</span>}
         {st !== "RUNNING" && <span className="text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>}
       </button>
-      {onEmail && <button onClick={onEmail} title="Open this site's client email" className="inline-flex shrink-0 items-center gap-1 self-center rounded-md px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50"><MailIcon className="h-3.5 w-3.5" /> Email</button>}
       <RemoveSite site={r.site} onRemove={onRemove} />
       </div>
       {st === "RUNNING" && (
