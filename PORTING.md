@@ -34,6 +34,8 @@ inside the PHP max execution time.
 | `POST /api/export` | `{kind, results}` or `{kind:"launch", launch}` | `.xlsx` | `app/api/export/route.js` (ExcelJS → PhpSpreadsheet) |
 | `POST /api/signoff-log` | `{site, url, scannedAt, checks, signed, log}` | `.docx` | `app/api/signoff-log/route.js` (docx → PhpWord) |
 | `GET/POST /api/signoffs`, `/api/team` | | shared sign-offs / team names | `lib/store.js` (replace with DB tables) |
+| `GET/POST /api/settings?key=marker\|email-edits` | | shared Marker.io project links and edited email wording | `lib/store.js` `getSetting/setSetting` (one JSON column per key) |
+| `GET /api/status` | | is the login set and the store reachable | `lib/store.js` `pingStore`, `lib/auth.js` |
 | `GET/POST /api/clients` | | shared client list (name, websites, account manager, contacts, emails) | `lib/clients.js`, `data/clients.json` (seed from the Web Clients sheet) |
 | `POST/PUT /api/clients/file` | `.xlsx` upload / `{clients}` | client rows / `.xlsx` download | `app/api/clients/file/route.js` (ExcelJS → PhpSpreadsheet) |
 | `GET /api/marker` | | Marker.io connection test (lists MCP tools) | `lib/marker.js` (small MCP-over-HTTP client; Guzzle in PHP) |

@@ -9,6 +9,7 @@ import { isFreeLib } from "@/lib/email";
 import { clientForSite, normaliseClients, teamMemberForManager } from "@/lib/clients";
 import { evaluateLaunch, CHECK_STAGES } from "@/lib/launchChecks";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, ChevronDownIcon, ChevronUpIcon, ExternalIcon, FlagIcon, CheckIcon, SpinnerIcon, InfoIcon, ArchiveIcon } from "@/app/icons";
+import { pullSetting, pushSetting } from "@/app/shared";
 
 // Launch and post-launch checks keep separate results and sign-offs.
 export const keysFor = (mode) => { const sfx = mode === "post" ? "-post" : ""; return { runs: `flc-launch-v1${sfx}`, sign: `flc-launch-signoffs-v1${sfx}`, log: `flc-launch-log-v1${sfx}` }; };
@@ -49,6 +50,7 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
       const saved = load(RUNS_KEY, {});
       for (const r of Object.values(saved)) if (r.status === "RUNNING") Object.assign(r, r.work ? { status: "PAUSED", phase: "" } : { status: "ERROR", error: "Check was interrupted (page reloaded or closed). Press Rescan." });
       setRuns(saved);
+      pullSetting("marker", MARKER_KEY); // team's Marker.io project links
       // Shared runs (when storage is set up) replace older local copies.
       fetch(`/api/results?kind=${mode}`).then((r) => r.json()).then((j) => {
         if (!j.shared) return;
@@ -141,7 +143,7 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
   async function runCheck(input, markerProject, { resume = false, only = null } = {}) {
     const key = keyFor(input);
     if (!key) return;
-    if (markerProject !== undefined) { const all = load(MARKER_KEY, {}); if (markerProject.trim()) all[key] = markerProject.trim(); else delete all[key]; save(MARKER_KEY, all); }
+    if (markerProject !== undefined) { const all = load(MARKER_KEY, {}); if (markerProject.trim()) all[key] = markerProject.trim(); else delete all[key]; save(MARKER_KEY, all); pushSetting("marker", all); }
     stopRef.current = false;
     setRunning(key);
     onRunning?.(true);

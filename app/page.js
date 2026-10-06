@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { pullSetting, pushSetting } from "@/app/shared";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, CheckIcon, SpinnerIcon } from "@/app/icons";
 import LaunchArea from "@/app/launch";
 import { DEFAULT_SITES } from "@/data/sites";
@@ -85,6 +86,7 @@ export default function Home() {
   const [clients, setClients] = useState([]);
   useEffect(() => {
     const t = setTimeout(() => setClients(loadClients()), 0);
+    pullSetting("email-edits", EDITS_KEY); // team's edited email wording
     fetch("/api/clients").then((r) => r.json()).then((j) => { if (j.shared && Array.isArray(j.clients) && j.clients.length) setClients(normaliseClients(j.clients)); }).catch(() => {});
     return () => clearTimeout(t);
   }, []);
@@ -875,7 +877,7 @@ function ImageCard({ r, paid, open, toggle, rerun, running, onRemove, onFixed })
 
 const EDITS_KEY = "flc-email-edits-v1";
 function loadEdits() { try { return JSON.parse(localStorage.getItem(EDITS_KEY) || "{}"); } catch { return {}; } }
-function saveEdits(all) { try { localStorage.setItem(EDITS_KEY, JSON.stringify(all)); } catch {} }
+function saveEdits(all) { try { localStorage.setItem(EDITS_KEY, JSON.stringify(all)); } catch {} pushSetting("email-edits", all); }
 
 function EmailCard({ e, open, toggle, result, client }) {
   const key = `${e.kind}|${e.site}`;

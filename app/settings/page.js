@@ -76,11 +76,18 @@ export default function Settings() {
     try { setTest(await (await fetch("/api/marker-monitor", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: testLink }) })).json()); }
     catch (e) { setTest({ ok: false, error: e.message }); }
   }
+  const [status, setStatus] = useState(null);
+  useEffect(() => { fetch("/api/status").then((r) => r.json()).then(setStatus).catch(() => setStatus({ login: false, store: { configured: false, ok: false } })); }, []);
   useEffect(() => { fetch("/api/marker").then((r) => r.json()).then(setMk).catch(() => setMk({ configured: true, ok: false, error: "Could not reach the app" })); }, []);
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6">
       <Link href="/" className="text-sm text-zinc-500 hover:text-zinc-900">← Back to Website Checker</Link>
       <h1 className="mt-3 text-2xl font-semibold">Settings</h1>
+      <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+        <h2 className="font-semibold">Shared saving &amp; login</h2>
+        <p className="mb-3 text-sm text-zinc-500">One team password, and every scan, sign-off, client and setting saved for everyone who signs in.</p>
+        <StatusPanel status={status} />
+      </section>
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
         <h2 className="font-semibold">Team names</h2>
         <p className="mb-3 text-sm text-zinc-500">Names and roles offered in the &quot;Checked by&quot; dropdowns on launch checks.</p>
@@ -150,5 +157,43 @@ export default function Settings() {
         )}
       </section>
     </main>
+  );
+}
+
+function StatusRow({ ok, label, detail }) {
+  return (
+    <div className="flex items-start gap-2 text-sm">
+      <span className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ${ok ? "bg-green-600" : "bg-red-600"}`}>{ok ? "✓" : "✗"}</span>
+      <div><span className="font-medium">{label}</span>{detail && <span className="text-zinc-500"> – {detail}</span>}</div>
+    </div>
+  );
+}
+
+// Shows whether the team login and the shared store are live, with the
+// Vercel steps to turn either on. Both are environment variables, so they
+// can't be changed from inside the app.
+function StatusPanel({ status }) {
+  if (!status) return <p className="text-sm text-zinc-500">Checking…</p>;
+  const st = status.store || {};
+  const storeOk = st.configured && st.ok;
+  return (
+    <div className="space-y-2">
+      <StatusRow ok={status.login} label="Team login" detail={status.login ? "everyone signs in with the shared password" : "no password set, the checker is open to anyone with the link"} />
+      <StatusRow ok={storeOk} label="Shared saving" detail={storeOk ? "scans, sign-offs, clients and settings are saved for the whole team" : st.configured ? `store set up but not reachable: ${st.error || "unknown error"}` : "not connected, each browser keeps its own copy"} />
+      {(!status.login || !storeOk) && (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="font-medium">To turn this on (about 5 minutes, free):</p>
+          <ol className="mt-1 list-decimal space-y-1 pl-5">
+            {!storeOk && !st.configured && (<>
+              <li>In Vercel open the project → <b>Storage</b> tab → <b>Create Database</b> → choose <b>Upstash</b> → <b>Redis</b> → Free plan.</li>
+              <li>Connect it to this project (all environments). Vercel adds <code>KV_REST_API_URL</code> and <code>KV_REST_API_TOKEN</code> automatically.</li>
+            </>)}
+            {!status.login && <li>Project → <b>Settings</b> → <b>Environment Variables</b>: add <code>CHECKER_PASSWORD</code> with the password the team will share.</li>}
+            <li>Deployments → <b>Redeploy</b> the latest deployment, then reload this page.</li>
+          </ol>
+          <p className="mt-2 text-xs">Scans already in this browser are uploaded to the shared store the first time the checker loads after connecting.</p>
+        </div>
+      )}
+    </div>
   );
 }
