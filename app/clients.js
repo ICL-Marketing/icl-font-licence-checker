@@ -44,8 +44,6 @@ function ClientRow({ c, team, onChange, onRemove }) {
       </td>
       <td className="py-1.5 pr-2"><input value={c.poc} onChange={(e) => set("poc", e.target.value)} aria-label="Point of contact" className={inputCls} /></td>
       <td className="py-1.5 pr-2"><input value={asText(c.emails)} onChange={(e) => set("emails", e.target.value)} placeholder="name@example.co.uk | other@…" aria-label="Email addresses" className={inputCls} /></td>
-      <td className="py-1.5 pr-2"><input value={c.phone} onChange={(e) => set("phone", e.target.value)} aria-label="Phone" className={inputCls} /></td>
-      <td className="py-1.5 pr-2"><input value={c.notes} onChange={(e) => set("notes", e.target.value)} aria-label="Notes" className={inputCls} /></td>
       <td className="py-1.5 text-right"><button onClick={onRemove} aria-label={`Remove ${c.name}`} className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-red-600"><TrashIcon /></button></td>
     </tr>
   );
@@ -108,9 +106,9 @@ export function ClientsEditor({ clients, team, onChange, shared }) {
         {list.length} clients{unmatched ? `, ${unmatched} without a website (amber): add the domain so scans can find the client` : ""}. Websites and emails: separate several with |. {shared ? "Shared with everyone using the checker." : "Saved in this browser only."} {msg && <span className="font-medium text-green-700">{msg}</span>}
       </p>
       <div className="mt-2 max-h-[60vh] overflow-auto">
-        <table className="w-full min-w-[900px] text-xs">
+        <table className="w-full min-w-[760px] text-xs">
           <thead className="sticky top-0 bg-white"><tr className="text-left text-zinc-500">
-            <th className="py-1 pr-2">Client</th><th className="py-1 pr-2">Website(s)</th><th className="py-1 pr-2">Account manager</th><th className="py-1 pr-2">Contact</th><th className="py-1 pr-2">Email(s)</th><th className="py-1 pr-2">Phone</th><th className="py-1 pr-2">Notes</th><th />
+            <th className="py-1 pr-2">Client</th><th className="py-1 pr-2">Website(s)</th><th className="py-1 pr-2">Account manager</th><th className="py-1 pr-2">Contact</th><th className="py-1 pr-2">Email(s)</th><th />
           </tr></thead>
           <tbody>{rows.map(({ c, i }) => <ClientRow key={c.id} c={c} team={team} onChange={(nc) => update(i, nc)} onRemove={() => remove(i)} />)}</tbody>
         </table>
