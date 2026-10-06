@@ -330,11 +330,16 @@ export default function Home() {
 
   const fontEmails = all.map((r) => buildFontEmail(r, clientForSite(clients, r.site))).filter(Boolean).sort((a, b) => a.site.localeCompare(b.site));
   const imageEmails = all.map((r) => buildImageEmail(r, clientForSite(clients, r.site))).filter(Boolean).sort((a, b) => a.site.localeCompare(b.site));
+  // The site whose report page is open (if any) in each area.
+  const selFont = selected.fonts ? fontRows.find((x) => x.site === selected.fonts) : null;
+  const selFontEmail = selFont ? fontEmails.find((x) => x.site === selFont.site) : null;
+  const selImg = selected.images ? imgRows.find((x) => x.r.site === selected.images) : null;
+  const selImgEmail = selImg ? imageEmails.find((x) => x.site === selImg.r.site) : null;
 
   // Only one accordion open at a time.
 
   return (
-    <main className="mx-auto w-full max-w-6xl p-4 sm:p-6">
+    <main className="mx-auto w-full max-w-[1500px] p-4 sm:p-6">
       <header className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Website Checker</h1>
         <Link href="/settings" aria-label="Settings" title="Settings" className="rounded-md p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900">
@@ -391,13 +396,10 @@ export default function Home() {
               onRun={() => run("fonts", sites)} onStop={stop} onClear={fontRows.length ? () => clearArea("fonts") : null}
               retry={{ sites: fontRows.filter((r) => r.status === "UNREACHABLE").map((r) => r.site), onClick: () => run("fonts", fontRows.filter((r) => r.status === "UNREACHABLE").map((r) => r.site)) }}
               download={fontRows.length ? { label: "Download font tracker (Excel)", busy: exporting === "fonts", onClick: () => exportXlsx("fonts") } : null} />
-            {selected.fonts && fontRows.some((r) => r.site === selected.fonts) ? (
-              <SiteReport kind="fonts" site={selected.fonts} onBack={() => selectSite("fonts", null)}>
-                {(() => { const r = fontRows.find((x) => x.site === selected.fonts); const e = fontEmails.find((x) => x.site === r.site); return (<>
-                  <SiteCard r={r} open toggle={() => selectSite("fonts", null)} rerun={() => run("fonts", [r.site])} running={!!running} onRemove={() => { removeSite(r.site); selectSite("fonts", null); }} onFixed={(fams, on) => setFontFixed(r.site, fams, on)} />
-                  {e ? <EmailCard e={e} result={results[r.site]} client={clientForSite(clients, r.site)} open toggle={() => {}} /> : <p className="mt-4 text-sm text-zinc-500">No client email needed for this site (nothing the client has to answer).</p>}
-                </>); })()}
-              </SiteReport>
+            {selFont ? (
+              <SiteReport onBack={() => selectSite("fonts", null)}
+                main={<SiteCard r={selFont} open toggle={() => selectSite("fonts", null)} rerun={() => run("fonts", [selFont.site])} running={!!running} onRemove={() => { removeSite(selFont.site); selectSite("fonts", null); }} onFixed={(fams, on) => setFontFixed(selFont.site, fams, on)} />}
+                aside={selFontEmail ? <EmailCard e={selFontEmail} result={results[selFont.site]} client={clientForSite(clients, selFont.site)} open toggle={() => {}} /> : <p className="rounded-xl border border-dashed border-zinc-300 p-4 text-sm text-zinc-500">No client email needed for this site (nothing the client has to answer).</p>} />
             ) : (<>
             {fontRows.length > 0 && (
               <>
@@ -457,13 +459,10 @@ export default function Home() {
               onRun={() => run("images", sites)} onStop={stop} onClear={imgRows.length ? () => clearArea("images") : null}
               retry={{ sites: imgRows.filter((x) => x.r.imgStatus === "UNREACHABLE").map((x) => x.r.site), onClick: () => run("images", imgRows.filter((x) => x.r.imgStatus === "UNREACHABLE").map((x) => x.r.site)) }}
               download={imgRows.length ? { label: "Download stock image tracker (Excel)", busy: exporting === "images", onClick: () => exportXlsx("images") } : null} />
-            {selected.images && imgRows.some((x) => x.r.site === selected.images) ? (
-              <SiteReport kind="images" site={selected.images} onBack={() => selectSite("images", null)}>
-                {(() => { const { r, paid } = imgRows.find((x) => x.r.site === selected.images); const e = imageEmails.find((x) => x.site === r.site); return (<>
-                  <ImageCard r={r} paid={paid} open toggle={() => selectSite("images", null)} rerun={() => run("images", [r.site])} running={!!running} onRemove={() => { removeSite(r.site); selectSite("images", null); }} onFixed={(keys, on) => setImageFixed(r.site, keys, on)} />
-                  {e ? <EmailCard e={e} result={results[r.site]} client={clientForSite(clients, r.site)} open toggle={() => {}} /> : <p className="mt-4 text-sm text-zinc-500">No client email needed for this site.</p>}
-                </>); })()}
-              </SiteReport>
+            {selImg ? (
+              <SiteReport onBack={() => selectSite("images", null)}
+                main={<ImageCard r={selImg.r} paid={selImg.paid} open toggle={() => selectSite("images", null)} rerun={() => run("images", [selImg.r.site])} running={!!running} onRemove={() => { removeSite(selImg.r.site); selectSite("images", null); }} onFixed={(keys, on) => setImageFixed(selImg.r.site, keys, on)} />}
+                aside={selImgEmail ? <EmailCard e={selImgEmail} result={results[selImg.r.site]} client={clientForSite(clients, selImg.r.site)} open toggle={() => {}} /> : <p className="rounded-xl border border-dashed border-zinc-300 p-4 text-sm text-zinc-500">No client email needed for this site.</p>} />
             ) : (<>
             {imgRows.length > 0 && (
               <>
@@ -650,11 +649,15 @@ function FilterBar({ value, onChange, count, managers, fields }) {
 }
 
 // One site's report page: back link, the site card (open) and its client email.
-function SiteReport({ onBack, children }) {
+// Results take two thirds, the client email sits in the right-hand third.
+function SiteReport({ onBack, main, aside }) {
   return (
     <div>
       <button onClick={onBack} className="mb-3 inline-flex items-center gap-1 text-sm text-zinc-600 hover:text-zinc-900">← All sites</button>
-      <div className="space-y-4">{children}</div>
+      <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
+        <div className="min-w-0 lg:col-span-2">{main}</div>
+        <div className="min-w-0 lg:sticky lg:top-4">{aside}</div>
+      </div>
     </div>
   );
 }
