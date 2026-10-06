@@ -49,6 +49,19 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
       const saved = load(RUNS_KEY, {});
       for (const r of Object.values(saved)) if (r.status === "RUNNING") Object.assign(r, r.work ? { status: "PAUSED", phase: "" } : { status: "ERROR", error: "Check was interrupted (page reloaded or closed). Press Rescan." });
       setRuns(saved);
+      // Shared runs (when storage is set up) replace older local copies.
+      fetch(`/api/results?kind=${mode}`).then((r) => r.json()).then((j) => {
+        if (!j.shared) return;
+        sharedRunsRef.current = true;
+        setRuns((prev) => {
+          const next = { ...prev };
+          for (const [key, run] of Object.entries(j.results || {})) {
+            if (!prev[key] || prev[key].status === "RUNNING" || String(run.scannedAt || "") >= String(prev[key].scannedAt || "")) { next[key] = run; syncedRunsRef.current[key] = run.scannedAt; }
+          }
+          save(RUNS_KEY, next);
+          return next;
+        });
+      }).catch(() => {});
       setSignoffs(load(SIGN_KEY, {}));
       setLogs(load(LOG_KEY, {}));
       setTeam(loadTeam());
@@ -72,9 +85,18 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
     } catch {}
   }
 
+  const sharedRunsRef = useRef(false);
+  const syncedRunsRef = useRef({}); // key -> scannedAt already pushed
   const patch = (key, fields) => setRuns((prev) => {
     const next = { ...prev, [key]: { ...(prev[key] || {}), ...fields } };
     save(RUNS_KEY, next);
+    // Finished runs go to the shared store so the whole team sees them.
+    const run = next[key];
+    if (sharedRunsRef.current && run.status === "DONE" && run.scannedAt && syncedRunsRef.current[key] !== run.scannedAt) {
+      syncedRunsRef.current[key] = run.scannedAt;
+      const data = { ...run }; delete data.work;
+      fetch("/api/results", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: mode, site: key, data }) }).catch(() => {});
+    }
     return next;
   });
   // Every sign-off change is logged: who, which check, when.
@@ -108,6 +130,7 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
   }
   function removeRun(key) {
     setRuns((prev) => { const next = { ...prev }; delete next[key]; save(RUNS_KEY, next); return next; });
+    if (sharedRunsRef.current) fetch("/api/results", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: mode, site: key }) }).catch(() => {});
   }
 
   // One launch check, as a resumable sequence of short requests. Progress is

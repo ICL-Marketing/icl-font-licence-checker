@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, CopyIcon, CheckIcon, SpinnerIcon } from "@/app/icons";
+import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon } from "@/app/icons";
 import LaunchArea from "@/app/launch";
 import { DEFAULT_SITES } from "@/data/sites";
 import { loadClients } from "@/app/clients";
@@ -25,6 +25,10 @@ const COLOUR = {
   PAID: { text: "text-red-700", bg: "bg-red-50", border: "border-red-500", chip: "bg-red-600" },
 };
 const STORAGE_KEY = "flc-results-v2";
+const AREA_FIELDS_STATIC = {
+  fonts: ["status", "fonts", "ignoredFonts", "error", "fix", "platform", "cssCount", "fontPages", "seconds", "fontsScannedAt"],
+  images: ["imgStatus", "images", "imgError", "imgFix", "imgProgress", "imgDone", "imgTotal", "imagesChecked", "pagesScanned", "pagesTotal", "hasSitemap", "imagesScannedAt"],
+};
 
 function normalise(s) {
   return s.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
@@ -49,6 +53,8 @@ export default function Home() {
     try { window.history.replaceState(null, "", `?tab=${TAB_SLUG[id]}`); } catch {}
   };
   const [view, setView] = useState({ fonts: "results", images: "results" }); // "results" | "emails" per area
+  const [openEmail, setOpenEmail] = useState({ fonts: null, images: null }); // which site's email is open per area
+  const goToEmail = (kind, site) => { setOpenEmail((o) => ({ ...o, [kind]: site })); setView((v) => ({ ...v, [kind]: "emails" })); };
   const [filter, setFilter] = useState("ALL");
   const [open, setOpen] = useState({});
   const [exporting, setExporting] = useState("");
@@ -97,6 +103,53 @@ export default function Home() {
     } catch {}
   }, [results, text]);
 
+  // Shared results (when storage is set up): pull everyone's on load, push each
+  // site's result when its scan finishes, so the whole team sees the same lists.
+  const sharedRef = useRef(false);
+  const syncedRef = useRef({}); // site -> { fontsScannedAt, imagesScannedAt } already pushed
+  const SHARED_FIELDS = { fonts: AREA_FIELDS_STATIC.fonts, images: AREA_FIELDS_STATIC.images };
+  useEffect(() => {
+    (async () => {
+      try {
+        const [f, i] = await Promise.all(["fonts", "images"].map((k) => fetch(`/api/results?kind=${k}`).then((r) => r.json())));
+        if (!f.shared && !i.shared) return;
+        sharedRef.current = true;
+        setResults((prev) => {
+          const next = { ...prev };
+          const sitesSeen = new Set();
+          for (const [kind, res] of [["fonts", f.results || {}], ["images", i.results || {}]]) {
+            for (const [site, data] of Object.entries(res)) {
+              sitesSeen.add(site);
+              const cur = next[site] || { site };
+              const stamp = kind === "fonts" ? "fontsScannedAt" : "imagesScannedAt";
+              if (!cur[stamp] || String(data[stamp] || "") > String(cur[stamp])) {
+                next[site] = { ...cur, ...data, site };
+                syncedRef.current[site] = { ...(syncedRef.current[site] || {}), [stamp]: data[stamp] };
+              }
+            }
+          }
+          if (sitesSeen.size) setShowList(false);
+          return next;
+        });
+        setText((t) => { const have = new Set(t.split(/\r?\n/).map(normalise)); const add = [...new Set([...Object.keys(f.results || {}), ...Object.keys(i.results || {})])].filter((s) => !have.has(s)); return add.length ? `${t.trim()}\n${add.join("\n")}`.trim() : t; });
+      } catch {}
+    })();
+  }, []);
+  useEffect(() => {
+    if (!sharedRef.current) return;
+    for (const [site, r] of Object.entries(results)) {
+      const done = syncedRef.current[site] || {};
+      for (const [kind, stamp] of [["fonts", "fontsScannedAt"], ["images", "imagesScannedAt"]]) {
+        if (r[stamp] && r[stamp] !== done[stamp] && r.status !== "RUNNING" && r.imgStatus !== "RUNNING") {
+          syncedRef.current[site] = { ...done, [stamp]: r[stamp] };
+          const data = Object.fromEntries(SHARED_FIELDS[kind].concat(["finalUrl"]).filter((k) => r[k] !== undefined).map((k) => [k, r[k]]));
+          data[stamp] = r[stamp];
+          fetch("/api/results", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind, site, data }) }).catch(() => {});
+        }
+      }
+    }
+  }, [results]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Warn before closing or reloading while a scan is in progress.
   useEffect(() => {
     if (!running && !launchRunning && !postRunning) return;
@@ -116,6 +169,7 @@ export default function Home() {
   function removeSite(site) {
     cancelledRef.current.add(site);
     setResults((prev) => { const next = { ...prev }; delete next[site]; return next; });
+    if (sharedRef.current) for (const kind of ["fonts", "images"]) fetch("/api/results", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind, site }) }).catch(() => {});
     setText((t) => t.split(/\r?\n/).filter((l) => normalise(l) !== site).join("\n"));
   }
 
@@ -149,11 +203,10 @@ export default function Home() {
   }
   function stop() { stopRef.current = true; }
   // Clear one area's results only; the other area's results stay.
-  const AREA_FIELDS = {
-    fonts: ["status", "fonts", "ignoredFonts", "error", "fix", "platform", "cssCount", "fontPages", "seconds", "fontsScannedAt"],
-    images: ["imgStatus", "images", "imgError", "imgFix", "imgProgress", "imgDone", "imgTotal", "imagesChecked", "pagesScanned", "pagesTotal", "hasSitemap", "imagesScannedAt"],
-  };
+  const AREA_FIELDS = AREA_FIELDS_STATIC;
   function clearArea(kind) {
+    if (sharedRef.current) fetch("/api/results", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind }) }).catch(() => {});
+    for (const site of Object.keys(syncedRef.current)) delete syncedRef.current[site][kind === "fonts" ? "fontsScannedAt" : "imagesScannedAt"];
     setResults((prev) => {
       const next = {};
       for (const [site, r] of Object.entries(prev)) {
@@ -220,8 +273,8 @@ export default function Home() {
   const imgFine = imgRows.filter((x) => x.r.imgStatus === "DONE" && !x.paid.length).length;
   const imgVisible = imgRows.filter((x) => x.paid.length || x.r.imgStatus !== "DONE");
 
-  const fontEmails = useMemo(() => all.map(buildFontEmail).filter(Boolean).sort((a, b) => a.site.localeCompare(b.site)), [all]);
-  const imageEmails = useMemo(() => all.map(buildImageEmail).filter(Boolean).sort((a, b) => a.site.localeCompare(b.site)), [all]);
+  const fontEmails = useMemo(() => all.map((r) => buildFontEmail(r, clientForSite(clients, r.site))).filter(Boolean).sort((a, b) => a.site.localeCompare(b.site)), [all, clients]);
+  const imageEmails = useMemo(() => all.map((r) => buildImageEmail(r, clientForSite(clients, r.site))).filter(Boolean).sort((a, b) => a.site.localeCompare(b.site)), [all, clients]);
 
   // Only one accordion open at a time.
   const toggleOne = (key) => setOpen((o) => (o[key] ? {} : { [key]: true }));
@@ -333,14 +386,14 @@ export default function Home() {
                 )}
                 <div className="mt-4 space-y-3">
                   {fontVisible.map((r) => (
-                    <SiteCard key={r.site} r={r} open={!!open["f:" + r.site]} toggle={() => toggleOne("f:" + r.site)} rerun={() => run("fonts", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} />
+                    <SiteCard key={r.site} r={r} open={!!open["f:" + r.site]} toggle={() => toggleOne("f:" + r.site)} rerun={() => run("fonts", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} onEmail={fontEmails.some((e) => e.site === r.site) ? () => goToEmail("fonts", r.site) : null} />
                   ))}
                   {!fontVisible.length && <p className="text-sm text-zinc-500">{filter === "ALL" ? "Nothing outstanding." : "Nothing in this group."}</p>}
                 </div>
               </>
             )}
             </>) : (
-              <EmailList kind="fonts" emails={fontEmails} scanned={fontRows.length > 0} results={results} clients={clients}
+              <EmailList kind="fonts" emails={fontEmails} scanned={fontRows.length > 0} results={results} clients={clients} openSite={openEmail.fonts} setOpenSite={(fn) => setOpenEmail((o) => ({ ...o, fonts: typeof fn === "function" ? fn(o.fonts) : fn }))}
                 intro="One ready-to-send email per site, only for what the client has to answer: paid fonts with no licence found, demo fonts, font subscriptions to confirm, and fonts of unknown origin. Anything we can fix ourselves at no cost is left out. Sites with no issues get no email." />
             )}
           </div>
@@ -388,14 +441,14 @@ export default function Home() {
                 <p className="mt-1 text-xs text-zinc-500">Flags come from file names (e.g. shutterstock_123.jpg) and embedded copyright / credit tags. The scanner cannot tell whether an image was paid for, so treat this as a list to check against purchase records.</p>
                 <div className="mt-4 space-y-3">
                   {imgVisible.map(({ r, paid }) => (
-                    <ImageCard key={r.site} r={r} paid={paid} open={!!open["i:" + r.site]} toggle={() => toggleOne("i:" + r.site)} rerun={() => run("images", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} />
+                    <ImageCard key={r.site} r={r} paid={paid} open={!!open["i:" + r.site]} toggle={() => toggleOne("i:" + r.site)} rerun={() => run("images", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} onEmail={imageEmails.some((e) => e.site === r.site) ? () => goToEmail("images", r.site) : null} />
                   ))}
                   {!imgVisible.length && <p className="text-sm text-zinc-500">No paid stock-library images found on any scanned site.</p>}
                 </div>
               </>
             )}
             </>) : (
-              <EmailList kind="images" emails={imageEmails} scanned={imgRows.length > 0} results={results} clients={clients}
+              <EmailList kind="images" emails={imageEmails} scanned={imgRows.length > 0} results={results} clients={clients} openSite={openEmail.images} setOpenSite={(fn) => setOpenEmail((o) => ({ ...o, images: typeof fn === "function" ? fn(o.images) : fn }))}
                 intro="One ready-to-send email per site that has images from paid stock libraries. It is a heads-up for the client, not a demand: most of these are likely already licensed. Sites with no paid-library images get no email." />
             )}
           </div>
@@ -502,8 +555,7 @@ function AreaBar({ kind, done, total, label, running, sites, onRun, onStop, onCl
   );
 }
 
-function EmailList({ kind, emails, scanned, intro, results, clients }) {
-  const [openSite, setOpenSite] = useState(null);
+function EmailList({ kind, emails, scanned, intro, results, clients, openSite, setOpenSite }) {
   return (
     <div>
       <p className="text-sm text-zinc-600">{intro} Copy, paste into your email client, and your signature does the rest.</p>
@@ -520,7 +572,7 @@ const TONE_CHIP = { red: "bg-red-600", amber: "bg-amber-500", green: "bg-red-400
 const TONE_BORDER = { red: "border-red-500", amber: "border-amber-500", green: "border-red-300" };
 const TONE_RANK = { red: 3, amber: 2, green: 1 };
 
-function SiteCard({ r, open, toggle, rerun, running, onRemove }) {
+function SiteCard({ r, open, toggle, rerun, running, onRemove, onEmail }) {
   const fonts = r.fonts || [];
   const todo = fonts.filter((f) => (f.status === "PROBLEM" || f.status === "CHECK") && !isEmbeddedIconFont(f) && !isFreeFontAwesome(f))
     .sort((a, b) => (TONE_RANK[ISSUE_TONE[issueLabel(b)]] || 0) - (TONE_RANK[ISSUE_TONE[issueLabel(a)]] || 0));
@@ -552,6 +604,7 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove }) {
         <span className="basis-full text-sm text-zinc-700 sm:basis-auto sm:flex-1">{headline}</span>
         {r.status !== "RUNNING" && <span className="text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>}
       </button>
+      {onEmail && <button onClick={onEmail} title="Open this site's client email" className="inline-flex shrink-0 items-center gap-1 self-center rounded-md px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50"><MailIcon className="h-3.5 w-3.5" /> Email</button>}
       <RemoveSite site={r.site} onRemove={onRemove} />
       </div>
       {open && r.status !== "RUNNING" && (
@@ -623,7 +676,7 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove }) {
   );
 }
 
-function ImageCard({ r, paid, open, toggle, rerun, running, onRemove }) {
+function ImageCard({ r, paid, open, toggle, rerun, running, onRemove, onEmail }) {
   const st = r.imgStatus === "RUNNING" ? "RUNNING" : r.imgStatus === "UNREACHABLE" ? "UNREACHABLE" : paid.length ? "PAID" : "OK";
   const c = COLOUR[st];
   const libs = [...new Set(paid.map((i) => i.flag))];
@@ -645,6 +698,7 @@ function ImageCard({ r, paid, open, toggle, rerun, running, onRemove }) {
         {st !== "RUNNING" && r.pagesScanned > 0 && <span className="text-xs text-zinc-400">{r.pagesScanned} pages</span>}
         {st !== "RUNNING" && <span className="text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>}
       </button>
+      {onEmail && <button onClick={onEmail} title="Open this site's client email" className="inline-flex shrink-0 items-center gap-1 self-center rounded-md px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50"><MailIcon className="h-3.5 w-3.5" /> Email</button>}
       <RemoveSite site={r.site} onRemove={onRemove} />
       </div>
       {st === "RUNNING" && (
