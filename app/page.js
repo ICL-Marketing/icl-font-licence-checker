@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, CopyIcon, CheckIcon, SpinnerIcon } from "@/app/icons";
+import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, CheckIcon, SpinnerIcon } from "@/app/icons";
 import LaunchArea from "@/app/launch";
 import { DEFAULT_SITES } from "@/data/sites";
 import { loadClients } from "@/app/clients";
@@ -562,21 +562,21 @@ function FaIconTable({ icons, pages, version, site }) {
   );
 }
 
-// "×" on the right of a card. Asks inline before cancelling and removing the site.
+// Delete (bin) icon on the right of a card. Asks inline before cancelling and removing the site.
 function RemoveSite({ site, onRemove }) {
   const [asking, setAsking] = useState(false);
   if (asking) {
     return (
       <div className="flex shrink-0 items-center gap-2 py-2.5 pr-3 text-xs">
-        <span className="text-zinc-600">Remove {site} from the list?</span>
-        <button onClick={onRemove} className="rounded-md bg-red-600 px-2 py-1 font-medium text-white">Remove</button>
+        <span className="text-zinc-600">Delete {site}?</span>
+        <button onClick={onRemove} className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2 py-1 font-medium text-white"><TrashIcon className="h-3.5 w-3.5" /> Delete</button>
         <button onClick={() => setAsking(false)} className="rounded-md border border-zinc-300 px-2 py-1 text-zinc-700 hover:bg-zinc-100">Keep</button>
       </div>
     );
   }
   return (
-    <button onClick={() => setAsking(true)} aria-label={`Remove ${site}`} title="Cancel and remove this site"
-      className="shrink-0 px-3 py-3.5 text-zinc-400 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500"><CloseIcon /></button>
+    <button onClick={() => setAsking(true)} aria-label={`Remove ${site}`} title="Delete this site's results"
+      className="shrink-0 px-3 py-3.5 text-zinc-400 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500"><TrashIcon /></button>
   );
 }
 
@@ -698,7 +698,6 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove, onFixed }) {
         {fixedFonts.length > 0 && <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800">{fixedFonts.length} fixed</span>}
         {r.platform && <span className="text-xs text-zinc-400">{r.platform}</span>}
         <span className="basis-full text-sm text-zinc-700 sm:basis-auto sm:flex-1">{headline}</span>
-        {r.status !== "RUNNING" && <span className="text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>}
       </button>
       <RemoveSite site={r.site} onRemove={onRemove} />
       </div>
@@ -802,7 +801,6 @@ function ImageCard({ r, paid, open, toggle, rerun, running, onRemove, onFixed })
         {fixedImgs.length > 0 && <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800">{fixedImgs.length} fixed</span>}
         <span className="basis-full text-sm text-zinc-700 sm:basis-auto sm:flex-1">{headline}</span>
         {st !== "RUNNING" && r.pagesScanned > 0 && <span className="text-xs text-zinc-400">{r.pagesScanned} pages</span>}
-        {st !== "RUNNING" && <span className="text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>}
       </button>
       <RemoveSite site={r.site} onRemove={onRemove} />
       </div>

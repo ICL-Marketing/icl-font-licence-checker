@@ -475,7 +475,6 @@ function LaunchCard({ k, r, mode, client, signed, log, shared, team, open, toggl
         </button>
         {asking ? (
           <div className="flex shrink-0 items-center gap-2 py-2.5 pr-3 text-xs">
-            <span className="text-zinc-600">Archive this check? It moves to Settings → Archived checks.</span>
             <button onClick={onRemove} className="inline-flex items-center gap-1 rounded-md bg-zinc-800 px-2 py-1 font-medium text-white"><ArchiveIcon className="h-3.5 w-3.5" /> Archive</button>
             <button onClick={() => setAsking(false)} className="rounded-md border border-zinc-300 px-2 py-1 text-zinc-700 hover:bg-zinc-100">Keep</button>
           </div>
