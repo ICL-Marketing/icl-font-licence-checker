@@ -8,10 +8,10 @@ import { isEmbeddedIconFont, isFreeFontAwesome, issueLabel, mergeImageSizes } fr
 import { isFreeLib } from "@/lib/email";
 import { clientForSite, normaliseClients, teamMemberForManager } from "@/lib/clients";
 import { evaluateLaunch, CHECK_STAGES } from "@/lib/launchChecks";
-import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, ExternalIcon, FlagIcon, CheckIcon, SpinnerIcon, InfoIcon } from "@/app/icons";
+import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, ChevronDownIcon, ChevronUpIcon, ExternalIcon, FlagIcon, CheckIcon, SpinnerIcon, InfoIcon, ArchiveIcon } from "@/app/icons";
 
 // Launch and post-launch checks keep separate results and sign-offs.
-const keysFor = (mode) => { const sfx = mode === "post" ? "-post" : ""; return { runs: `flc-launch-v1${sfx}`, sign: `flc-launch-signoffs-v1${sfx}`, log: `flc-launch-log-v1${sfx}` }; };
+export const keysFor = (mode) => { const sfx = mode === "post" ? "-post" : ""; return { runs: `flc-launch-v1${sfx}`, sign: `flc-launch-signoffs-v1${sfx}`, log: `flc-launch-log-v1${sfx}` }; };
 const MARKER_KEY = "flc-marker-v1"; // {site: Marker.io project link}
 const MAX_LINKS = 800;
 const MAX_IMAGES = 600;
@@ -56,7 +56,7 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
         setRuns((prev) => {
           const next = { ...prev };
           for (const [key, run] of Object.entries(j.results || {})) {
-            if (!prev[key] || prev[key].status === "RUNNING" || String(run.scannedAt || "") >= String(prev[key].scannedAt || "")) { next[key] = run; syncedRunsRef.current[key] = run.scannedAt; }
+            if (!prev[key] || prev[key].status === "RUNNING" || String(run.scannedAt || "") >= String(prev[key].scannedAt || "")) { next[key] = run; syncedRunsRef.current[key] = `${run.scannedAt}|${run.archivedAt || ""}`; }
           }
           save(RUNS_KEY, next);
           return next;
@@ -92,8 +92,9 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
     save(RUNS_KEY, next);
     // Finished runs go to the shared store so the whole team sees them.
     const run = next[key];
-    if (sharedRunsRef.current && run.status === "DONE" && run.scannedAt && syncedRunsRef.current[key] !== run.scannedAt) {
-      syncedRunsRef.current[key] = run.scannedAt;
+    const mark = `${run.scannedAt}|${run.archivedAt || ""}`;
+    if (sharedRunsRef.current && run.status === "DONE" && run.scannedAt && syncedRunsRef.current[key] !== mark) {
+      syncedRunsRef.current[key] = mark;
       const data = { ...run }; delete data.work;
       fetch("/api/results", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: mode, site: key, data }) }).catch(() => {});
     }
@@ -128,9 +129,10 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
       } catch {}
     }
   }
-  function removeRun(key) {
-    setRuns((prev) => { const next = { ...prev }; delete next[key]; save(RUNS_KEY, next); return next; });
-    if (sharedRunsRef.current) fetch("/api/results", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: mode, site: key }) }).catch(() => {});
+  // Archiving keeps the check (and its sign-offs) but hides it; archived checks live in Settings.
+  function archiveRun(key) {
+    patch(key, { archived: true, archivedAt: new Date().toISOString() });
+    if (openKey === key) setOpenKey(null);
   }
 
   // One launch check, as a resumable sequence of short requests. Progress is
@@ -360,13 +362,14 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
 
   // Sites not fully signed off (or not finished scanning), for the tab counter.
   const outstanding = useMemo(() => Object.entries(runs).filter(([key, r]) => {
+    if (r.archived) return false;
     if (r.status !== "DONE") return true;
     const signed = signoffs[key] || {};
     return forMode(evaluateLaunch(r)).some((c) => c.state !== "pass" && !signed[c.id]);
   }).length, [runs, signoffs, mode]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { onCount?.(outstanding); }, [outstanding, onCount]);
 
-  const list = useMemo(() => Object.entries(runs).sort((a, b) => (b[1].scannedAt || "9").localeCompare(a[1].scannedAt || "9")), [runs]);
+  const list = useMemo(() => Object.entries(runs).filter(([, r]) => !r.archived).sort((a, b) => (b[1].scannedAt || "9").localeCompare(a[1].scannedAt || "9")), [runs]);
 
   return (
     <div className="rounded-xl border border-zinc-300 bg-white p-4">
@@ -387,7 +390,7 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
         {list.map(([key, r]) => (
           <LaunchCard key={key} k={key} r={r} mode={mode} client={clientForSite(clients, key)} signed={signoffs[key] || {}} log={logs[key] || []} shared={shared} team={team} open={openKey === key}
             toggle={() => { if (openKey !== key) refreshSignoffs(key); setOpenKey((o) => (o === key ? null : key)); }} onSign={(check, name, nr) => sign(key, check, name, nr)}
-            onRescan={() => runCheck(r.input || key)} onFinish={() => runCheck(r.input || key, undefined, { resume: true })} onRescanUnsigned={() => rescanUnsigned(key)} onRemove={() => removeRun(key)} busy={!!running} markerReady={markerCreate}
+            onRescan={() => runCheck(r.input || key)} onFinish={() => runCheck(r.input || key, undefined, { resume: true })} onRescanUnsigned={() => rescanUnsigned(key)} onRemove={() => archiveRun(key)} busy={!!running} markerReady={markerCreate}
             onSnag={(id, snag) => patch(key, { snags: { ...(r.snags || {}), [id]: snag } })} />
         ))}
         {!list.length && <p className="text-sm text-zinc-500">No {mode === "post" ? "post-launch" : "launch"} checks yet.</p>}
@@ -454,12 +457,12 @@ function LaunchCard({ k, r, mode, client, signed, log, shared, team, open, toggl
         </button>
         {asking ? (
           <div className="flex shrink-0 items-center gap-2 py-2.5 pr-3 text-xs">
-            <span className="text-zinc-600">Remove this check?</span>
-            <button onClick={onRemove} className="rounded-md bg-red-600 px-2 py-1 font-medium text-white">Remove</button>
+            <span className="text-zinc-600">Archive this check? It moves to Settings → Archived checks.</span>
+            <button onClick={onRemove} className="inline-flex items-center gap-1 rounded-md bg-zinc-800 px-2 py-1 font-medium text-white"><ArchiveIcon className="h-3.5 w-3.5" /> Archive</button>
             <button onClick={() => setAsking(false)} className="rounded-md border border-zinc-300 px-2 py-1 text-zinc-700 hover:bg-zinc-100">Keep</button>
           </div>
         ) : (
-          <button onClick={() => setAsking(true)} disabled={r.status === "RUNNING"} aria-label={`Remove ${k}`} className="shrink-0 px-3 py-3.5 text-zinc-400 hover:text-red-600 disabled:opacity-30"><CloseIcon /></button>
+          <button onClick={() => setAsking(true)} disabled={r.status === "RUNNING"} aria-label={`Archive ${k}`} title="Archive this check" className="shrink-0 px-3 py-3.5 text-zinc-400 hover:text-zinc-900 disabled:opacity-30"><ArchiveIcon /></button>
         )}
       </div>
       {r.status === "RUNNING" && (

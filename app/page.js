@@ -10,7 +10,7 @@ import { loadClients } from "@/app/clients";
 import { scanFonts as scanFontsShared, scanImages as scanImagesShared } from "@/app/scans";
 import { clientForSite, normaliseClients } from "@/lib/clients";
 import { buildFontEmail, buildImageEmail, isFreeLib, segmentsToText, segmentsToHtml } from "@/lib/email";
-import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, freeRouteLink, isFreeFontAwesome, ISSUE_TONE, mergeImageSizes, creditOnly, imageAdminLink, stockLibraryLink, stockLicenceSignal } from "@/lib/fontlink";
+import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, freeRouteLink, isFreeFontAwesome, ISSUE_TONE, mergeImageSizes, creditOnly, imageAdminLink, stockLibraryLink, stockLicenceSignal, imageKey, isFontFixed, isImageFixed } from "@/lib/fontlink";
 
 const ORDER = { PROBLEM: 4, CHECK: 3, UNREACHABLE: 2, OK: 1, SYSTEM: 0 };
 const LABEL = { PROBLEM: "PROBLEM", CHECK: "CHECK", UNREACHABLE: "COULDN'T CHECK", OK: "OK", SYSTEM: "NO WEB FONTS", RUNNING: "SCANNING" };
@@ -26,15 +26,28 @@ const COLOUR = {
 };
 const STORAGE_KEY = "flc-results-v2";
 const AREA_FIELDS_STATIC = {
-  fonts: ["status", "fonts", "ignoredFonts", "error", "fix", "platform", "cssCount", "fontPages", "seconds", "fontsScannedAt"],
-  images: ["imgStatus", "images", "imgError", "imgFix", "imgProgress", "imgDone", "imgTotal", "imagesChecked", "pagesScanned", "pagesTotal", "hasSitemap", "imagesScannedAt"],
+  fonts: ["status", "fonts", "ignoredFonts", "error", "fix", "platform", "cssCount", "fontPages", "seconds", "fontsScannedAt", "fixedFonts", "fixedFontsAt"],
+  images: ["imgStatus", "images", "imgError", "imgFix", "imgProgress", "imgDone", "imgTotal", "imagesChecked", "pagesScanned", "pagesTotal", "hasSitemap", "imagesScannedAt", "fixedImages", "fixedImagesAt"],
 };
 
 function normalise(s) {
   return s.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
 }
+// Paid-library images still to deal with (fixed ones excluded) and the fixed ones.
 function paidImages(r) {
-  return mergeImageSizes((r.images || []).filter((i) => i.flag && !isFreeLib(i.flag)));
+  return mergeImageSizes((r.images || []).filter((i) => i.flag && !isFreeLib(i.flag) && !isImageFixed(r, i)));
+}
+function fixedImagesOf(r) {
+  return mergeImageSizes((r.images || []).filter((i) => i.flag && !isFreeLib(i.flag) && isImageFixed(r, i)));
+}
+// Fonts still needing attention on a site (fixed ones excluded) and the fixed ones.
+const needsWork = (f) => (f.status === "PROBLEM" || f.status === "CHECK") && !isEmbeddedIconFont(f) && !isFreeFontAwesome(f);
+function fontTodo(r) { return (r.fonts || []).filter((f) => needsWork(f) && !isFontFixed(r, f)); }
+function fontFixedList(r) { return (r.fonts || []).filter((f) => needsWork(f) && isFontFixed(r, f)); }
+// A site whose every font issue is marked fixed counts as fine.
+function effectiveFontStatus(r) {
+  if ((r.status === "PROBLEM" || r.status === "CHECK") && (r.fonts || []).some(needsWork) && !fontTodo(r).length) return "OK";
+  return r.status;
 }
 
 export default function Home() {
@@ -140,8 +153,10 @@ export default function Home() {
     for (const [site, r] of Object.entries(results)) {
       const done = syncedRef.current[site] || {};
       for (const [kind, stamp] of [["fonts", "fontsScannedAt"], ["images", "imagesScannedAt"]]) {
-        if (r[stamp] && r[stamp] !== done[stamp] && r.status !== "RUNNING" && r.imgStatus !== "RUNNING") {
-          syncedRef.current[site] = { ...done, [stamp]: r[stamp] };
+        const fixedStamp = kind === "fonts" ? "fixedFontsAt" : "fixedImagesAt";
+        const mark = `${r[stamp]}|${r[fixedStamp] || ""}`;
+        if (r[stamp] && mark !== done[stamp] && r.status !== "RUNNING" && r.imgStatus !== "RUNNING") {
+          syncedRef.current[site] = { ...done, [stamp]: mark };
           const data = Object.fromEntries(SHARED_FIELDS[kind].concat(["finalUrl"]).filter((k) => r[k] !== undefined).map((k) => [k, r[k]]));
           data[stamp] = r[stamp];
           fetch("/api/results", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind, site, data }) }).catch(() => {});
@@ -164,6 +179,25 @@ export default function Home() {
     if (cancelledRef.current.has(site)) return;
     setResults((prev) => ({ ...prev, [site]: { ...(prev[site] || { site }), ...fields } }));
   };
+
+  // "Mark as fixed": one font, one image, or everything outstanding on a site.
+  const now = () => new Date().toISOString();
+  function setFontFixed(site, families, on) {
+    setResults((prev) => {
+      const r = prev[site]; if (!r) return prev;
+      const fixed = { ...(r.fixedFonts || {}) };
+      for (const fam of families) { if (on) fixed[fam] = now(); else delete fixed[fam]; }
+      return { ...prev, [site]: { ...r, fixedFonts: fixed, fixedFontsAt: now() } };
+    });
+  }
+  function setImageFixed(site, keys, on) {
+    setResults((prev) => {
+      const r = prev[site]; if (!r) return prev;
+      const fixed = { ...(r.fixedImages || {}) };
+      for (const k of keys) { if (on) fixed[k] = now(); else delete fixed[k]; }
+      return { ...prev, [site]: { ...r, fixedImages: fixed, fixedImagesAt: now() } };
+    });
+  }
 
   // Cancel any scan for this site, drop its results and take it off the site list.
   function removeSite(site) {
@@ -242,7 +276,7 @@ export default function Home() {
   const all = useMemo(() => Object.values(results), [results]);
 
   // Fonts view
-  const fontRows = useMemo(() => all.filter((r) => r.status).sort((a, b) => (ORDER[b.status] ?? -1) - (ORDER[a.status] ?? -1) || a.site.localeCompare(b.site)), [all]);
+  const fontRows = useMemo(() => all.filter((r) => r.status).map((r) => ({ ...r, status: effectiveFontStatus(r) })).sort((a, b) => (ORDER[b.status] ?? -1) - (ORDER[a.status] ?? -1) || a.site.localeCompare(b.site)), [all]);
   const fontCounts = useMemo(() => {
     const c = { PROBLEM: 0, CHECK: 0, UNREACHABLE: 0, OK: 0, SYSTEM: 0, RUNNING: 0 };
     for (const r of fontRows) if (c[r.status] != null) c[r.status]++;
@@ -254,12 +288,12 @@ export default function Home() {
   // Green (free fixes) first, then amber, then red; couldn't-check sites last.
   const toneOrder = (r) => {
     if (r.status === "RUNNING") return -1;
-    const tones = (r.fonts || []).filter((f) => (f.status === "PROBLEM" || f.status === "CHECK") && !isEmbeddedIconFont(f) && !isFreeFontAwesome(f)).map((f) => ISSUE_TONE[issueLabel(f)]);
+    const tones = fontTodo(r).map((f) => ISSUE_TONE[issueLabel(f)]);
     if (!tones.length) return 4;
     return Math.max(...tones.map((t) => TONE_RANK[t] || 0));
   };
   // Among sites with the same worst issue, those that also have a green (free fix) pill come first.
-  const hasGreen = (r) => (r.fonts || []).some((f) => (f.status === "PROBLEM" || f.status === "CHECK") && !isEmbeddedIconFont(f) && !isFreeFontAwesome(f) && ISSUE_TONE[issueLabel(f)] === "green") ? 0 : 1;
+  const hasGreen = (r) => fontTodo(r).some((f) => ISSUE_TONE[issueLabel(f)] === "green") ? 0 : 1;
   const fontVisible = fontRows.filter((r) => r.status !== "OK" && r.status !== "SYSTEM" && (filter === "ALL" || r.status === filter))
     .sort((a, b) => toneOrder(a) - toneOrder(b) || hasGreen(a) - hasGreen(b) || a.site.localeCompare(b.site));
 
@@ -375,10 +409,11 @@ export default function Home() {
                   <ul className="mt-3 grid gap-x-6 gap-y-1 rounded-lg border border-green-200 bg-green-50 p-3 text-xs sm:grid-cols-2">
                     {fontRows.filter((r) => r.status === "OK" || r.status === "SYSTEM").map((r) => {
                       const f = [...new Set((r.fonts || []).filter((x) => x.status === "OK").map((x) => x.family))];
+                      const fixed = fontFixedList(r).length;
                       return (
                         <li key={r.site} className="min-w-0">
                           <a href={r.finalUrl || `https://${r.site}`} target="_blank" rel="noreferrer" className="font-medium text-green-800 underline">{r.site}</a>
-                          <span className="text-zinc-500"> · {f.length ? f.join(", ") : "System fonts only"}</span>
+                          <span className="text-zinc-500"> · {fixed ? `${fixed} fixed${f.length ? `, ${f.join(", ")}` : ""}` : f.length ? f.join(", ") : "System fonts only"}</span>
                         </li>
                       );
                     })}
@@ -386,7 +421,7 @@ export default function Home() {
                 )}
                 <div className="mt-4 space-y-3">
                   {fontVisible.map((r) => (
-                    <SiteCard key={r.site} r={r} open={!!open["f:" + r.site]} toggle={() => toggleOne("f:" + r.site)} rerun={() => run("fonts", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} onEmail={fontEmails.some((e) => e.site === r.site) ? () => goToEmail("fonts", r.site) : null} />
+                    <SiteCard key={r.site} r={r} open={!!open["f:" + r.site]} toggle={() => toggleOne("f:" + r.site)} rerun={() => run("fonts", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} onEmail={fontEmails.some((e) => e.site === r.site) ? () => goToEmail("fonts", r.site) : null} onFixed={(fams, on) => setFontFixed(r.site, fams, on)} />
                   ))}
                   {!fontVisible.length && <p className="text-sm text-zinc-500">{filter === "ALL" ? "Nothing outstanding." : "Nothing in this group."}</p>}
                 </div>
@@ -432,7 +467,7 @@ export default function Home() {
                       return (
                         <li key={r.site} className="min-w-0">
                           <a href={r.finalUrl || `https://${r.site}`} target="_blank" rel="noreferrer" className="font-medium text-green-800 underline">{r.site}</a>
-                          <span className="text-zinc-500"> · {r.pagesScanned || 0} pages, {r.imagesChecked || 0} images checked{free ? `, ${free} from free libraries` : ""}</span>
+                          <span className="text-zinc-500"> · {fixedImagesOf(r).length ? `${fixedImagesOf(r).length} fixed, ` : ""}{r.pagesScanned || 0} pages, {r.imagesChecked || 0} images checked{free ? `, ${free} from free libraries` : ""}</span>
                         </li>
                       );
                     })}
@@ -441,7 +476,7 @@ export default function Home() {
                 <p className="mt-1 text-xs text-zinc-500">Flags come from file names (e.g. shutterstock_123.jpg) and embedded copyright / credit tags. The scanner cannot tell whether an image was paid for, so treat this as a list to check against purchase records.</p>
                 <div className="mt-4 space-y-3">
                   {imgVisible.map(({ r, paid }) => (
-                    <ImageCard key={r.site} r={r} paid={paid} open={!!open["i:" + r.site]} toggle={() => toggleOne("i:" + r.site)} rerun={() => run("images", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} onEmail={imageEmails.some((e) => e.site === r.site) ? () => goToEmail("images", r.site) : null} />
+                    <ImageCard key={r.site} r={r} paid={paid} open={!!open["i:" + r.site]} toggle={() => toggleOne("i:" + r.site)} rerun={() => run("images", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} onEmail={imageEmails.some((e) => e.site === r.site) ? () => goToEmail("images", r.site) : null} onFixed={(keys, on) => setImageFixed(r.site, keys, on)} />
                   ))}
                   {!imgVisible.length && <p className="text-sm text-zinc-500">No paid stock-library images found on any scanned site.</p>}
                 </div>
@@ -567,15 +602,15 @@ function EmailList({ kind, emails, scanned, intro, results, clients, openSite, s
   );
 }
 
-// "green" tone = we can fix it free: still an issue, so a lighter red rather than green.
-const TONE_CHIP = { red: "bg-red-600", amber: "bg-amber-500", green: "bg-red-400" };
-const TONE_BORDER = { red: "border-red-500", amber: "border-amber-500", green: "border-red-300" };
+// "green" tone = we can fix it free (Adobe/Google link, remove, free version): orange, since it is still a job.
+const TONE_CHIP = { red: "bg-red-600", amber: "bg-amber-500", green: "bg-orange-500" };
+const TONE_BORDER = { red: "border-red-500", amber: "border-amber-500", green: "border-orange-400" };
 const TONE_RANK = { red: 3, amber: 2, green: 1 };
 
-function SiteCard({ r, open, toggle, rerun, running, onRemove, onEmail }) {
+function SiteCard({ r, open, toggle, rerun, running, onRemove, onEmail, onFixed }) {
   const fonts = r.fonts || [];
-  const todo = fonts.filter((f) => (f.status === "PROBLEM" || f.status === "CHECK") && !isEmbeddedIconFont(f) && !isFreeFontAwesome(f))
-    .sort((a, b) => (TONE_RANK[ISSUE_TONE[issueLabel(b)]] || 0) - (TONE_RANK[ISSUE_TONE[issueLabel(a)]] || 0));
+  const todo = fontTodo(r).sort((a, b) => (TONE_RANK[ISSUE_TONE[issueLabel(b)]] || 0) - (TONE_RANK[ISSUE_TONE[issueLabel(a)]] || 0));
+  const fixedFonts = fontFixedList(r);
   // Pills: green first, then amber, then red.
   const labels = [...new Set(todo.map(issueLabel))].sort((a, b) => (TONE_RANK[ISSUE_TONE[a]] || 0) - (TONE_RANK[ISSUE_TONE[b]] || 0));
   const worst = labels.map((l) => ISSUE_TONE[l]).sort((a, b) => TONE_RANK[b] - TONE_RANK[a])[0];
@@ -589,7 +624,7 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove, onEmail }) {
       ? r.error
       : todo.length
         ? [...new Set(todo.map((f) => f.family))].join(", ")
-        : fonts.length ? `${oks.length} font${oks.length === 1 ? "" : "s"} OK` : r.ignoredFonts?.length ? "Only icon/UI fonts (ignored)" : "No web fonts found";
+        : fixedFonts.length ? `All ${fixedFonts.length} fixed` : fonts.length ? `${oks.length} font${oks.length === 1 ? "" : "s"} OK` : r.ignoredFonts?.length ? "Only icon/UI fonts (ignored)" : "No web fonts found";
 
   return (
     <div className="rounded-xl bg-white shadow-sm ring-1 ring-zinc-200">
@@ -600,6 +635,7 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove, onEmail }) {
           : r.status === "RUNNING" ? <span className="text-blue-600" title="Scanning"><SpinnerIcon className="h-5 w-5" /></span>
           : <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${c.chip}`}>{LABEL[r.status] || r.status}</span>}
         <span className="font-medium">{r.site}</span>
+        {fixedFonts.length > 0 && <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800">{fixedFonts.length} fixed</span>}
         {r.platform && <span className="text-xs text-zinc-400">{r.platform}</span>}
         <span className="basis-full text-sm text-zinc-700 sm:basis-auto sm:flex-1">{headline}</span>
         {r.status !== "RUNNING" && <span className="text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>}
@@ -618,10 +654,10 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove, onEmail }) {
                   <tr className="text-left text-zinc-500">
                     <th className="py-1 pr-2">Status</th>
                     <th className="py-1 pr-2">Font</th>
-                    <th className="py-1 pr-2">How loaded</th>
+                    <th className="py-1 pr-2">Loaded from</th>
                     <th className="py-1 pr-2">Why</th>
-                    <th className="py-1 pr-2">Suggested fix</th>
-                    <th className="py-1">Font file</th>
+                    <th className="w-1/2 py-1 pr-2">Suggested fix</th>
+                    <th className="py-1" />
                   </tr>
                 </thead>
                 <tbody>
@@ -632,7 +668,10 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove, onEmail }) {
                         <td className="py-1.5 pr-2 whitespace-nowrap"><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${TONE_CHIP[ISSUE_TONE[issueLabel(f)]] || "bg-zinc-500"}`}>{issueLabel(f)}</span></td>
                         <td className={`py-1.5 pr-2 font-semibold ${fc.text}`}><a href={fontLink(f)} target="_blank" rel="noreferrer" title="Font foundry page" className="underline decoration-dotted underline-offset-2">{f.family}</a>{f.otherFiles > 0 && <span className="font-normal text-zinc-400"> +{f.otherFiles} more file{f.otherFiles === 1 ? "" : "s"}</span>}
                           {f.styles?.length > 0 && <div className="mt-0.5 flex flex-wrap gap-1">{f.styles.map((st) => <span key={st} className="rounded bg-white/70 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 ring-1 ring-zinc-200">{st}</span>)}</div>}</td>
-                        <td className="py-1.5 pr-2 whitespace-nowrap">{f.kind}{f.hostedOn ? ` / ${f.hostedOn}` : ""}</td>
+                        <td className="max-w-[200px] py-1.5 pr-2">
+                          <div className="whitespace-nowrap">{f.kind}{f.hostedOn ? ` / ${f.hostedOn}` : ""}</div>
+                          <a href={f.source} target="_blank" rel="noreferrer" title={[f.source, f.meta?.copyright, f.meta?.manufacturer, f.meta?.licence].filter(Boolean).join("\n")} className="block truncate font-mono text-[11px] text-blue-700 underline">{(() => { try { return decodeURIComponent(new URL(f.source).pathname.split("/").pop()) || f.source; } catch { return f.source; } })()}</a>
+                        </td>
                         <td className="py-1.5 pr-2">{f.note}</td>
                         <td className="py-1.5 pr-2 font-medium">
                           {f.status === "PROBLEM" && f.adobe && (
@@ -651,8 +690,8 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove, onEmail }) {
                           {f.faIcons ? <FaIconTable icons={f.faIcons} pages={f.faPagesChecked} version={f.faVersion} /> : fixedFix(f)}
                           {freeRouteLink(f) && <> <a href={freeRouteLink(f)} target="_blank" rel="noreferrer" className="text-blue-700 underline">Open font page</a></>}
                         </td>
-                        <td className="py-1.5">
-                          <a href={f.source} target="_blank" rel="noreferrer" title={[f.meta?.copyright, f.meta?.manufacturer, f.meta?.licence].filter(Boolean).join("\n")} className="break-all font-mono text-[11px] text-blue-700 underline">{f.source.slice(0, 160)}</a>
+                        <td className="py-1.5 pl-2 whitespace-nowrap">
+                          <button onClick={() => onFixed([f.family], true)} className="inline-flex items-center gap-1 rounded-md border border-green-300 bg-white px-2 py-0.5 text-[11px] font-medium text-green-800 hover:bg-green-50"><CheckIcon className="h-3 w-3" /> Mark as fixed</button>
                         </td>
                       </tr>
                     );
@@ -661,7 +700,13 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove, onEmail }) {
               </table>
             </div>
           )}
+          {fixedFonts.length > 0 && (
+            <div className="mt-2 rounded-md bg-green-50 px-3 py-2 text-xs text-green-900">
+              <span className="font-semibold">Fixed:</span> {fixedFonts.map((f) => <span key={f.family} className="mr-2 inline-flex items-center gap-1">{f.family} <button onClick={() => onFixed([f.family], false)} className="text-green-700 underline">undo</button></span>)}
+            </div>
+          )}
           <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-zinc-400">
+            {todo.length > 0 && <button onClick={() => onFixed(todo.map((f) => f.family), true)} className="inline-flex items-center gap-1 rounded-md bg-green-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-green-700"><CheckIcon className="h-3 w-3" /> Mark everything as fixed</button>}
             {r.finalUrl && <span>Fetched {r.finalUrl}</span>}
             {r.fontPages > 0 && <span>{r.fontPages} page{r.fontPages === 1 ? "" : "s"}</span>}
             {r.cssCount > 0 && <span>{r.cssCount} stylesheets</span>}
@@ -676,7 +721,8 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove, onEmail }) {
   );
 }
 
-function ImageCard({ r, paid, open, toggle, rerun, running, onRemove, onEmail }) {
+function ImageCard({ r, paid, open, toggle, rerun, running, onRemove, onEmail, onFixed }) {
+  const fixedImgs = fixedImagesOf(r);
   const st = r.imgStatus === "RUNNING" ? "RUNNING" : r.imgStatus === "UNREACHABLE" ? "UNREACHABLE" : paid.length ? "PAID" : "OK";
   const c = COLOUR[st];
   const libs = [...new Set(paid.map((i) => i.flag))];
@@ -686,7 +732,7 @@ function ImageCard({ r, paid, open, toggle, rerun, running, onRemove, onEmail })
     ? `Scanning… ${r.imgProgress || ""}`
     : st === "UNREACHABLE"
       ? r.imgError
-      : `${paid.length} image${paid.length === 1 ? "" : "s"} · ${libs.join(", ")} → find the purchase record, or replace`;
+      : paid.length ? `${paid.length} image${paid.length === 1 ? "" : "s"} · ${libs.join(", ")} → find the purchase record, or replace` : fixedImgs.length ? `All ${fixedImgs.length} fixed` : "No paid-library images";
   return (
     <div className="rounded-xl bg-white shadow-sm ring-1 ring-zinc-200">
       <div className="flex items-start">
@@ -694,6 +740,7 @@ function ImageCard({ r, paid, open, toggle, rerun, running, onRemove, onEmail })
         {st === "RUNNING" ? <span className="text-blue-600" title="Scanning"><SpinnerIcon className="h-5 w-5" /></span>
           : <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${c.chip}`}>{label}</span>}
         <span className="font-medium">{r.site}</span>
+        {fixedImgs.length > 0 && <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800">{fixedImgs.length} fixed</span>}
         <span className="basis-full text-sm text-zinc-700 sm:basis-auto sm:flex-1">{headline}</span>
         {st !== "RUNNING" && r.pagesScanned > 0 && <span className="text-xs text-zinc-400">{r.pagesScanned} pages</span>}
         {st !== "RUNNING" && <span className="text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>}
@@ -722,7 +769,8 @@ function ImageCard({ r, paid, open, toggle, rerun, running, onRemove, onEmail })
                   <th className="py-1 pr-2">Licence check</th>
                   <th className="py-1 pr-2">Check on library</th>
                   <th className="py-1 pr-2">Embedded credit / copyright</th>
-                  <th className="py-1">Suggested fix</th>
+                  <th className="py-1 pr-2">Suggested fix</th>
+                  <th className="py-1" />
                 </tr>
               </thead>
               <tbody>
@@ -743,14 +791,21 @@ function ImageCard({ r, paid, open, toggle, rerun, running, onRemove, onEmail })
                       </td>
                       <td className="py-1.5 pr-2 whitespace-nowrap">{stockLibraryLink(i.url, i.flag) ? <a href={stockLibraryLink(i.url, i.flag)} target="_blank" rel="noreferrer" className="text-blue-700 underline">View on {i.flag}</a> : "—"}</td>
                       <td className="py-1.5 pr-2 text-zinc-600">{creditOnly(i.meta) || "—"}</td>
-                      <td className="py-1.5 font-medium">Find the purchase record / licence. If none, replace the image or buy a licence.</td>
+                      <td className="py-1.5 pr-2 font-medium">Find the purchase record / licence. If none, replace the image or buy a licence.</td>
+                      <td className="py-1.5 whitespace-nowrap"><button onClick={() => onFixed([imageKey(i.url, i.flag)], true)} className="inline-flex items-center gap-1 rounded-md border border-green-300 bg-white px-2 py-0.5 text-[11px] font-medium text-green-800 hover:bg-green-50"><CheckIcon className="h-3 w-3" /> Mark as fixed</button></td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           )}
+          {fixedImgs.length > 0 && (
+            <div className="mt-2 rounded-md bg-green-50 px-3 py-2 text-xs text-green-900">
+              <span className="font-semibold">Fixed:</span> {fixedImgs.map((i) => { let n = i.url; try { n = decodeURIComponent(new URL(i.url).pathname.split("/").pop()); } catch {} return <span key={i.url} className="mr-2 inline-flex items-center gap-1">{n.slice(0, 50)} <button onClick={() => onFixed([imageKey(i.url, i.flag)], false)} className="text-green-700 underline">undo</button></span>; })}
+            </div>
+          )}
           <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-zinc-400">
+            {paid.length > 0 && <button onClick={() => onFixed(paid.map((i) => imageKey(i.url, i.flag)), true)} className="inline-flex items-center gap-1 rounded-md bg-green-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-green-700"><CheckIcon className="h-3 w-3" /> Mark everything as fixed</button>}
             {r.pagesScanned > 0 && <span>{r.pagesScanned} page{r.pagesScanned === 1 ? "" : "s"} checked{r.hasSitemap ? " (sitemap)" : " (crawled)"}</span>}
             {r.imagesChecked > 0 && <span>{r.imagesChecked} images seen</span>}
             {freeCount > 0 && <span className="text-green-700">{freeCount} free-library image{freeCount === 1 ? "" : "s"} (no licence needed)</span>}

@@ -1,4 +1,4 @@
-import { fontLink, isEmbeddedIconFont, issueLabel, ISSUE_FILL, isFreeFontAwesome, freeRouteLabel, nextAction, mergeImageSizes, creditOnly, imageAdminLink, stockLibraryLink, stockLicenceSignal } from "@/lib/fontlink";
+import { fontLink, isEmbeddedIconFont, issueLabel, ISSUE_FILL, isFreeFontAwesome, freeRouteLabel, nextAction, mergeImageSizes, creditOnly, imageAdminLink, stockLibraryLink, stockLicenceSignal, isFontFixed, isImageFixed } from "@/lib/fontlink";
 import ExcelJS from "exceljs";
 import { AUTO_SIGNER, STATE_LABEL } from "@/lib/launchChecks";
 
@@ -74,7 +74,7 @@ export async function POST(request) {
       fontRows.push({ site: r.site, status: f.status, issue: issueLabel(f), font: f.family, styles: (f.styles || []).join(", "), why: f.note || "",
         free, freeOk: free !== "N/A",
         siteUrl: r.finalUrl || `https://${r.site}`, fontUrl: fontLink(f),
-        fix: nextAction(f), task: "To do", owner: "" });
+        fix: nextAction(f), task: isFontFixed(r, f) ? "Done" : "To do", owner: "" });
     }
   }
   const order = { PROBLEM: 0, CHECK: 1, UNREACHABLE: 2 };
@@ -132,7 +132,7 @@ export async function POST(request) {
         licence: stockLicenceSignal(i).status, licenceWhy: stockLicenceSignal(i).reason, image: name, meta: creditOnly(i.meta),
         pages: (i.pages || []).map((u) => { try { return new URL(u).pathname || "/"; } catch { return u; } }).join("\n"),
         fix: "Find the purchase record or licence for this image. If none, replace it or buy a licence.",
-        task: "To do", owner: "" });
+        task: isImageFixed(r, i) ? "Done" : "To do", owner: "" });
     }
   }
   const LO = { "Possible preview": 0, "Could not check": 1, "Likely licensed": 2 };

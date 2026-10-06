@@ -5,6 +5,7 @@ import Link from "next/link";
 import { TeamEditor, loadTeam, saveTeam, normaliseTeam } from "@/app/team";
 import { ClientsEditor, loadClients, saveClients } from "@/app/clients";
 import { normaliseClients } from "@/lib/clients";
+import { keysFor } from "@/app/launch";
 
 export default function Settings() {
   const [team, setTeam] = useState([]);
@@ -41,6 +42,32 @@ export default function Settings() {
       if (Array.isArray(j.clients)) setClients(normaliseClients(j.clients));
     }
   }
+  // Archived launch / post-launch checks: restore or delete for good.
+  const [archived, setArchived] = useState([]);
+  const loadArchived = () => {
+    const out = [];
+    for (const mode of ["launch", "post"]) {
+      let runs = {};
+      try { runs = JSON.parse(localStorage.getItem(keysFor(mode).runs) || "{}"); } catch {}
+      for (const [key, r] of Object.entries(runs)) if (r.archived) out.push({ mode, key, r });
+    }
+    setArchived(out.sort((a, b) => String(b.r.archivedAt).localeCompare(String(a.r.archivedAt))));
+  };
+  useEffect(() => { const t = setTimeout(loadArchived, 0); return () => clearTimeout(t); }, []);
+  async function archivedAction(mode, key, action) {
+    let runs = {};
+    try { runs = JSON.parse(localStorage.getItem(keysFor(mode).runs) || "{}"); } catch {}
+    const r = runs[key];
+    if (!r) return;
+    if (action === "restore") { runs[key] = { ...r, archived: false, archivedAt: new Date().toISOString() }; }
+    else delete runs[key];
+    try { localStorage.setItem(keysFor(mode).runs, JSON.stringify(runs)); } catch {}
+    try {
+      if (action === "restore") await fetch("/api/results", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: mode, site: key, data: runs[key] }) });
+      else await fetch("/api/results", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: mode, site: key }) });
+    } catch {}
+    loadArchived();
+  }
   const [mk, setMk] = useState(null);
   const [testLink, setTestLink] = useState("");
   const [test, setTest] = useState(null);
@@ -63,6 +90,30 @@ export default function Settings() {
         <h2 className="font-semibold">Clients</h2>
         <p className="mb-3 text-sm text-zinc-500">From the Web Clients spreadsheet. The account manager is offered first on launch sign-offs for that client&apos;s site, and the email addresses are shown on client emails.</p>
         <ClientsEditor clients={clients} team={team} onChange={changeClients} shared={clientsShared} />
+      </section>
+      <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+        <h2 className="font-semibold">Archived checks</h2>
+        <p className="mb-3 text-sm text-zinc-500">Launch and post-launch checks archived from their tabs. Restore puts one back; Delete removes it and its sign-offs for good.</p>
+        {!archived.length && <p className="text-sm text-zinc-500">Nothing archived.</p>}
+        {archived.length > 0 && (
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-xs text-zinc-500"><th className="py-1 pr-3">Site</th><th className="py-1 pr-3">Tab</th><th className="py-1 pr-3">Scanned</th><th className="py-1 pr-3">Archived</th><th /></tr></thead>
+            <tbody>
+              {archived.map(({ mode, key, r }) => (
+                <tr key={`${mode}:${key}`} className="border-t border-zinc-100">
+                  <td className="py-1.5 pr-3 font-medium">{key}</td>
+                  <td className="py-1.5 pr-3">{mode === "post" ? "Post Launch Checks" : "Launch Checks"}</td>
+                  <td className="py-1.5 pr-3 text-zinc-600">{r.scannedAt ? new Date(r.scannedAt).toLocaleDateString("en-GB") : "—"}</td>
+                  <td className="py-1.5 pr-3 text-zinc-600">{r.archivedAt ? new Date(r.archivedAt).toLocaleDateString("en-GB") : "—"}</td>
+                  <td className="py-1.5 text-right whitespace-nowrap">
+                    <button onClick={() => archivedAction(mode, key, "restore")} className="mr-2 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100">Restore</button>
+                    <button onClick={() => { if (confirm(`Delete the ${mode === "post" ? "post-launch" : "launch"} check for ${key} and its sign-offs?`)) archivedAction(mode, key, "delete"); }} className="rounded-md border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50">Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </section>
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
         <h2 className="font-semibold">Marker.io</h2>
