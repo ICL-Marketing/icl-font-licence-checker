@@ -502,28 +502,35 @@ function Badge({ ok, bad, label }) {
   return <span className={`rounded px-1.5 py-0.5 font-semibold ${ok ? "bg-green-100 text-green-800" : bad ? "bg-red-100 text-red-800" : "bg-zinc-100 text-zinc-600"}`}>{label}</span>;
 }
 
-function FaIconTable({ icons, pages, version }) {
+function FaIconTable({ icons, pages, version, site }) {
   const change = icons.filter((i) => !i.free);
+  const [showFree, setShowFree] = useState(false);
+  const shown = showFree ? icons : change;
+  const pageLink = (p) => { try { return new URL(p, site || "https://x").href; } catch { return p; } };
   return (
     <div className="space-y-2">
-      <p>{change.length ? `Change ${change.length} icon${change.length === 1 ? "" : "s"}, then switch the site to Font Awesome Free.` : "No icons need changing. Switch the site to Font Awesome Free."}</p>
-      <div className="overflow-x-auto">
-        <table className="w-full text-[11px] font-normal">
-          <thead><tr className="text-left text-zinc-500"><th className="pr-2">Icon</th><th className="pr-2">Class</th><th className="pr-2">Style</th><th className="pr-2">Pages</th><th className="pr-2">Free?</th><th>Change to</th></tr></thead>
-          <tbody>
-            {icons.map((i) => (
-              <tr key={i.cls} className="border-t border-zinc-200">
-                <td className="pr-2">{i.icon}</td>
-                <td className="pr-2 font-mono">{i.cls}</td>
-                <td className="pr-2">{i.style}</td>
-                <td className="pr-2 tabular-nums">{i.uses}</td>
-                <td className={`pr-2 font-semibold ${i.free ? "text-green-700" : "text-red-700"}`}>{i.free ? "Yes" : "No, Pro only"}</td>
-                <td className={i.free ? "" : "font-mono font-semibold"}>{i.changeTo}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <p>{change.length ? `Swap ${change.length} Pro-only icon${change.length === 1 ? "" : "s"} for the free version shown, then switch the site to Font Awesome Free.` : "No Pro-only icons in use. Switch the site to Font Awesome Free."}</p>
+      {shown.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[11px] font-normal">
+            <thead><tr className="text-left text-zinc-500"><th className="pr-2">Icon</th><th className="pr-2">Current class</th><th className="pr-2">Change to</th><th className="pr-2">Where it is used</th></tr></thead>
+            <tbody>
+              {shown.map((i) => (
+                <tr key={i.cls} className="border-t border-zinc-200 align-top">
+                  <td className="pr-2">{i.icon}<div className="text-zinc-400">{i.style}{i.free ? " · free" : " · Pro only"}</div></td>
+                  <td className="pr-2 font-mono">{i.cls}</td>
+                  <td className={`pr-2 ${i.free ? "text-zinc-500" : "font-mono font-semibold text-green-800"}`}>{i.changeTo}</td>
+                  <td className="pr-2">
+                    {(i.pages || []).slice(0, 4).map((p, n) => <span key={p}>{n ? ", " : ""}<a href={pageLink(p)} target="_blank" rel="noreferrer" className="text-blue-700 underline">{p}</a></span>)}
+                    {i.uses > (i.pages || []).length && <span className="text-zinc-400"> {i.pages?.length ? "+" : ""}{i.uses - (i.pages || []).length} more page{i.uses - (i.pages || []).length === 1 ? "" : "s"}</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {icons.length > change.length && <button onClick={() => setShowFree((v) => !v)} className="text-[11px] text-blue-700 underline">{showFree ? "Hide icons that are already free" : `Show ${icons.length - change.length} icon${icons.length - change.length === 1 ? "" : "s"} that are already free`}</button>}
       <p className="text-[11px] text-zinc-500">Checked {pages} page{pages === 1 ? "" : "s"} against Font Awesome {version || 6} Free. Icons added by CSS or JavaScript are not counted.</p>
     </div>
   );
@@ -687,7 +694,7 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove, onEmail, onFixed 
                               {f.freeVersion?.url && !(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) && f.google !== "yes" && <a href={f.freeVersion.url} target="_blank" rel="noreferrer" className="text-blue-700 underline">Free version link</a>}
                             </div>
                           )}
-                          {f.faIcons ? <FaIconTable icons={f.faIcons} pages={f.faPagesChecked} version={f.faVersion} /> : fixedFix(f)}
+                          {f.faIcons ? <FaIconTable icons={f.faIcons} pages={f.faPagesChecked} version={f.faVersion} site={r.finalUrl || `https://${r.site}`} /> : fixedFix(f)}
                           {freeRouteLink(f) && <> <a href={freeRouteLink(f)} target="_blank" rel="noreferrer" className="text-blue-700 underline">Open font page</a></>}
                         </td>
                         <td className="py-1.5 pl-2 whitespace-nowrap">

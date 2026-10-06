@@ -261,12 +261,20 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
         w.psiQueue = w.psiList.filter((u) => !(u in w.psi) && !(w.psiTried || []).includes(u));
         w.psiTried = w.psiTried || [];
         progress("Accessibility audit (Google PageSpeed)", w.psiDone, w.psiList.length);
-        await Promise.all(Array.from({ length: 6 }, async () => {
+        // Three at a time keeps well inside Google's per-minute limit; a 429 pauses everyone and retries.
+        let pausedUntil = 0;
+        await Promise.all(Array.from({ length: 3 }, async () => {
           while (w.psiQueue.length && !stopRef.current && !w.psiError) {
             const u = w.psiQueue.shift();
-            let out = await post("/api/launch", { step: "psi", url: u });
-            if (!out.ok && !out.fatal) out = await post("/api/launch", { step: "psi", url: u }); // one retry
-            if (out.fatal) { w.psiError = out.error; break; }
+            let out = null;
+            for (let attempt = 0; attempt < 4 && !stopRef.current; attempt++) {
+              if (pausedUntil > Date.now()) { progress("Accessibility audit (waiting for Google's rate limit)", w.psiDone, w.psiList.length); await new Promise((res) => setTimeout(res, pausedUntil - Date.now())); }
+              out = await post("/api/launch", { step: "psi", url: u });
+              if (out.ok || out.fatal) break;
+              if (out.retryAfter) pausedUntil = Math.max(pausedUntil, Date.now() + out.retryAfter * 1000 * (attempt + 1));
+              else if (attempt >= 1) break; // other errors: one retry only
+            }
+            if (out?.fatal) { w.psiError = out.error; break; }
             if (out.ok) w.psi[u] = out; else w.psiTried.push(u);
             w.psiDone = Object.keys(w.psi).length + w.psiTried.length;
             progress("Accessibility audit (Google PageSpeed)", w.psiDone, w.psiList.length);
