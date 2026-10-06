@@ -225,7 +225,8 @@ export async function POST(request) {
     for (const i of mergeImageSizes((r.images || []).filter((x) => x.flag && !/free/i.test(x.flag)))) {
       let name = i.url;
       try { name = decodeURIComponent(new URL(i.url).pathname.split("/").pop()); } catch {}
-      const pages = i.pages?.length ? i.pages : i.page ? [i.page] : [];
+      // Excel allows one link per cell: link the most specific page (the homepage last).
+      const pages = [...(i.pages?.length ? i.pages : i.page ? [i.page] : [])].sort((a, b) => { const pa = (() => { try { return new URL(a).pathname; } catch { return a; } })(); const pb = (() => { try { return new URL(b).pathname; } catch { return b; } })(); return (pb.length - pa.length) || pa.localeCompare(pb); });
       const sig = stockLicenceSignal(i);
       rows.push({ image: name, imageUrl: i.url, library: i.flag, libUrl: stockLibraryLink(i.url, i.flag), pageText: pages.map((u) => { try { return new URL(u).pathname || "/"; } catch { return u; } }).join("\n"), pageUrl: pages[0] || "",
         assessment: sig.status === "Likely licensed" ? "Likely licensed" : sig.status === "Possible preview" ? "May be a watermarked preview – worth checking" : "Could not tell",
@@ -238,18 +239,17 @@ export async function POST(request) {
       { header: "View on library", key: "lib", width: 22 },
       { header: "Used on", key: "pageText", width: 34 },
       { header: "Our assessment", key: "assessment", width: 34 },
-      { header: "Status (please fill in)", key: "status", width: 26 },
+      { header: "Status", key: "status", width: 26 },
       { header: "Notes", key: "notes", width: 36 },
     ], rows);
-    ws.spliceRows(1, 0, [`Stock images on ${r.site || ""}`], ["Please mark each image as Licensed, Replace or Remove in the Status column and send this back to us."]);
+    ws.spliceRows(1, 0, [`Stock images on ${r.site || ""}`]);
     ws.getRow(1).font = { bold: true, size: 14 };
-    ws.getRow(2).font = { color: { argb: "FF6B7280" } };
-    ws.getRow(3).font = { bold: true };
-    ws.views = [{ state: "frozen", ySplit: 3 }];
+    ws.getRow(2).font = { bold: true };
+    ws.views = [{ state: "frozen", ySplit: 2 }];
     ws.autoFilter = undefined;
     const STATES = ["Licensed", "Replace", "Remove", "Not sure"];
     rows.forEach((row, i) => {
-      const x = ws.getRow(i + 4);
+      const x = ws.getRow(i + 3);
       x.alignment = { wrapText: true, vertical: "top" };
       x.getCell(1).value = { text: row.image, hyperlink: row.imageUrl };
       x.getCell(1).font = { color: { argb: "FF1F4E79" }, underline: true };
@@ -258,7 +258,7 @@ export async function POST(request) {
       x.getCell(5).fill = { type: "pattern", pattern: "solid", fgColor: { argb: /Likely/.test(row.assessment) ? "FFD4EDDA" : /preview/.test(row.assessment) ? "FFF8D7DA" : "FFFFF3CD" } };
       x.getCell(6).dataValidation = { type: "list", allowBlank: true, formulae: [`"${STATES.join(",")}"`] };
     });
-    if (rows.length) ws.addConditionalFormatting({ ref: `F4:F${rows.length + 3}`, rules: [
+    if (rows.length) ws.addConditionalFormatting({ ref: `F3:F${rows.length + 2}`, rules: [
       { type: "cellIs", operator: "equal", formulae: ['"Licensed"'], priority: 1, style: { fill: { type: "pattern", pattern: "solid", bgColor: { argb: "FFD4EDDA" } } } },
       { type: "cellIs", operator: "equal", formulae: ['"Replace"'], priority: 2, style: { fill: { type: "pattern", pattern: "solid", bgColor: { argb: "FFFFF3CD" } } } },
       { type: "cellIs", operator: "equal", formulae: ['"Remove"'], priority: 3, style: { fill: { type: "pattern", pattern: "solid", bgColor: { argb: "FFF8D7DA" } } } },
