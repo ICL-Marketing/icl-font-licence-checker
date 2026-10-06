@@ -72,6 +72,10 @@ export default function Home() {
     try { const u = new URL(window.location.href); if (site) u.searchParams.set("site", site); else u.searchParams.delete("site"); window.history.replaceState(null, "", u.search); } catch {}
   };
   const [filter, setFilter] = useState("ALL");
+  // Extra filters for the site lists: text search, account manager, issue type / library, fixed state.
+  const [ff, setFf] = useState({ q: "", manager: "", issue: "", fixed: "" }); // fonts
+  const [imf, setImf] = useState({ q: "", manager: "", lib: "", licence: "", fixed: "" }); // images
+  const managerOf = (site) => clientForSite(clients, site)?.manager || "";
   const [open, setOpen] = useState({});
   const [exporting, setExporting] = useState("");
   const [showList, setShowList] = useState(true);
@@ -297,7 +301,13 @@ export default function Home() {
   };
   // Among sites with the same worst issue, those that also have a green (free fix) pill come first.
   const hasGreen = (r) => fontTodo(r).some((f) => ISSUE_TONE[issueLabel(f)] === "green") ? 0 : 1;
+  const managers = [...new Set(clients.map((c) => c.manager).filter(Boolean))].sort();
+  const fontIssues = [...new Set(fontRows.flatMap((r) => fontTodo(r).map(issueLabel)))].sort();
   const fontVisible = fontRows.filter((r) => r.status !== "OK" && r.status !== "SYSTEM" && (filter === "ALL" || r.status === filter))
+    .filter((r) => !ff.q || r.site.includes(ff.q.toLowerCase()) || (clientForSite(clients, r.site)?.name || "").toLowerCase().includes(ff.q.toLowerCase()) || fontTodo(r).some((f) => f.family.toLowerCase().includes(ff.q.toLowerCase())))
+    .filter((r) => !ff.manager || (ff.manager === "__none" ? !managerOf(r.site) : managerOf(r.site) === ff.manager))
+    .filter((r) => !ff.issue || fontTodo(r).some((f) => issueLabel(f) === ff.issue))
+    .filter((r) => !ff.fixed || (ff.fixed === "some" ? fontFixedList(r).length > 0 : fontFixedList(r).length === 0))
     .sort((a, b) => toneOrder(a) - toneOrder(b) || hasGreen(a) - hasGreen(b) || a.site.localeCompare(b.site));
 
   // Images view
@@ -308,10 +318,16 @@ export default function Home() {
   const imgPaidSites = imgRows.filter((x) => x.paid.length).length;
   const imgUnreachable = imgRows.filter((x) => x.r.imgStatus === "UNREACHABLE").length;
   const imgFine = imgRows.filter((x) => x.r.imgStatus === "DONE" && !x.paid.length).length;
-  const imgVisible = imgRows.filter((x) => x.paid.length || x.r.imgStatus !== "DONE");
+  const imgLibs = [...new Set(imgRows.flatMap((x) => x.paid.map((i) => i.flag)))].sort();
+  const imgVisible = imgRows.filter((x) => x.paid.length || x.r.imgStatus !== "DONE")
+    .filter((x) => !imf.q || x.r.site.includes(imf.q.toLowerCase()) || (clientForSite(clients, x.r.site)?.name || "").toLowerCase().includes(imf.q.toLowerCase()))
+    .filter((x) => !imf.manager || (imf.manager === "__none" ? !managerOf(x.r.site) : managerOf(x.r.site) === imf.manager))
+    .filter((x) => !imf.lib || x.paid.some((i) => i.flag === imf.lib))
+    .filter((x) => !imf.licence || x.paid.some((i) => stockLicenceSignal(i).status === imf.licence))
+    .filter((x) => !imf.fixed || (imf.fixed === "some" ? fixedImagesOf(x.r).length > 0 : fixedImagesOf(x.r).length === 0));
 
-  const fontEmails = useMemo(() => all.map((r) => buildFontEmail(r, clientForSite(clients, r.site))).filter(Boolean).sort((a, b) => a.site.localeCompare(b.site)), [all, clients]);
-  const imageEmails = useMemo(() => all.map((r) => buildImageEmail(r, clientForSite(clients, r.site))).filter(Boolean).sort((a, b) => a.site.localeCompare(b.site)), [all, clients]);
+  const fontEmails = all.map((r) => buildFontEmail(r, clientForSite(clients, r.site))).filter(Boolean).sort((a, b) => a.site.localeCompare(b.site));
+  const imageEmails = all.map((r) => buildImageEmail(r, clientForSite(clients, r.site))).filter(Boolean).sort((a, b) => a.site.localeCompare(b.site));
 
   // Only one accordion open at a time.
 
@@ -417,7 +433,11 @@ export default function Home() {
                     })}
                   </ul>
                 )}
-                <div className="mt-4 space-y-3">
+                <FilterBar value={ff} onChange={setFf} count={fontVisible.length} managers={managers} fields={[
+                  { key: "issue", label: "All issues", options: fontIssues },
+                  { key: "fixed", label: "Fixed or not", options: [["some", "Has fixed items"], ["none", "Nothing fixed yet"]] },
+                ]} />
+                <div className="mt-3 space-y-3">
                   {fontVisible.map((r) => (
                     <SiteCard key={r.site} r={r} open={false} toggle={() => selectSite("fonts", r.site)} rerun={() => run("fonts", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} onFixed={(fams, on) => setFontFixed(r.site, fams, on)} />
                   ))}
@@ -477,7 +497,12 @@ export default function Home() {
                   </ul>
                 )}
                 <p className="mt-1 text-xs text-zinc-500">Flags come from file names (e.g. shutterstock_123.jpg) and embedded copyright / credit tags. The scanner cannot tell whether an image was paid for, so treat this as a list to check against purchase records.</p>
-                <div className="mt-4 space-y-3">
+                <FilterBar value={imf} onChange={setImf} count={imgVisible.length} managers={managers} fields={[
+                  { key: "lib", label: "All libraries", options: imgLibs },
+                  { key: "licence", label: "Any licence check", options: ["Likely licensed", "Possible preview", "Could not check"] },
+                  { key: "fixed", label: "Fixed or not", options: [["some", "Has fixed items"], ["none", "Nothing fixed yet"]] },
+                ]} />
+                <div className="mt-3 space-y-3">
                   {imgVisible.map(({ r, paid }) => (
                     <ImageCard key={r.site} r={r} paid={paid} open={false} toggle={() => selectSite("images", r.site)} rerun={() => run("images", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} onFixed={(keys, on) => setImageFixed(r.site, keys, on)} />
                   ))}
@@ -593,6 +618,31 @@ function AreaBar({ kind, done, total, label, running, sites, onRun, onStop, onCl
           <p className="mt-1 text-xs text-zinc-500">{running === kind ? `Scanning… ${done} of ${total} done` : done < total ? `${done} of ${total} sites scanned` : `${done} site${done === 1 ? "" : "s"} scanned`}</p>
         </div>
       )}
+    </div>
+  );
+}
+
+// Search + dropdown filters for a site list. `fields` are extra selects: {key, label, options: [value | [value, label]]}.
+function FilterBar({ value, onChange, count, managers, fields }) {
+  const set = (k, v) => onChange({ ...value, [k]: v });
+  const active = Object.values(value).some(Boolean);
+  const sel = "rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs";
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg bg-zinc-50 p-2 text-xs">
+      <input value={value.q} onChange={(e) => set("q", e.target.value)} placeholder="Search site, client or font" aria-label="Search" className="min-w-0 flex-1 basis-40 rounded-md border border-zinc-300 px-2 py-1.5 text-xs" />
+      <select value={value.manager} onChange={(e) => set("manager", e.target.value)} aria-label="Account manager" className={sel}>
+        <option value="">All account managers</option>
+        {managers.map((m) => <option key={m} value={m}>{m}</option>)}
+        <option value="__none">No client matched</option>
+      </select>
+      {fields.map((f) => (
+        <select key={f.key} value={value[f.key] || ""} onChange={(e) => set(f.key, e.target.value)} aria-label={f.label} className={sel}>
+          <option value="">{f.label}</option>
+          {f.options.map((o) => { const [v, l] = Array.isArray(o) ? o : [o, o]; return <option key={v} value={v}>{l}</option>; })}
+        </select>
+      ))}
+      <span className="ml-auto text-zinc-500">{count} site{count === 1 ? "" : "s"}</span>
+      {active && <button onClick={() => onChange(Object.fromEntries(Object.keys(value).map((k) => [k, ""])))} className="text-blue-700 underline">Clear filters</button>}
     </div>
   );
 }

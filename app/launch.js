@@ -160,8 +160,16 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
         okCount: prev.pages.filter((p) => p.status >= 200 && p.status < 400 && !p.notHtml && !p.error).length, keepMarker: !only.includes("marker") ? prev.marker : undefined,
         fontScan: only.includes("fonts") ? null : prev.fontScan, imageScan: only.includes("licence-images") ? null : prev.imageScan };
     }
-    patch(key, { input, status: "RUNNING", phase: w ? (only ? "Rescanning unsigned checks" : "Finishing the check") : "Reading the site", done: 0, total: 1, error: "" });
-    const progress = (phase, done, total) => patch(key, { work: w, phase, done, total });
+    patch(key, { input, status: "RUNNING", phase: w ? (only ? "Rescanning unsigned checks" : "Finishing the check") : "Reading the site", done: 0, total: 1, pct: w ? undefined : 1, error: "" });
+    // Overall progress across the whole check, not just the current step.
+    const WEIGHTS = { start: 3, pages: 25, links: 10, images: 7, psi: 30, fonts: 5, "licence-images": 15, marker: 5 };
+    const ORDER = Object.keys(WEIGHTS);
+    const overall = (stage, done, total) => {
+      const i = ORDER.indexOf(stage);
+      const before = ORDER.slice(0, Math.max(0, i)).reduce((n, k) => n + WEIGHTS[k], 0);
+      return Math.min(100, before + (WEIGHTS[stage] || 0) * (total ? Math.min(1, done / total) : 0));
+    };
+    const progress = (phase, done, total, stage = w?.stage) => patch(key, { work: w, phase, done, total, pct: overall(stage, done, total) });
     const paused = () => { patch(key, { status: "PAUSED", work: w, phase: "" }); };
     try {
       if (w?.stage === "start") {
@@ -288,18 +296,18 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
       if (w.stage === "licences") {
         const siteKey = key;
         if (!w.fontScan) {
-          progress("Checking font licences", 0, 1);
+          progress("Checking font licences", 0, 1, "fonts");
           let f = {};
           await scanFonts(post, siteKey, (fields) => { f = { ...f, ...fields }; onSiteResult?.(siteKey, fields); });
           w.fontScan = { status: f.status, error: f.error || "", fonts: (f.fonts || []).filter((x) => (x.status === "PROBLEM" || x.status === "CHECK") && !isEmbeddedIconFont(x) && !isFreeFontAwesome(x)).map((x) => ({ family: x.family, status: x.status, label: issueLabel(x), note: x.note, source: x.source })), okCount: (f.fonts || []).filter((x) => x.status === "OK").length };
-          progress("Checking font licences", 1, 1);
+          progress("Checking font licences", 1, 1, "fonts");
         }
         if (!w.imageScan) {
           let im = {};
           await scanImages(post, siteKey, (fields) => {
             im = { ...im, ...fields };
             onSiteResult?.(siteKey, fields);
-            if (fields.imgTotal) progress("Checking stock image licences", fields.imgDone || 0, fields.imgTotal);
+            if (fields.imgTotal) progress("Checking stock image licences", fields.imgDone || 0, fields.imgTotal, "licence-images");
           }, () => stopRef.current);
           if (stopRef.current) return paused();
           const paid = mergeImageSizes((im.images || []).filter((i) => i.flag && !isFreeLib(i.flag)));
@@ -439,7 +447,7 @@ function LaunchCard({ k, r, mode, client, signed, log, shared, team, open, toggl
     } finally { setExporting(""); }
   }
 
-  const pct = r.total ? Math.min(100, (r.done / r.total) * 100) : 0;
+  const pct = r.pct ?? (r.total ? Math.min(100, (r.done / r.total) * 100) : 0);
   // Grouped by who does them. Within a group: things to do first, launch-day actions marked.
   const owners = ["Designer", "Developer", "Senior Developer", "Account Manager"];
   return (
