@@ -27,14 +27,17 @@ const inputCls = "w-full rounded-md border border-zinc-300 px-2 py-1 text-xs";
 function ClientRow({ c, team, onChange, onRemove }) {
   const set = (k, v) => onChange({ ...c, [k]: v });
   // While editing, websites and emails are plain text; they become lists on save.
-  const asText = (v) => (Array.isArray(v) ? v.join(" | ") : String(v || ""));
+  // Lists show one entry per line.
+  const asText = (v) => (Array.isArray(v) ? v.join("\n") : String(v || ""));
+  const rows = (v) => Math.min(6, Math.max(1, asText(v).split("\n").length));
+  const area = `${inputCls} resize-y leading-5`;
   const websitesEmpty = !asText(c.websites).trim();
   const managers = team.filter((m) => m.role === "Account Manager");
   const known = managers.some((m) => c.manager && (m.name.toLowerCase() === c.manager.toLowerCase() || c.manager.toLowerCase().startsWith(m.name.toLowerCase())));
   return (
     <tr className="border-t border-zinc-100 align-top">
       <td className="py-1.5 pr-2"><input value={c.name} onChange={(e) => set("name", e.target.value)} aria-label="Client" className={`${inputCls} font-medium`} /></td>
-      <td className="py-1.5 pr-2"><input value={asText(c.websites)} onChange={(e) => set("websites", e.target.value)} placeholder="example.co.uk" aria-label="Websites" className={`${inputCls} ${websitesEmpty ? "border-amber-300 bg-amber-50" : ""}`} /></td>
+      <td className="py-1.5 pr-2"><textarea value={asText(c.websites)} onChange={(e) => set("websites", e.target.value)} rows={rows(c.websites)} placeholder="example.co.uk (one per line)" aria-label="Websites" className={`${area} ${websitesEmpty ? "border-amber-300 bg-amber-50" : ""}`} /></td>
       <td className="py-1.5 pr-2">
         <select value={known ? managers.find((m) => c.manager.toLowerCase().startsWith(m.name.toLowerCase()))?.name : c.manager ? "__other" : ""} onChange={(e) => set("manager", e.target.value === "__other" ? c.manager : e.target.value)} aria-label="Account manager" className={`${inputCls} bg-white`}>
           <option value="">—</option>
@@ -42,8 +45,8 @@ function ClientRow({ c, team, onChange, onRemove }) {
           {c.manager && !known && <option value="__other">{c.manager} (not in team)</option>}
         </select>
       </td>
-      <td className="py-1.5 pr-2"><input value={c.poc} onChange={(e) => set("poc", e.target.value)} aria-label="Point of contact" className={inputCls} /></td>
-      <td className="py-1.5 pr-2"><input value={asText(c.emails)} onChange={(e) => set("emails", e.target.value)} placeholder="name@example.co.uk | other@…" aria-label="Email addresses" className={inputCls} /></td>
+      <td className="py-1.5 pr-2"><textarea value={c.poc} onChange={(e) => set("poc", e.target.value)} rows={rows(c.poc)} aria-label="Point of contact" className={area} /></td>
+      <td className="py-1.5 pr-2"><textarea value={asText(c.emails)} onChange={(e) => set("emails", e.target.value)} rows={rows(c.emails)} placeholder="one address per line" aria-label="Email addresses" className={area} /></td>
       <td className="py-1.5 text-right"><button onClick={onRemove} aria-label={`Remove ${c.name}`} className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-red-600"><TrashIcon /></button></td>
     </tr>
   );
@@ -103,7 +106,7 @@ export function ClientsEditor({ clients, team, onChange, shared }) {
         <button onClick={save} disabled={!dirty} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"><CheckIcon /> Save changes</button>
       </div>
       <p className="mt-2 text-xs text-zinc-500">
-        {list.length} clients{unmatched ? `, ${unmatched} without a website (amber): add the domain so scans can find the client` : ""}. Websites and emails: separate several with |. {shared ? "Shared with everyone using the checker." : "Saved in this browser only."} {msg && <span className="font-medium text-green-700">{msg}</span>}
+        {list.length} clients{unmatched ? `, ${unmatched} without a website (amber): add the domain so scans can find the client` : ""}. Websites and emails: one per line. {shared ? "Shared with everyone using the checker." : "Saved in this browser only."} {msg && <span className="font-medium text-green-700">{msg}</span>}
       </p>
       <div className="mt-2 max-h-[60vh] overflow-auto">
         <table className="w-full min-w-[760px] text-xs">
