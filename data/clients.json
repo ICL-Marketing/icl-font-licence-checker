@@ -1,0 +1,1651 @@
+[
+ {
+  "id": "c1",
+  "name": "Aurelian & Eve",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "evelittlejohn@gmail.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c2",
+  "name": "Acrelec / Odema",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "Selina Saleem",
+  "emails": [
+   "selina.saleem@acrelec.com"
+  ],
+  "phone": "",
+  "notes": "Dinoo",
+  "websites": [
+   "acrelec.co.uk"
+  ]
+ },
+ {
+  "id": "c3",
+  "name": "Active Prospects",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "rebecca.lordan@activeprospects.org.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "activeprospects.org.uk"
+  ]
+ },
+ {
+  "id": "c4",
+  "name": "AE Tuition",
+  "type": "Infra & Website",
+  "manager": "Julie P",
+  "poc": "Claire",
+  "emails": [
+   "claire@aetuition.co.uk",
+   "kevin@aetuition.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "aetuition.co.uk"
+  ]
+ },
+ {
+  "id": "c5",
+  "name": "Alex Lambeek",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "sasccoaching@gmail.com",
+   "sarilambeek@gmail.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "alexlambeek.com"
+  ]
+ },
+ {
+  "id": "c6",
+  "name": "Alutrade",
+  "type": "Website",
+  "manager": "Bradley P",
+  "poc": "Liam",
+  "emails": [
+   "liam.scrivens@alutradeproducts.co.uk"
+  ],
+  "phone": "1905677275",
+  "notes": "",
+  "websites": [
+   "alutradeproducts.co.uk"
+  ]
+ },
+ {
+  "id": "c7",
+  "name": "Anmark",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "a.bateson2@btinternet.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "anmarkhomes.com"
+  ]
+ },
+ {
+  "id": "c8",
+  "name": "APSI",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "paul.bentley@olympian.org"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "olympian.org"
+  ]
+ },
+ {
+  "id": "c9",
+  "name": "Bankzy",
+  "type": "Platform",
+  "manager": "Julie P",
+  "poc": "Gregg",
+  "emails": [
+   "gregg@paymentpros.co.uk"
+  ],
+  "phone": "7479371696",
+  "notes": "",
+  "websites": [
+   "paymentpros.co.uk",
+   "bankzy.co.uk"
+  ]
+ },
+ {
+  "id": "c10",
+  "name": "BEB Boxes",
+  "type": "Website",
+  "manager": "Dinoosha",
+  "poc": "Surinder Bhogal",
+  "emails": [
+   "s8hogal@hotmail.co.uk"
+  ],
+  "phone": "+447415470265 (Surinder)",
+  "notes": "Dinoo",
+  "websites": []
+ },
+ {
+  "id": "c11",
+  "name": "Big Pic Media",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "Mia",
+  "emails": [
+   "mia@bigpicmedia.net"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "bigpicmediavp.net"
+  ]
+ },
+ {
+  "id": "c12",
+  "name": "Blakedown",
+  "type": "Laravel",
+  "manager": "Bradley P",
+  "poc": "Sara",
+  "emails": [
+   "sara.evetts@blakedown.co.uk",
+   "david.leed@blakedown.co.uk"
+  ],
+  "phone": "1295738238",
+  "notes": "",
+  "websites": [
+   "blakedown.co.uk"
+  ]
+ },
+ {
+  "id": "c13",
+  "name": "Blanchards",
+  "type": "Infra",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "aw@blanchardslaw.co.uk",
+   "ld@blanchardslaw.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "blanchardslaw.co.uk"
+  ]
+ },
+ {
+  "id": "c14",
+  "name": "Blowup Media",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "fairhead@blowup-media.co.uk",
+   "huckle@blowup-media.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "blowup-media.co.uk"
+  ]
+ },
+ {
+  "id": "c15",
+  "name": "Bob Hinshelwood",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "bob.hinsh@gmail.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c16",
+  "name": "Burwell Village College Primary",
+  "type": "Website",
+  "manager": "Michel O Neil",
+  "poc": "Colette, Antony",
+  "emails": [
+   "head@burwellvillage.cambs.sch.uk"
+  ],
+  "phone": "01638 613103",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c17",
+  "name": "Calaf Sharaf",
+  "type": "Website",
+  "manager": "Bradley P",
+  "poc": "Hassan Samawi",
+  "emails": [
+   "guurdoonsiroon@outlook.com"
+  ],
+  "phone": "7904122984",
+  "notes": "",
+  "websites": [
+   "calafsharaf.com"
+  ]
+ },
+ {
+  "id": "c18",
+  "name": "Canine Handbooks",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "doodleinfo@btinternet.com"
+  ],
+  "phone": "",
+  "notes": "Dinoo",
+  "websites": [
+   "caninehandbooks.com"
+  ]
+ },
+ {
+  "id": "c19",
+  "name": "Care tech guide",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "Liam",
+  "emails": [
+   "liam@caretechguide.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "caretechguide.co.uk"
+  ]
+ },
+ {
+  "id": "c20",
+  "name": "CD Pool",
+  "type": "Platform",
+  "manager": "Bradley P",
+  "poc": "Rob",
+  "emails": [
+   "rob@cdpool.com"
+  ],
+  "phone": "2087800612",
+  "notes": "",
+  "websites": [
+   "cdpool.com"
+  ]
+ },
+ {
+  "id": "c21",
+  "name": "Chelgate",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "Mathew Lane - COO",
+  "emails": [
+   "mlane@chelgate.com"
+  ],
+  "phone": "0207 939 7939",
+  "notes": "",
+  "websites": [
+   "chelgate.com",
+   "chelgatelocal.co.uk",
+   "chelgatepublicaffairs.ie",
+   "chelgateromania.com"
+  ]
+ },
+ {
+  "id": "c22",
+  "name": "Continental Dairy",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "arjun.kooner@hotmail.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "continentaldairy.co.uk"
+  ]
+ },
+ {
+  "id": "c23",
+  "name": "Craft",
+  "type": "Website",
+  "manager": "Michel O Neil",
+  "poc": "Sophia",
+  "emails": [
+   "sophia@craftirishwhiskey.com"
+  ],
+  "phone": "",
+  "notes": "Matthew",
+  "websites": [
+   "craftirishwhiskey.com"
+  ]
+ },
+ {
+  "id": "c24",
+  "name": "Danks Badnell",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "melissahack@danksbadnell.co.uk"
+  ],
+  "phone": "",
+  "notes": "Dinoo",
+  "websites": [
+   "danksbadnell.co.uk"
+  ]
+ },
+ {
+  "id": "c25",
+  "name": "Data Systems Computers",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "andrew.waters@dsc.uk.net"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "dsc.uk.net"
+  ]
+ },
+ {
+  "id": "c26",
+  "name": "De Clutter Dollies",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "admin@dillycarter.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "declutterdollies.com"
+  ]
+ },
+ {
+  "id": "c27",
+  "name": "Demdoo",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "asmaa_kalam@hotmail.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c28",
+  "name": "Dishion",
+  "type": "Website",
+  "manager": "Dinoosha",
+  "poc": "Yanxi",
+  "emails": [
+   "yanxi610@gmail.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c29",
+  "name": "DK Armaments",
+  "type": "Website",
+  "manager": "Bradley P",
+  "poc": "Daniel Kiane",
+  "emails": [
+   "danielkiane@icloud.com"
+  ],
+  "phone": "7852680017",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c30",
+  "name": "Drumstick Products",
+  "type": "Website",
+  "manager": "Bradley P",
+  "poc": "Rachel Rosenbaum",
+  "emails": [
+   "r.rose@drumstickproducts.co.uk"
+  ],
+  "phone": "2088852600",
+  "notes": "Dinoo",
+  "websites": [
+   "drumstickproducts.co.uk"
+  ]
+ },
+ {
+  "id": "c31",
+  "name": "Elleah Property Finance",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "jamie@elleahpropertyfinance.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "elleahpropertyfinance.com"
+  ]
+ },
+ {
+  "id": "c32",
+  "name": "Essex Rugby",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "alansj.brooking@gmail.com",
+   "ian2017@googlemail.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "essexrugby.com"
+  ]
+ },
+ {
+  "id": "c33",
+  "name": "Examscreen",
+  "type": "Platform",
+  "manager": "Julie P",
+  "poc": "John and Sophie",
+  "emails": [
+   "john.gaston@examscreen.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "examscreen.co.uk"
+  ]
+ },
+ {
+  "id": "c34",
+  "name": "FSB",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "Duncan Ruby",
+  "emails": [
+   "duncan.ruby@fsbis.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "fsb-insurance-service.com"
+  ]
+ },
+ {
+  "id": "c35",
+  "name": "Gamer Clothing",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "Neil Mackay",
+  "emails": [
+   "neil.mackay@gamerclothing.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "gamerclothing.co.uk"
+  ]
+ },
+ {
+  "id": "c36",
+  "name": "Genesis",
+  "type": "Website",
+  "manager": "Michel O Neil",
+  "poc": "Quincy and Gloria",
+  "emails": [
+   "happy@genesis-living.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "genesis-living.com"
+  ]
+ },
+ {
+  "id": "c37",
+  "name": "GlenTaffe",
+  "type": "Website",
+  "manager": "Thomas",
+  "poc": "Andrew Smith",
+  "emails": [
+   "andrew.smith@glentaffecapital.com"
+  ],
+  "phone": "",
+  "notes": "Dinoo",
+  "websites": [
+   "glentaffecapital.com"
+  ]
+ },
+ {
+  "id": "c38",
+  "name": "GoldenKeys",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "gabby@goldenkeys.co.uk",
+   "oliverholland@goldenkeys.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "goldenkeys.co.uk"
+  ]
+ },
+ {
+  "id": "c39",
+  "name": "Green Planning",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "david.walker@gpsltd.co.uk"
+  ],
+  "phone": "",
+  "notes": "Remove from the server",
+  "websites": [
+   "gpsltd.co.uk"
+  ]
+ },
+ {
+  "id": "c40",
+  "name": "Haven Nook",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "jean-paul@tuition-extra.co.uk",
+   "angela@tuition-extra.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "tuition-extra.co.uk",
+   "havennook.co.uk"
+  ]
+ },
+ {
+  "id": "c41",
+  "name": "Heald Nickinson",
+  "type": "Infra",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "elaineparkinson@healdnickinson.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "healdnickinson.co.uk"
+  ]
+ },
+ {
+  "id": "c42",
+  "name": "Healthbox",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "Lola",
+  "emails": [
+   "shop@thehealthbox.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "thehealthbox.co.uk"
+  ]
+ },
+ {
+  "id": "c43",
+  "name": "Heat my space",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "Jon Clapham",
+  "emails": [
+   "info@sherlockandwatson.co.uk"
+  ],
+  "phone": "",
+  "notes": "Dinoo",
+  "websites": [
+   "sherlockandwatson.co.uk"
+  ]
+ },
+ {
+  "id": "c44",
+  "name": "Hennessy Sports",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "michaelsall@hennessysports.com"
+  ],
+  "phone": "",
+  "notes": "Dinoo",
+  "websites": [
+   "hennessysports.com"
+  ]
+ },
+ {
+  "id": "c45",
+  "name": "High CI",
+  "type": "Website",
+  "manager": "Dinoosha",
+  "poc": "Emma & Ashley",
+  "emails": [
+   "emmabint@highci.co.uk",
+   "ashley@highserve.co.uk"
+  ],
+  "phone": "447720053565",
+  "notes": "",
+  "websites": [
+   "highci.com",
+   "highserve.co.uk"
+  ]
+ },
+ {
+  "id": "c46",
+  "name": "Holy Wow",
+  "type": "Website",
+  "manager": "Thomas",
+  "poc": "",
+  "emails": [
+   "delilah@holywowpr.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "holywowpr.com"
+  ]
+ },
+ {
+  "id": "c47",
+  "name": "Howarth of London",
+  "type": "Website | Platform",
+  "manager": "Bradley P",
+  "poc": "Ben Couldwell",
+  "emails": [
+   "ben@howarthlondon.com"
+  ],
+  "phone": "2079352407",
+  "notes": "",
+  "websites": [
+   "howarthlondon.com"
+  ]
+ },
+ {
+  "id": "c48",
+  "name": "Hummerstone & Hawkins",
+  "type": "Website",
+  "manager": "Bradley P",
+  "poc": "Zach G",
+  "emails": [
+   "zach.garrard@hummerstone.co.uk",
+   "david.garrard@hummerstone.co.uk"
+  ],
+  "phone": "2083031061",
+  "notes": "",
+  "websites": [
+   "hummerstone.co.uk"
+  ]
+ },
+ {
+  "id": "c49",
+  "name": "Hunt 4 Employment",
+  "type": "CRM",
+  "manager": "Bradley P",
+  "poc": "David Garrard / Zach Garrard",
+  "emails": [
+   "anna.podlas@hunt4employment.com"
+  ],
+  "phone": "7827796494",
+  "notes": "",
+  "websites": [
+   "hunt4employment.com"
+  ]
+ },
+ {
+  "id": "c50",
+  "name": "Iconic Digital Website",
+  "type": "Website",
+  "manager": "Michel / Julie P",
+  "poc": "Steve, Stephen and Steve",
+  "emails": [
+   "stephen@iconicdigital.co.uk",
+   "steve@iconicdigital.co.uk"
+  ],
+  "phone": "02071000726",
+  "notes": "",
+  "websites": [
+   "iconicdigital.co.uk"
+  ]
+ },
+ {
+  "id": "c51",
+  "name": "IIOM",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "martin.steinleitner@syliom.net"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "syliom.net"
+  ]
+ },
+ {
+  "id": "c52",
+  "name": "Immigration Advocates",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "Elena",
+  "emails": [
+   "elena_tonofrei@outlook.com"
+  ],
+  "phone": "",
+  "notes": "Dinoo",
+  "websites": []
+ },
+ {
+  "id": "c53",
+  "name": "Isola",
+  "type": "Website",
+  "manager": "Michel O Neil",
+  "poc": "Roberto and Sergio",
+  "emails": [
+   "sergio.calandro@isolatrading.co.uk"
+  ],
+  "phone": "02076312061",
+  "notes": "",
+  "websites": [
+   "isolatrading.co.uk"
+  ]
+ },
+ {
+  "id": "c54",
+  "name": "Langham | Wigmore | Travelle",
+  "type": "Website",
+  "manager": "Michel O Neil",
+  "poc": "Sauce - Joe and Ericka | Boston - Karin and Alejandro | Chicago - Britany",
+  "emails": [
+   "ericka.tenefrancia@langhamhotels.com",
+   "joe.bamsey@langhamhotels.com"
+  ],
+  "phone": "+13129237645 Chicago, 2079737524 Sauce, 6179568743 Boston",
+  "notes": "",
+  "websites": [
+   "langhamhotels.com"
+  ]
+ },
+ {
+  "id": "c55",
+  "name": "Lansleys",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "tracey@lansleys.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "lansleys.co.uk"
+  ]
+ },
+ {
+  "id": "c56",
+  "name": "Learn Play Work Nexus",
+  "type": "Website | Platform",
+  "manager": "Julie P",
+  "poc": "Florence | Sandra Cambridge | Grant",
+  "emails": [
+   "florence@learnplaynexus.com",
+   "sandra@learnplaynexus.com",
+   "grant@learnplaynexus.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "learnplaynexus.com"
+  ]
+ },
+ {
+  "id": "c57",
+  "name": "London Flood Prevention",
+  "type": "Website",
+  "manager": "Bradley P",
+  "poc": "Bradley Beech",
+  "emails": [
+   "bradley@londonflood.co.uk"
+  ],
+  "phone": "7725187063",
+  "notes": "",
+  "websites": [
+   "londonflood.co.uk"
+  ]
+ },
+ {
+  "id": "c58",
+  "name": "Mel Research",
+  "type": "Platform",
+  "manager": "Bradley P",
+  "poc": "Lisa Morris / Jenny Chen",
+  "emails": [
+   "lisa.morris@melresearch.co.uk",
+   "jenny.chen@melresearch.co.uk",
+   "toni.hogg@melresearch.co.uk"
+  ],
+  "phone": "1216044664",
+  "notes": "",
+  "websites": [
+   "melresearch.co.uk"
+  ]
+ },
+ {
+  "id": "c59",
+  "name": "Motis | M- Park",
+  "type": "Website | Platform",
+  "manager": "Bradley P",
+  "poc": "Ralph Lucas / James Dalby",
+  "emails": [
+   "ralph.lucas@motis.com",
+   "james.dalby@motis.com"
+  ],
+  "phone": "7943006200",
+  "notes": "",
+  "websites": [
+   "motis.com"
+  ]
+ },
+ {
+  "id": "c60",
+  "name": "Muldoon",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "Sheida Zeinali",
+  "emails": [
+   "sheida.zeinali@muldoonbritton.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "muldoonbritton.com",
+   "muldoonbrittonus.com"
+  ]
+ },
+ {
+  "id": "c61",
+  "name": "My Big Year",
+  "type": "Website | Platform",
+  "manager": "Julie P",
+  "poc": "John and Sophie",
+  "emails": [
+   "sophie.gaston@examscreen.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "mybigyear.app"
+  ]
+ },
+ {
+  "id": "c62",
+  "name": "Northstar Academy",
+  "type": "Platform",
+  "manager": "Julie P",
+  "poc": "Andy & Shane",
+  "emails": [
+   "kaye.palmer-greene@northstar-academy.co.uk",
+   "shane.case@northstar-academy.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "northstar-academy.co.uk"
+  ]
+ },
+ {
+  "id": "c63",
+  "name": "Nuway Capital",
+  "type": "Platform",
+  "manager": "Julie P",
+  "poc": "Steph and Tony",
+  "emails": [
+   "stephane@nuwaycapital.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "nuwaycapital.com"
+  ]
+ },
+ {
+  "id": "c64",
+  "name": "Onratio (adhocse.co.uk)",
+  "type": "Platform",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "amanda@adhocse.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "adhocse.co.uk"
+  ]
+ },
+ {
+  "id": "c65",
+  "name": "Open Obesity | BCW",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "moflynn@worldobesity.org"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "worldobesity.org"
+  ]
+ },
+ {
+  "id": "c66",
+  "name": "OpenWorld",
+  "type": "Platform",
+  "manager": "Bradley P",
+  "poc": "Hasnain Naeem",
+  "emails": [
+   "finance@openworld2.co.uk"
+  ],
+  "phone": "7949790871",
+  "notes": "",
+  "websites": [
+   "openworld2.co.uk"
+  ]
+ },
+ {
+  "id": "c67",
+  "name": "Opus Origin",
+  "type": "Website",
+  "manager": "Bradley P",
+  "poc": "Tabbie",
+  "emails": [
+   "tabbie.forbes@opusorigin.com"
+  ],
+  "phone": "7910979987",
+  "notes": "",
+  "websites": [
+   "opusorigin.com"
+  ]
+ },
+ {
+  "id": "c68",
+  "name": "Paqualife",
+  "type": "Website",
+  "manager": "Michel O Neil",
+  "poc": "Johnathan",
+  "emails": [
+   "enquiries@paqualife.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "paqualife.co.uk"
+  ]
+ },
+ {
+  "id": "c69",
+  "name": "Partnership Cleaning Services",
+  "type": "Website",
+  "manager": "Thomas",
+  "poc": "Lucy",
+  "emails": [
+   "lucyb@partnershipcleaning.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "partnershipcleaning.co.uk"
+  ]
+ },
+ {
+  "id": "c70",
+  "name": "PaymentPros",
+  "type": "Platform",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "gregg@paymentpros.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "paymentpros.co.uk"
+  ]
+ },
+ {
+  "id": "c71",
+  "name": "Playgrounds Imagineering",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "abbey@playgroundimagineering.co.uk",
+   "rachael@playgroundimagineering.co.uk"
+  ],
+  "phone": "",
+  "notes": "Dinoo",
+  "websites": [
+   "playgroundimagineering.co.uk"
+  ]
+ },
+ {
+  "id": "c72",
+  "name": "Power Bespoke Building",
+  "type": "Website",
+  "manager": "Michel O Neil",
+  "poc": "Paul",
+  "emails": [
+   "paul@powerbespokebuilding.com"
+  ],
+  "phone": "07815056642",
+  "notes": "",
+  "websites": [
+   "powerbespokebuilding.com"
+  ]
+ },
+ {
+  "id": "c73",
+  "name": "Premiere Diagnostics",
+  "type": "Website",
+  "manager": "Michel O Neil",
+  "poc": "Jane",
+  "emails": [
+   "jane@premierdiagnostics.ltd.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "premierdiagnostics.ltd.uk"
+  ]
+ },
+ {
+  "id": "c74",
+  "name": "Price Check Gases",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "perry_esparon@hotmail.com"
+  ],
+  "phone": "",
+  "notes": "Hosting needs to be set up | Julie will be sending",
+  "websites": []
+ },
+ {
+  "id": "c75",
+  "name": "Public law project",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "n.chen@publiclawproject.org.uk",
+   "a.lukes@publiclawproject.org.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "publiclawproject.org.uk",
+   "learning.publiclawproject.org.uk"
+  ]
+ },
+ {
+  "id": "c76",
+  "name": "Richmond Team Ministry",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "John Palmer",
+  "emails": [
+   "admin@richmondteamministry.org"
+  ],
+  "phone": "",
+  "notes": "Dinoo",
+  "websites": [
+   "richmondteamministry.org"
+  ]
+ },
+ {
+  "id": "c77",
+  "name": "Running@40",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "sallyambrose@hotmail.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c78",
+  "name": "Showsec",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "alexander.taylor@showsec.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "showsec.co.uk",
+   "showsec.asia"
+  ]
+ },
+ {
+  "id": "c79",
+  "name": "Simplify Consulting",
+  "type": "Website",
+  "manager": "Dinoosha",
+  "poc": "Annie Northwood",
+  "emails": [
+   "annie.northwood@simplifyconsulting.co.uk"
+  ],
+  "phone": "+447395792332 giang Copied! , 07706 309633 james",
+  "notes": "",
+  "websites": [
+   "simplifyconsulting.co.uk"
+  ]
+ },
+ {
+  "id": "c80",
+  "name": "SJEH",
+  "type": "Website",
+  "manager": "Bradley P",
+  "poc": "Harriet Wheeler",
+  "emails": [
+   "harriet.wheeler@sjeh.org",
+   "julia.gilmore@sjeh.org"
+  ],
+  "phone": "7527805983",
+  "notes": "",
+  "websites": [
+   "sjeh.org"
+  ]
+ },
+ {
+  "id": "c81",
+  "name": "Skafldng",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "josh@skafldng.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "skafldng.com"
+  ]
+ },
+ {
+  "id": "c82",
+  "name": "Solve Social Value",
+  "type": "Design",
+  "manager": "Elsa",
+  "poc": "",
+  "emails": [],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c83",
+  "name": "Spell Well Club",
+  "type": "Website",
+  "manager": "Bradley P",
+  "poc": "Tuncay Ozturk",
+  "emails": [
+   "tunj88@gmail.com"
+  ],
+  "phone": "7947206034",
+  "notes": "",
+  "websites": [
+   "spellwellclub.com"
+  ]
+ },
+ {
+  "id": "c84",
+  "name": "Sports Bets & Thread",
+  "type": "website",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c85",
+  "name": "Sumitomo (SCGCUK)",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "chelsea.wait@scgcuk.com"
+  ],
+  "phone": "",
+  "notes": "Dinoo",
+  "websites": [
+   "scgcuk.com"
+  ]
+ },
+ {
+  "id": "c86",
+  "name": "Sunrise Tools",
+  "type": "Platform",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "sean@sunrisetools.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "sunrisetools.co.uk"
+  ]
+ },
+ {
+  "id": "c87",
+  "name": "Thames Laundry",
+  "type": "Website | Platform",
+  "manager": "Bradley P",
+  "poc": "Jay Reza",
+  "emails": [
+   "info@thameslaundrette.com"
+  ],
+  "phone": "7498842221",
+  "notes": "",
+  "websites": [
+   "thameslaundry.com"
+  ]
+ },
+ {
+  "id": "c88",
+  "name": "The Upper Deck Bar and Grill",
+  "type": "Website",
+  "manager": "Michel O Neil",
+  "poc": "",
+  "emails": [
+   "sm.gc-blackpool@rank.com"
+  ],
+  "phone": "",
+  "notes": "Julie to check archieve emails",
+  "websites": []
+ },
+ {
+  "id": "c89",
+  "name": "Top Casino Bonus",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [],
+  "phone": "",
+  "notes": "Julie to check archieve emails",
+  "websites": []
+ },
+ {
+  "id": "c90",
+  "name": "TSC (The Set Collection)",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "Kasia",
+  "emails": [
+   "kasia.rudnik@thesetcollection.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "thesetcollection.com"
+  ]
+ },
+ {
+  "id": "c91",
+  "name": "Tuition extra",
+  "type": "Website | Platform",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "angela@tuition-extra.co.uk",
+   "jean-paul@tuition-extra.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "tuition-extra.co.uk"
+  ]
+ },
+ {
+  "id": "c92",
+  "name": "Unique Nails",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "harry.hunterdouglas@gmail.com"
+  ],
+  "phone": "",
+  "notes": "Dinoo",
+  "websites": [
+   "uniquenails.uk"
+  ]
+ },
+ {
+  "id": "c93",
+  "name": "U-Tow",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "thomasharryjohnson@icloud.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c94",
+  "name": "Veritas",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [
+   "erikdenviking@gmail.com"
+  ],
+  "phone": "",
+  "notes": "Dinoo",
+  "websites": [
+   "veritastreasurysolutions.com"
+  ]
+ },
+ {
+  "id": "c95",
+  "name": "Whiskey",
+  "type": "Website | Platform",
+  "manager": "Michel O Neil",
+  "poc": "Marketing - Nicholas | Office - Karis, Paige & Jen | Heads - Emma and Scott S | Australia - Molly | America - Catherine| Ops - Catherine & Paige",
+  "emails": [
+   "allison@whiskeywealthclub.com",
+   "m.odlum@whiskeywealthclub.com",
+   "s.sciberras@whiskeywealthclub.com",
+   "e.partridge@whiskeywealthclub.com",
+   "k.prescott@whiskeywealthclub.com",
+   "admin@whiskeywealthclub.com",
+   "conradkurth@gmail.com",
+   "s.dodson@whiskeywealthclub.com",
+   "n.lawrence@whiskeywealthclub.com"
+  ],
+  "phone": "020 3129 1639",
+  "notes": "",
+  "websites": [
+   "whiskeywealthclub.com",
+   "l.whiskeywealthclub.com",
+   "whiskeywealthclub.cn",
+   "whiskeywealthcapital.com"
+  ]
+ },
+ {
+  "id": "c96",
+  "name": "Windsor College",
+  "type": "Website",
+  "manager": "Bradley P",
+  "poc": "Clair Griffiths",
+  "emails": [
+   "clair.griffiths@windsor-forest.ac.uk",
+   "henri.collier@windsor-forest.ac.uk"
+  ],
+  "phone": "1753793000",
+  "notes": "",
+  "websites": [
+   "windsor.ac.uk"
+  ]
+ },
+ {
+  "id": "c97",
+  "name": "WSC Glentaffe",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "Andrew Smith",
+  "emails": [
+   "andrew.smith@glentaffecapital.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "glentaffecapital.com"
+  ]
+ },
+ {
+  "id": "c98",
+  "name": "Zenex",
+  "type": "Website",
+  "manager": "Davaldo G",
+  "poc": "",
+  "emails": [
+   "⁠charlie@zenexbrands.com",
+   "⁠simon@zenexbrands.com",
+   "⁠georgia@zenexbrands.com"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "zenexbrands.com"
+  ]
+ },
+ {
+  "id": "c99",
+  "name": "Secret WW2",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "",
+  "emails": [],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "secret-ww2.net"
+  ]
+ },
+ {
+  "id": "c100",
+  "name": "Brown Consult (Help for Schools)",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "Spencer",
+  "emails": [
+   "info@brownconsult.co.uk"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "brownconsult.co.uk"
+  ]
+ },
+ {
+  "id": "c101",
+  "name": "Inspired Thinking Group",
+  "type": "Website",
+  "manager": "Julie P",
+  "poc": "Claire Hogg",
+  "emails": [
+   "clairehogg@inspiredthinking.group"
+  ],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "inspiredthinking.group"
+  ]
+ },
+ {
+  "id": "c102",
+  "name": "MCL Managed Projects",
+  "type": "Website",
+  "manager": "Bradley P",
+  "poc": "Abdu & Zahir",
+  "emails": [
+   "abdu@mclmp.co.uk"
+  ],
+  "phone": "7887353686",
+  "notes": "",
+  "websites": [
+   "mclmp.co.uk"
+  ]
+ },
+ {
+  "id": "c103",
+  "name": "RJV",
+  "type": "",
+  "manager": "",
+  "poc": "",
+  "emails": [],
+  "phone": "",
+  "notes": "",
+  "websites": [
+   "rjvdesigns.co.uk"
+  ]
+ },
+ {
+  "id": "c104",
+  "name": "Bradford",
+  "type": "",
+  "manager": "",
+  "poc": "",
+  "emails": [],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c105",
+  "name": "Trax UK (2019)",
+  "type": "",
+  "manager": "",
+  "poc": "",
+  "emails": [],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c106",
+  "name": "SCA Solar",
+  "type": "",
+  "manager": "",
+  "poc": "",
+  "emails": [],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c107",
+  "name": "E & C Construction",
+  "type": "",
+  "manager": "",
+  "poc": "",
+  "emails": [],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c108",
+  "name": "O&I Consulting",
+  "type": "",
+  "manager": "",
+  "poc": "",
+  "emails": [],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c109",
+  "name": "Sports Electives",
+  "type": "",
+  "manager": "",
+  "poc": "",
+  "emails": [],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c110",
+  "name": "Legends Boxing Gym",
+  "type": "",
+  "manager": "",
+  "poc": "",
+  "emails": [],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c111",
+  "name": "TW9 Pub Limited T/A The Greyhound Pub Kew",
+  "type": "",
+  "manager": "",
+  "poc": "",
+  "emails": [],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ },
+ {
+  "id": "c112",
+  "name": "Blackmore Capital",
+  "type": "",
+  "manager": "",
+  "poc": "",
+  "emails": [],
+  "phone": "",
+  "notes": "",
+  "websites": []
+ }
+]

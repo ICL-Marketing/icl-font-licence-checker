@@ -6,6 +6,9 @@ import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, CopyIcon, CheckIcon, SpinnerIcon } from "@/app/icons";
 import LaunchArea from "@/app/launch";
 import { DEFAULT_SITES } from "@/data/sites";
+import { loadClients } from "@/app/clients";
+import { scanFonts as scanFontsShared, scanImages as scanImagesShared } from "@/app/scans";
+import { clientForSite, normaliseClients } from "@/lib/clients";
 import { buildFontEmail, buildImageEmail, isFreeLib, segmentsToText, segmentsToHtml } from "@/lib/email";
 import { fontLink, isEmbeddedIconFont, fixedFix, issueLabel, freeRouteLink, isFreeFontAwesome, ISSUE_TONE, mergeImageSizes, creditOnly, imageAdminLink, stockLibraryLink, stockLicenceSignal } from "@/lib/fontlink";
 
@@ -22,7 +25,6 @@ const COLOUR = {
   PAID: { text: "text-red-700", bg: "bg-red-50", border: "border-red-500", chip: "bg-red-600" },
 };
 const STORAGE_KEY = "flc-results-v2";
-const MAX_PAGES = 500;
 
 function normalise(s) {
   return s.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
@@ -40,7 +42,7 @@ export default function Home() {
   const [postRunning, setPostRunning] = useState(false);
   const [launchCount, setLaunchCount] = useState(0);
   const [postCount, setPostCount] = useState(0);
-  const [area, setAreaState] = useState("fonts"); // "fonts" | "images" | "launch" | "post"
+  const [area, setAreaState] = useState("launch"); // "launch" | "post" | "fonts" | "images"
   const TAB_SLUG = { fonts: "fonts", images: "images", launch: "launch", post: "post-launch" };
   const setArea = (id) => {
     setAreaState(id);
@@ -53,6 +55,12 @@ export default function Home() {
   const [showList, setShowList] = useState(true);
   const [showImgFine, setShowImgFine] = useState(false);
   const [showFontFine, setShowFontFine] = useState(false);
+  const [clients, setClients] = useState([]);
+  useEffect(() => {
+    const t = setTimeout(() => setClients(loadClients()), 0);
+    fetch("/api/clients").then((r) => r.json()).then((j) => { if (j.shared && Array.isArray(j.clients) && j.clients.length) setClients(normaliseClients(j.clients)); }).catch(() => {});
+    return () => clearTimeout(t);
+  }, []);
   const stopRef = useRef(false);
   const cancelledRef = useRef(new Set());
   const router = useRouter();
@@ -117,60 +125,9 @@ export default function Home() {
     return r.json();
   }
 
-  // ---- Task 1: fonts (homepage + 4 pages)
-  async function scanFonts(site) {
-    patch(site, { status: "RUNNING", fonts: [], error: "" });
-    try {
-      const d = await post("/api/scan", { site, pages: 4, mode: "fonts" });
-      patch(site, {
-        status: d.status, fonts: d.fonts || [], ignoredFonts: d.ignoredFonts || [], error: d.error || "", fix: d.fix || "",
-        finalUrl: d.finalUrl, platform: d.platform, cssCount: d.cssCount, fontPages: d.pages?.length || 0, seconds: d.seconds, fontsScannedAt: d.scannedAt,
-      });
-    } catch (e) {
-      patch(site, { status: "UNREACHABLE", fonts: [], error: `Request failed: ${e.message}` });
-    }
-  }
-
-  // ---- Task 2: images (every page)
-  async function scanImages(site) {
-    patch(site, { imgStatus: "RUNNING", images: [], imgError: "", imgProgress: "reading sitemap", imgDone: 0, imgTotal: 0 });
-    try {
-      const d = await post("/api/scan", { site, pages: 4, mode: "images" });
-      if (d.status === "UNREACHABLE") { patch(site, { imgStatus: "UNREACHABLE", imgError: d.error || "", imgFix: d.fix || "", imgProgress: undefined }); return; }
-      const queue = [...(d.pageQueue || [])];
-      const visited = new Set([...(d.pages || []), ...queue].map((u) => u.replace(/\/$/, "")));
-      const images = [...(d.images || [])];
-      const seenImg = new Set(images.map((i) => i.url.split("?")[0]));
-      let scanned = d.pages?.length || 0;
-      let imagesChecked = d.imagesChecked || 0;
-      let total = scanned + queue.length;
-      patch(site, { imgProgress: `page ${scanned} of ${total}`, imgDone: scanned, imgTotal: total, images });
-      while (queue.length && !stopRef.current && !cancelledRef.current.has(site)) {
-        const batch = queue.splice(0, 10);
-        const out = await post("/api/scan-pages", { site, urls: batch });
-        scanned += (out.done || []).length;
-        imagesChecked += out.imagesChecked || 0;
-        for (const i of out.images || []) {
-          const k = i.url.split("?")[0];
-          if (!seenImg.has(k)) { seenImg.add(k); images.push(i); continue; }
-          const prev = images.find((x) => x.url.split("?")[0] === k);
-          if (prev) prev.pages = [...new Set([...(prev.pages || (prev.page ? [prev.page] : [])), ...(i.pages || (i.page ? [i.page] : []))])];
-        }
-        if (out.remaining?.length) queue.unshift(...out.remaining);
-        if (!d.hasSitemap) {
-          for (const l of out.links || []) {
-            const k = l.replace(/\/$/, "");
-            if (!visited.has(k) && visited.size < MAX_PAGES) { visited.add(k); queue.push(l); }
-          }
-        }
-        total = scanned + queue.length;
-        patch(site, { imgProgress: `page ${scanned} of ${total}`, imgDone: scanned, imgTotal: total, images: [...images] });
-      }
-      patch(site, { imgStatus: "DONE", images, imagesChecked, pagesScanned: scanned, pagesTotal: total, hasSitemap: !!d.hasSitemap, imgProgress: undefined, imagesScannedAt: d.scannedAt });
-    } catch (e) {
-      patch(site, { imgStatus: "UNREACHABLE", imgError: `Request failed: ${e.message}`, imgProgress: undefined });
-    }
-  }
+  // Font and image scans live in app/scans.js (shared with the launch checks).
+  const scanFonts = (site) => scanFontsShared(post, site, (f) => patch(site, f));
+  const scanImages = (site) => scanImagesShared(post, site, (f) => patch(site, f), () => stopRef.current || cancelledRef.current.has(site));
 
   async function run(kind, list) {
     cancelledRef.current = new Set();
@@ -289,10 +246,10 @@ export default function Home() {
       </header>
 
       <nav className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 rounded-xl bg-zinc-200/70 p-1 sm:inline-grid sm:w-auto" aria-label="Licence area">
-        {[["fonts", "Font Licenses", fontRows.length ? fontCounts.PROBLEM + fontCounts.CHECK : null],
-          ["images", "Image Licenses", imgRows.length ? imgPaidSites : null],
-          ["launch", "Launch Checks", launchCount || null],
-          ["post", "Post Launch Checks", postCount || null]].map(([id, label, n]) => (
+        {[["launch", "Launch Checks", launchCount || null],
+          ["post", "Post Launch Checks", postCount || null],
+          ["fonts", "Font Licenses", fontRows.length ? fontCounts.PROBLEM + fontCounts.CHECK : null],
+          ["images", "Image Licenses", imgRows.length ? imgPaidSites : null]].map(([id, label, n]) => (
           <button key={id} onClick={() => setArea(id)} aria-current={area === id ? "page" : undefined}
             className={`rounded-lg px-4 py-2 text-sm font-semibold ${area === id ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"}`}>
             {label}{n != null && <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] text-zinc-700">{n}</span>}
@@ -302,8 +259,8 @@ export default function Home() {
       </nav>
 
       {/* All areas stay mounted so a running scan carries on when you switch tabs. */}
-      <section className={`mt-5 ${area === "launch" ? "" : "hidden"}`}><LaunchArea post={post} mode="launch" onRunning={setLaunchRunning} onCount={setLaunchCount} /></section>
-      <section className={`mt-5 ${area === "post" ? "" : "hidden"}`}><LaunchArea post={post} mode="post" onRunning={setPostRunning} onCount={setPostCount} /></section>
+      <section className={`mt-5 ${area === "launch" ? "" : "hidden"}`}><LaunchArea post={post} mode="launch" onRunning={setLaunchRunning} onCount={setLaunchCount} onSiteResult={patch} siteResults={results} /></section>
+      <section className={`mt-5 ${area === "post" ? "" : "hidden"}`}><LaunchArea post={post} mode="post" onRunning={setPostRunning} onCount={setPostCount} onSiteResult={patch} siteResults={results} /></section>
 
       <div className={area !== "launch" && area !== "post" ? "" : "hidden"}>
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
@@ -383,7 +340,7 @@ export default function Home() {
               </>
             )}
             </>) : (
-              <EmailList kind="fonts" emails={fontEmails} scanned={fontRows.length > 0}
+              <EmailList kind="fonts" emails={fontEmails} scanned={fontRows.length > 0} results={results} clients={clients}
                 intro="One ready-to-send email per site, only for what the client has to answer: paid fonts with no licence found, demo fonts, font subscriptions to confirm, and fonts of unknown origin. Anything we can fix ourselves at no cost is left out. Sites with no issues get no email." />
             )}
           </div>
@@ -438,7 +395,7 @@ export default function Home() {
               </>
             )}
             </>) : (
-              <EmailList kind="images" emails={imageEmails} scanned={imgRows.length > 0}
+              <EmailList kind="images" emails={imageEmails} scanned={imgRows.length > 0} results={results} clients={clients}
                 intro="One ready-to-send email per site that has images from paid stock libraries. It is a heads-up for the client, not a demand: most of these are likely already licensed. Sites with no paid-library images get no email." />
             )}
           </div>
@@ -545,21 +502,22 @@ function AreaBar({ kind, done, total, label, running, sites, onRun, onStop, onCl
   );
 }
 
-function EmailList({ kind, emails, scanned, intro }) {
+function EmailList({ kind, emails, scanned, intro, results, clients }) {
   const [openSite, setOpenSite] = useState(null);
   return (
     <div>
       <p className="text-sm text-zinc-600">{intro} Copy, paste into your email client, and your signature does the rest.</p>
       <div className="mt-4 space-y-4">
-        {emails.map((e) => <EmailCard key={e.kind + e.site} e={e} open={openSite === e.site} toggle={() => setOpenSite((s) => (s === e.site ? null : e.site))} />)}
+        {emails.map((e) => <EmailCard key={e.kind + e.site} e={e} result={results?.[e.site]} client={clientForSite(clients, e.site)} open={openSite === e.site} toggle={() => setOpenSite((s) => (s === e.site ? null : e.site))} />)}
         {!emails.length && <p className="text-sm text-zinc-500">No sites need {kind === "fonts" ? "a font" : "an image"} email{scanned ? "." : ` (run the ${kind} check first).`}</p>}
       </div>
     </div>
   );
 }
 
-const TONE_CHIP = { red: "bg-red-600", amber: "bg-amber-500", green: "bg-green-600" };
-const TONE_BORDER = { red: "border-red-500", amber: "border-amber-500", green: "border-green-500" };
+// "green" tone = we can fix it free: still an issue, so a lighter red rather than green.
+const TONE_CHIP = { red: "bg-red-600", amber: "bg-amber-500", green: "bg-red-400" };
+const TONE_BORDER = { red: "border-red-500", amber: "border-amber-500", green: "border-red-300" };
 const TONE_RANK = { red: 3, amber: 2, green: 1 };
 
 function SiteCard({ r, open, toggle, rerun, running, onRemove }) {
@@ -754,9 +712,26 @@ const EDITS_KEY = "flc-email-edits-v1";
 function loadEdits() { try { return JSON.parse(localStorage.getItem(EDITS_KEY) || "{}"); } catch { return {}; } }
 function saveEdits(all) { try { localStorage.setItem(EDITS_KEY, JSON.stringify(all)); } catch {} }
 
-function EmailCard({ e, open, toggle }) {
+function EmailCard({ e, open, toggle, result, client }) {
   const key = `${e.kind}|${e.site}`;
   const [copied, setCopied] = useState(false);
+  const [copiedTo, setCopiedTo] = useState(false);
+  const [sheetBusy, setSheetBusy] = useState(false);
+  async function downloadSheet() {
+    setSheetBusy(true);
+    try {
+      const r = await fetch("/api/export", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "client-images", results: [result] }) });
+      const blob = await r.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `stock-images-${e.site}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } finally { setSheetBusy(false); }
+  }
+  async function copyTo() {
+    try { await navigator.clipboard.writeText(client.emails.join(", ")); setCopiedTo(true); setTimeout(() => setCopiedTo(false), 1500); } catch {}
+  }
   const [edits, setEdits] = useState({});
   useEffect(() => { const t = setTimeout(() => setEdits(loadEdits()[key] || {}), 0); return () => clearTimeout(t); }, [key]);
   const text = segmentsToText(e.segments, edits);
@@ -795,10 +770,23 @@ function EmailCard({ e, open, toggle }) {
           {edited && <span className="ml-2 rounded bg-orange-100 px-1.5 py-0.5 text-[11px] font-semibold text-orange-800">Edited</span>}
           <span className="ml-2 inline-block align-middle text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>
         </button>
+        {e.attach && (
+          <button onClick={downloadSheet} disabled={sheetBusy} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-50" title="Spreadsheet of all the images to attach to this email"><DownloadIcon className="h-3.5 w-3.5" /> {sheetBusy ? "Building…" : "Spreadsheet to attach"}</button>
+        )}
         <button onClick={copy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy email</>}</button>
       </div>
       {open && (
         <div className="border-t border-zinc-100 px-4 py-3">
+          {/* Who it goes to, from the client list. */}
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs">
+            {client ? (
+              <>
+                <span><span className="text-zinc-500">To:</span> {client.emails.length ? client.emails.map((m, i) => <span key={m}>{i ? ", " : ""}<a href={`mailto:${m}`} className="text-blue-700 underline">{m}</a></span>) : <span className="text-amber-700">no email address on file</span>}</span>
+                {client.emails.length > 0 && <button onClick={copyTo} className="inline-flex items-center gap-1 rounded border border-zinc-300 px-1.5 py-0.5 text-[11px] hover:bg-zinc-100">{copiedTo ? <><CheckIcon className="h-3 w-3" /> Copied</> : <><CopyIcon className="h-3 w-3" /> Copy addresses</>}</button>}
+                <span className="text-zinc-500">{client.name}{client.poc ? ` · ${client.poc}` : ""}{client.manager ? ` · Account manager: ${client.manager}` : ""}</span>
+              </>
+            ) : <span className="text-amber-700">No client matched to {e.site}. Add the website to the client in Settings → Clients.</span>}
+          </div>
           <p className="mb-2 text-[11px] text-zinc-500"><span className="rounded bg-orange-100 px-1 text-orange-900">Orange text</span> is specific to this site. Click it to edit; changes are saved in this browser and included when you copy.</p>
           <div className="whitespace-pre-wrap rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm leading-relaxed text-zinc-800">
             {e.segments.map((seg, i) => typeof seg === "string"

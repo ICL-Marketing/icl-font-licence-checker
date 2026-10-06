@@ -34,6 +34,8 @@ inside the PHP max execution time.
 | `POST /api/export` | `{kind, results}` or `{kind:"launch", launch}` | `.xlsx` | `app/api/export/route.js` (ExcelJS → PhpSpreadsheet) |
 | `POST /api/signoff-log` | `{site, url, scannedAt, checks, signed, log}` | `.docx` | `app/api/signoff-log/route.js` (docx → PhpWord) |
 | `GET/POST /api/signoffs`, `/api/team` | | shared sign-offs / team names | `lib/store.js` (replace with DB tables) |
+| `GET/POST /api/clients` | | shared client list (name, websites, account manager, contacts, emails) | `lib/clients.js`, `data/clients.json` (seed from the Web Clients sheet) |
+| `POST/PUT /api/clients/file` | `.xlsx` upload / `{clients}` | client rows / `.xlsx` download | `app/api/clients/file/route.js` (ExcelJS → PhpSpreadsheet) |
 | `GET /api/marker` | | Marker.io connection test (lists MCP tools) | `lib/marker.js` (small MCP-over-HTTP client; Guzzle in PHP) |
 | `POST /api/marker` | `{title, description, project}` | `{ok, link}` snag created in Marker.io | `lib/marker.js` → `createIssue()` |
 
@@ -70,7 +72,8 @@ Server-only files (need PHP equivalents): `lib/scanner.js`, `lib/launch.js`.
 | `flc-launch-v1` | per-site launch check data | `launch_scans` |
 | `flc-launch-signoffs-v1` | `{site: {checkId: {name, at}}}` | `signoffs` |
 | `flc-launch-log-v1` | sign-off history entries | `signoff_log` |
-| `flc-team-v1` | team names | `settings` |
+| `flc-team-v1` | team names and roles | `settings` |
+| `flc-clients-v1` | client list | `clients` |
 | `flc-email-edits-v1` | edited email text | `email_edits` |
 
 ## Settings / environment

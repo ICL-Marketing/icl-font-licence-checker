@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { TeamEditor, loadTeam, saveTeam, normaliseTeam } from "@/app/team";
+import { ClientsEditor, loadClients, saveClients } from "@/app/clients";
+import { normaliseClients } from "@/lib/clients";
 
 export default function Settings() {
   const [team, setTeam] = useState([]);
@@ -24,6 +26,21 @@ export default function Settings() {
       if (Array.isArray(j.team)) setTeam(normaliseTeam(j.team));
     }
   }
+  const [clients, setClients] = useState([]);
+  const [clientsShared, setClientsShared] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setClients(loadClients()), 0);
+    fetch("/api/clients").then((r) => r.json()).then((j) => { if (!j.shared) return; setClientsShared(true); if (Array.isArray(j.clients) && j.clients.length) setClients(normaliseClients(j.clients)); }).catch(() => {});
+    return () => clearTimeout(t);
+  }, []);
+  async function changeClients(list) {
+    const local = saveClients(list);
+    setClients(local);
+    if (clientsShared) {
+      const j = await fetch("/api/clients", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clients: local }) }).then((r) => r.json()).catch(() => ({}));
+      if (Array.isArray(j.clients)) setClients(normaliseClients(j.clients));
+    }
+  }
   const [mk, setMk] = useState(null);
   const [testLink, setTestLink] = useState("");
   const [test, setTest] = useState(null);
@@ -34,13 +51,18 @@ export default function Settings() {
   }
   useEffect(() => { fetch("/api/marker").then((r) => r.json()).then(setMk).catch(() => setMk({ configured: true, ok: false, error: "Could not reach the app" })); }, []);
   return (
-    <main className="mx-auto w-full max-w-3xl p-4 sm:p-6">
+    <main className="mx-auto w-full max-w-6xl p-4 sm:p-6">
       <Link href="/" className="text-sm text-zinc-500 hover:text-zinc-900">← Back to Website Checker</Link>
       <h1 className="mt-3 text-2xl font-semibold">Settings</h1>
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
         <h2 className="font-semibold">Team names</h2>
         <p className="mb-3 text-sm text-zinc-500">Names and roles offered in the &quot;Checked by&quot; dropdowns on launch checks.</p>
         <TeamEditor team={team} onChange={change} shared={shared} />
+      </section>
+      <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+        <h2 className="font-semibold">Clients</h2>
+        <p className="mb-3 text-sm text-zinc-500">From the Web Clients spreadsheet. The account manager is offered first on launch sign-offs for that client&apos;s site, and the email addresses are shown on client emails.</p>
+        <ClientsEditor clients={clients} team={team} onChange={changeClients} shared={clientsShared} />
       </section>
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
         <h2 className="font-semibold">Marker.io</h2>
