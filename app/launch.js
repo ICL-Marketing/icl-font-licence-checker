@@ -15,7 +15,7 @@ export const keysFor = (mode) => { const sfx = mode === "post" ? "-post" : ""; r
 const MARKER_KEY = "flc-marker-v1"; // {site: Marker.io project link}
 const MAX_LINKS = 800;
 const MAX_IMAGES = 600;
-const MAX_PSI = 100; // pages audited by Google PageSpeed (about 20s each, 6 at a time)
+const MAX_PSI = 500; // every page gets a Google PageSpeed audit (about 20s each, 3 at a time)
 const FILE_RE = /\.(jpe?g|png|gif|webp|avif|svg|pdf|zip|docx?|xlsx?|pptx?|mp4|mp3|css|js|xml|json|ico|woff2?|ttf|otf)(\?|$)/i;
 
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || "null") ?? d; } catch { return d; } };
@@ -400,7 +400,7 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
       </form>
       <p className="mt-2 text-xs text-zinc-500">{mode === "post"
         ? "Once the site is live: SSL certificate, robots.txt allows indexing, CRM Client Card and business emails. The SSL and robots checks are done by the scan."
-        : "Checks every page in the sitemap (up to 500), the links and images on them, and runs Google's accessibility audit on each page (up to 100). Anything the scan can't fully verify needs a person to tick it off. Completed checks drop to the bottom."}</p>
+        : "Checks every page in the sitemap (up to 500), the links and images on them, and runs Google's accessibility audit on every page. Anything the scan can't fully verify needs a person to tick it off. Completed checks drop to the bottom."}</p>
 
       <div className="mt-4 space-y-3">
         {/* One report at a time: the list shows summaries; opening a site shows just that report. */}
