@@ -79,8 +79,9 @@ export default function Home() {
   const [open, setOpen] = useState({});
   const [exporting, setExporting] = useState("");
   const [showList, setShowList] = useState(true);
-  const [showImgFine, setShowImgFine] = useState(false);
-  const [showFontFine, setShowFontFine] = useState(false);
+  const [imgFilter, setImgFilter] = useState("ALL"); // "ALL" | "PAID" | "UNREACHABLE" | "FINE"
+  const showFontFine = filter === "FINE";
+  const showImgFine = imgFilter === "FINE";
   const [clients, setClients] = useState([]);
   useEffect(() => {
     const t = setTimeout(() => setClients(loadClients()), 0);
@@ -303,7 +304,7 @@ export default function Home() {
   const hasGreen = (r) => fontTodo(r).some((f) => ISSUE_TONE[issueLabel(f)] === "green") ? 0 : 1;
   const managers = [...new Set(clients.map((c) => c.manager).filter(Boolean))].sort();
   const fontIssues = [...new Set(fontRows.flatMap((r) => fontTodo(r).map(issueLabel)))].sort();
-  const fontVisible = fontRows.filter((r) => r.status !== "OK" && r.status !== "SYSTEM" && (filter === "ALL" || r.status === filter))
+  const fontVisible = fontRows.filter((r) => r.status !== "OK" && r.status !== "SYSTEM" && (filter === "ALL" || r.status === filter) && filter !== "FINE")
     .filter((r) => !ff.q || r.site.includes(ff.q.toLowerCase()) || (clientForSite(clients, r.site)?.name || "").toLowerCase().includes(ff.q.toLowerCase()) || fontTodo(r).some((f) => f.family.toLowerCase().includes(ff.q.toLowerCase())))
     .filter((r) => !ff.manager || (ff.manager === "__none" ? !managerOf(r.site) : managerOf(r.site) === ff.manager))
     .filter((r) => !ff.issue || fontTodo(r).some((f) => issueLabel(f) === ff.issue))
@@ -320,6 +321,7 @@ export default function Home() {
   const imgFine = imgRows.filter((x) => x.r.imgStatus === "DONE" && !x.paid.length).length;
   const imgLibs = [...new Set(imgRows.flatMap((x) => x.paid.map((i) => i.flag)))].sort();
   const imgVisible = imgRows.filter((x) => x.paid.length || x.r.imgStatus !== "DONE")
+    .filter((x) => imgFilter === "ALL" || (imgFilter === "PAID" ? x.paid.length > 0 : imgFilter === "UNREACHABLE" ? x.r.imgStatus === "UNREACHABLE" : false))
     .filter((x) => !imf.q || x.r.site.includes(imf.q.toLowerCase()) || (clientForSite(clients, x.r.site)?.name || "").toLowerCase().includes(imf.q.toLowerCase()))
     .filter((x) => !imf.manager || (imf.manager === "__none" ? !managerOf(x.r.site) : managerOf(x.r.site) === imf.manager))
     .filter((x) => !imf.lib || x.paid.some((i) => i.flag === imf.lib))
@@ -412,10 +414,10 @@ export default function Home() {
                       </div>
                     </button>
                   ))}
-                  <button onClick={() => setShowFontFine((v) => !v)} aria-expanded={showFontFine} className={`rounded-xl border p-3 text-left ${COLOUR.OK.bg} ${showFontFine ? COLOUR.OK.border : "border-transparent"}`}>
+                  <button onClick={() => setFilter(showFontFine ? "ALL" : "FINE")} aria-pressed={showFontFine} className={`rounded-xl border p-3 text-left ${COLOUR.OK.bg} ${showFontFine ? COLOUR.OK.border : "border-transparent"}`}>
                     <div className={`text-3xl font-semibold ${COLOUR.OK.text}`}>{fontFine}</div>
                     <div className={`text-xs font-medium ${COLOUR.OK.text}`}>FINE</div>
-                    <div className="mt-1 text-[11px] leading-tight text-zinc-500">Google Fonts, Adobe Fonts kits, open licence or system fonts only. {showFontFine ? "Hide list" : "Show list"}</div>
+                    <div className="mt-1 text-[11px] leading-tight text-zinc-500">Google Fonts, Adobe Fonts kits, open licence or system fonts only.</div>
                   </button>
                 </div>
                 {showFontFine && (
@@ -441,7 +443,7 @@ export default function Home() {
                   {fontVisible.map((r) => (
                     <SiteCard key={r.site} r={r} open={false} toggle={() => selectSite("fonts", r.site)} rerun={() => run("fonts", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} onFixed={(fams, on) => setFontFixed(r.site, fams, on)} />
                   ))}
-                  {!fontVisible.length && <p className="text-sm text-zinc-500">{filter === "ALL" ? "Nothing outstanding." : "Nothing in this group."}</p>}
+                  {!fontVisible.length && filter !== "FINE" && <p className="text-sm text-zinc-500">{filter === "ALL" ? "Nothing outstanding." : "Nothing in this group."}</p>}
                 </div>
               </>
             )}
@@ -466,20 +468,20 @@ export default function Home() {
             {imgRows.length > 0 && (
               <>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  <div className={`rounded-xl border border-transparent p-3 text-left ${COLOUR.PAID.bg}`}>
+                  <button onClick={() => setImgFilter(imgFilter === "PAID" ? "ALL" : "PAID")} aria-pressed={imgFilter === "PAID"} className={`rounded-xl border p-3 text-left ${COLOUR.PAID.bg} ${imgFilter === "PAID" ? COLOUR.PAID.border : "border-transparent"}`}>
                     <div className={`text-3xl font-semibold ${COLOUR.PAID.text}`}>{imgPaidSites}</div>
                     <div className={`text-xs font-medium ${COLOUR.PAID.text}`}>Sites with paid-library images</div>
                     <div className="mt-1 text-[11px] leading-tight text-zinc-500">Shutterstock, iStock, Getty, Adobe Stock… find the licence or replace</div>
-                  </div>
-                  <div className={`rounded-xl border border-transparent p-3 text-left ${COLOUR.UNREACHABLE.bg}`}>
+                  </button>
+                  <button onClick={() => setImgFilter(imgFilter === "UNREACHABLE" ? "ALL" : "UNREACHABLE")} aria-pressed={imgFilter === "UNREACHABLE"} className={`rounded-xl border p-3 text-left ${COLOUR.UNREACHABLE.bg} ${imgFilter === "UNREACHABLE" ? COLOUR.UNREACHABLE.border : "border-transparent"}`}>
                     <div className={`text-3xl font-semibold ${COLOUR.UNREACHABLE.text}`}>{imgUnreachable}</div>
                     <div className={`text-xs font-medium ${COLOUR.UNREACHABLE.text}`}>COULDN&apos;T CHECK</div>
                     <div className="mt-1 text-[11px] leading-tight text-zinc-500">Site down, blocking the scanner, or timed out</div>
-                  </div>
-                  <button onClick={() => setShowImgFine((v) => !v)} aria-expanded={showImgFine} className={`rounded-xl border p-3 text-left ${COLOUR.OK.bg} ${showImgFine ? COLOUR.OK.border : "border-transparent"}`}>
+                  </button>
+                  <button onClick={() => setImgFilter(showImgFine ? "ALL" : "FINE")} aria-pressed={showImgFine} className={`rounded-xl border p-3 text-left ${COLOUR.OK.bg} ${showImgFine ? COLOUR.OK.border : "border-transparent"}`}>
                     <div className={`text-3xl font-semibold ${COLOUR.OK.text}`}>{imgFine}</div>
                     <div className={`text-xs font-medium ${COLOUR.OK.text}`}>FINE</div>
-                    <div className="mt-1 text-[11px] leading-tight text-zinc-500">No paid stock-library images (free libraries like Unsplash and Pexels need no licence). {showImgFine ? "Hide list" : "Show list"}</div>
+                    <div className="mt-1 text-[11px] leading-tight text-zinc-500">No paid stock-library images (free libraries like Unsplash and Pexels need no licence).</div>
                   </button>
                 </div>
                 {showImgFine && (
@@ -506,7 +508,7 @@ export default function Home() {
                   {imgVisible.map(({ r, paid }) => (
                     <ImageCard key={r.site} r={r} paid={paid} open={false} toggle={() => selectSite("images", r.site)} rerun={() => run("images", [r.site])} running={!!running} onRemove={() => removeSite(r.site)} onFixed={(keys, on) => setImageFixed(r.site, keys, on)} />
                   ))}
-                  {!imgVisible.length && <p className="text-sm text-zinc-500">No paid stock-library images found on any scanned site.</p>}
+                  {!imgVisible.length && imgFilter !== "FINE" && <p className="text-sm text-zinc-500">{imgFilter === "ALL" ? "No paid stock-library images found on any scanned site." : "Nothing in this group."}</p>}
                 </div>
               </>
             )}
