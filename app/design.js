@@ -74,6 +74,24 @@ export default function DesignArea({ onRunning, onCount }) {
   });
 
   const outstanding = Object.values(runs).filter((r) => r.status === "DONE").reduce((n, r) => n + (r.screens || []).reduce((m, s) => m + (s.findings || []).filter((f) => f.level === "fail" && !r.dismissed?.[findingKey(f)]).length, 0), 0);
+  // Re-check the fonts: re-reads every screen (fonts come from the layers), then runs the licence check again.
+  const [fontsBusy, setFontsBusy] = useState(null);
+  async function recheckFonts(key) {
+    const r = runs[key]; if (!r?.fileKey || running) return;
+    setFontsBusy(key);
+    try {
+      const ids = (r.screens || []).map((s) => s.id);
+      const screens = [];
+      for (let i = 0; i < ids.length; i += BATCH) {
+        const j = await post({ step: "frames", fileKey: r.fileKey, ids: ids.slice(i, i + BATCH) });
+        for (const res of j.results || []) { const old = (r.screens || []).find((x) => x.id === res.id); screens.push({ ...res, page: old?.page || "" }); }
+      }
+      const fams = [...new Set(screens.flatMap((s) => (s.fonts || []).map((f) => f.family)))];
+      const fontChecks = (await post({ step: "fonts", families: fams })).fonts || [];
+      patch(key, { screens: screens.length ? screens : r.screens, fontChecks, fontsCheckedAt: new Date().toISOString(), dismissedAt: new Date().toISOString() });
+    } catch (e) { patch(key, { error: String(e?.message || e) }); }
+    finally { setFontsBusy(null); }
+  }
   // Re-check one screen only (after fixing its issues) instead of the whole file.
   const [busyScreen, setBusyScreen] = useState(null);
   async function recheckScreen(key, screenId) {
@@ -166,7 +184,7 @@ export default function DesignArea({ onRunning, onCount }) {
         {list.map((r) => (
           <DesignCard key={r.key} r={r} open={openKey === r.key} toggle={() => setOpenKey(openKey === r.key ? null : r.key)}
             running={running === r.key} busy={!!running}
-            onRescan={() => runCheck(r.link)} onResume={() => runCheck(r.link, { resume: true })} onRemove={() => remove(r.key)} onDismiss={(keys, reason) => dismiss(r.key, keys, reason)} onRecheckScreen={(id) => recheckScreen(r.key, id)} busyScreen={busyScreen} />
+            onRescan={() => runCheck(r.link)} onResume={() => runCheck(r.link, { resume: true })} onRemove={() => remove(r.key)} onDismiss={(keys, reason) => dismiss(r.key, keys, reason)} onRecheckScreen={(id) => recheckScreen(r.key, id)} busyScreen={busyScreen} onRecheckFonts={() => recheckFonts(r.key)} fontsBusy={fontsBusy === r.key} />
         ))}
         {!list.length && <p className="text-sm text-zinc-500">No designs checked yet.</p>}
       </div>
@@ -174,7 +192,7 @@ export default function DesignArea({ onRunning, onCount }) {
   );
 }
 
-function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemove, onDismiss, onRecheckScreen, busyScreen }) {
+function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemove, onDismiss, onRecheckScreen, busyScreen, onRecheckFonts, fontsBusy }) {
   const [asking, setAsking] = useState(false);
   const screens = r.screens || [];
   const dismissed = r.dismissed || {};
@@ -224,7 +242,11 @@ function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemo
           </div>
           {fonts.size > 0 && (
             <div className="mb-3 rounded-lg border border-zinc-200 p-3 text-sm">
-              <div className="font-medium">Font licences</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">Font licences</span>
+                {r.fontsCheckedAt && <span className="text-[11px] text-zinc-400">re-checked {new Date(r.fontsCheckedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>}
+                <button onClick={onRecheckFonts} disabled={fontsBusy || busy} title="Re-read the screens and check the fonts again, for after a font swap" className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100 disabled:opacity-40">{fontsBusy ? <SpinnerIcon className="h-3 w-3" /> : <RefreshIcon className="h-3 w-3" />} Re-check fonts</button>
+              </div>
               <table className="mt-1 w-full text-xs">
                 <tbody>
                   {[...fonts.entries()].sort().map(([fam, styles]) => {
