@@ -971,7 +971,7 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjec
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3 text-xs">
+          <div className="sticky bottom-0 z-10 -mx-5 -mb-4 flex flex-wrap items-center gap-2 border-t border-zinc-200 bg-white px-5 py-3 text-xs shadow-[0_-6px_12px_-8px_rgba(0,0,0,0.15)]">
             <button onClick={() => onRefresh()} disabled={l.checking} className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2.5 py-1 font-medium text-white disabled:opacity-40"><RefreshIcon className="h-3.5 w-3.5" /> Rescan this lead</button>
             {!l.optedOut
               ? <button onClick={() => { if (confirm("Mark as opted out? The lead moves to Lost and is never chased or emailed from here again.")) onChange({ optedOut: true, optedOutAt: new Date().toISOString(), status: "lost", notesLog: [...(l.notesLog || []), { at: new Date().toISOString(), text: "Asked not to be contacted" }] }); }} className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2.5 py-1 text-red-700 hover:bg-red-50" title="They replied asking not to hear from us">Do not contact</button>
