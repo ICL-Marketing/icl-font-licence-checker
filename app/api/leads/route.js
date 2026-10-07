@@ -28,7 +28,7 @@ export async function POST(request) {
       const l = b.lead || {};
       if (!l.companyNumber && !l.website) return Response.json({ error: "Needs a company number or a website." }, { status: 400 });
       if (l.companyNumber && !leadsConfigured()) return Response.json({ error: "Companies House is not set up (Settings → Connections), so only the website can be searched." }, { status: 400 });
-      return Response.json(await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business, useHunter: !!b.useHunter }));
+      return Response.json(await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business, useHunter: !!b.useHunter, forceHunter: !!b.forceHunter }));
     }
     if (b.step === "refresh") {
       if (!b.lead?.business) return Response.json({ error: "lead required" }, { status: 400 });
