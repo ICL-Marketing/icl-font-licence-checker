@@ -35,6 +35,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     const t = setTimeout(() => {
       let local = load();
       if (!local) { local = Object.fromEntries(SEED.map((l) => [l.id, l])); save(local); }
+      for (const l of Object.values(local)) if (l.email && !l.email.includes("\n\n")) l.email = l.email.trim().replace(/\n+/g, "\n\n"); // paragraph spacing for older drafts
       leadsRef.current = local;
       setLeads(local);
       fetch("/api/results?kind=leads").then((r) => r.json()).then((j) => {
@@ -42,6 +43,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         sharedRef.current = true;
         const next = { ...local };
         for (const [id, l] of Object.entries(j.results || {})) { if (!next[id] || String(l.updatedAt || "") >= String(next[id].updatedAt || "")) next[id] = l; }
+        for (const l of Object.values(next)) if (l.email && !l.email.includes("\n\n")) l.email = l.email.trim().replace(/\n+/g, "\n\n");
         save(next);
         leadsRef.current = next;
         setLeads(next);
