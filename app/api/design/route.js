@@ -5,8 +5,17 @@ export const maxDuration = 50;
 
 // Browser-driven, like the launch checks: "start" lists the screens in a
 // Figma file, then "frames" checks a few of them per request.
-export async function GET() {
-  return Response.json({ configured: figmaConfigured() });
+// GET ?link=… tests the connection: what Figma says about that file right now.
+export async function GET(request) {
+  const link = new URL(request.url).searchParams.get("link") || "";
+  if (!link) return Response.json({ configured: figmaConfigured() });
+  if (!figmaConfigured()) return Response.json({ ok: false, error: "FIGMA_TOKEN is not set in Vercel." });
+  const p = parseFigmaLink(link);
+  if (!p) return Response.json({ ok: false, error: "That is not a Figma file link." });
+  try {
+    const { name, frames, lastModified, version } = await listFrames(p.fileKey, p.nodeId);
+    return Response.json({ ok: true, fileKey: p.fileKey, nodeId: p.nodeId, name, lastModified, version, frames: frames.length, sample: frames.slice(0, 8).map((f) => `${f.page ? f.page + " / " : ""}${f.name}`) });
+  } catch (e) { return Response.json({ ok: false, error: String(e?.message || e) }); }
 }
 
 export async function POST(request) {

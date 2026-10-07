@@ -177,7 +177,7 @@ export default function Settings() {
             <h2 className="font-semibold">Figma</h2>
             <p className="mb-3 text-sm text-zinc-500">Lets Design Checks read Figma files for accessibility problems before they are coded.</p>
             {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.figma
-              ? <StatusRow ok label="Figma token set" detail="paste a Figma file, page or frame link on the Design Checks tab" />
+              ? <><StatusRow ok label="Figma token set" detail="paste a Figma file, page or frame link on the Design Checks tab" /><FigmaTest /></>
               : <>
                   <StatusRow ok={false} label="Figma token not set" detail="Design Checks can't read files yet" />
                   <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-700">
@@ -281,6 +281,33 @@ function LinksEditor() {
         <span className="block text-[11px] text-zinc-500">One per line: name | website | town | towns where a lead would know them (comma-separated). The first match on the lead&apos;s town is introduced as &quot;just down the road from you&quot;; otherwise the one marked <code>flagship</code> is used as the credibility name.</span>
         <textarea value={clients} onChange={(e) => setClients(e.target.value)} rows={4} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" /></label>
       <button onClick={save} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{saved ? "Saved" : "Save"}</button>
+    </div>
+  );
+}
+
+// Ask Figma about one file: proves the token works and shows when Figma last saved it.
+function FigmaTest() {
+  const [link, setLink] = useState("");
+  const [res, setRes] = useState(null);
+  async function run() { setRes({ busy: true }); try { setRes(await (await fetch(`/api/design?link=${encodeURIComponent(link)}`)).json()); } catch (e) { setRes({ ok: false, error: e.message }); } }
+  return (
+    <div className="mt-3 rounded-md border border-zinc-200 p-3">
+      <p className="text-xs font-semibold">Test with a file</p>
+      <div className="mt-1 flex gap-2">
+        <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="Figma file link" className="min-w-0 flex-1 rounded-md border border-zinc-300 px-2 py-1 text-xs" />
+        <button onClick={run} disabled={!link.trim() || res?.busy} className="rounded-md border border-zinc-300 bg-white px-3 py-1 text-xs hover:bg-zinc-100 disabled:opacity-50">{res?.busy ? "Asking Figma…" : "Test"}</button>
+      </div>
+      {res && !res.busy && (
+        <div className="mt-2 text-xs">
+          {res.ok ? (
+            <>
+              <p className="text-green-700">✓ Figma answered. File &quot;{res.name}&quot;, {res.frames} screen{res.frames === 1 ? "" : "s"}, last saved {res.lastModified ? new Date(res.lastModified).toLocaleString("en-GB") : "unknown"} (version {res.version}).</p>
+              {res.sample?.length > 0 && <p className="mt-1 text-zinc-600">Screens: {res.sample.join(" · ")}{res.frames > res.sample.length ? " …" : ""}</p>}
+              <p className="mt-1 text-zinc-500">If &quot;last saved&quot; is older than your latest edits, Figma has not stored them yet: make any small change and wait a few seconds, or check you are linking the same file and branch you edited.</p>
+            </>
+          ) : <p className="text-red-700">✗ {res.error}</p>}
+        </div>
+      )}
     </div>
   );
 }
