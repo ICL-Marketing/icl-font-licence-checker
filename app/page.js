@@ -905,9 +905,9 @@ function EmailCard({ e, open, toggle, result, client }) {
   useEffect(() => { const t = setTimeout(() => setEdits(loadEdits()[key] || {}), 0); return () => clearTimeout(t); }, [key]);
   const text = segmentsToText(e.segments, edits);
   const edited = Object.keys(edits).length > 0;
-  // mailto: works with any email app (Outlook included) and needs no setup. Plain text only;
-  // the spreadsheet, when there is one, still has to be attached by hand.
-  const mailto = `mailto:${encodeURIComponent((client?.emails || []).join(","))}?subject=${encodeURIComponent(e.subject || "")}&body=${encodeURIComponent(text)}`;
+  // Outlook on the web: opens a new message with the addresses, subject and text filled in.
+  // Plain text only; the spreadsheet, when there is one, still has to be attached by hand.
+  const outlook = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent((client?.emails || []).join(";"))}&subject=${encodeURIComponent(e.subject || "")}&body=${encodeURIComponent(text)}`;
 
   function update(id, value) {
     setEdits((prev) => {
@@ -945,7 +945,7 @@ function EmailCard({ e, open, toggle, result, client }) {
         {e.attach && (
           <button onClick={downloadSheet} disabled={sheetBusy} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-50" title="Spreadsheet of all the images to attach to this email"><DownloadIcon className="h-3.5 w-3.5" /> {sheetBusy ? "Building…" : "Spreadsheet to attach"}</button>
         )}
-        <a href={mailto} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100" title="Opens a new message in your email app with the addresses, subject and text filled in"><MailIcon className="h-3.5 w-3.5" /> Open in Outlook</a>
+        <a href={outlook} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100" title="Opens a new message in Outlook on the web with the addresses, subject and text filled in"><MailIcon className="h-3.5 w-3.5" /> Open in Outlook</a>
         <button onClick={copy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy email</>}</button>
       </div>
       {open && (
