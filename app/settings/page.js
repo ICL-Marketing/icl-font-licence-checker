@@ -242,8 +242,8 @@ function StatusPanel({ status }) {
 const LINK_DEFAULTS = { site: "https://icldigital.com/", websites: "https://icldigital.com/services/websites/", videography: "https://icldigital.com/services/videography/", contact: "https://icldigital.com/get-in-touch/" };
 const LINK_LABELS = { site: "Homepage", websites: "Websites service page", videography: "Videography service page", contact: "Contact page" };
 const SENDER_DEFAULTS = { name: "Chris", role: "lead designer", agency: "ICL Digital", where: "Richmond, two minutes' walk from the station" };
-const CLIENT_DEFAULTS = "Thames Laundry | https://thameslaundry.co.uk/ | Sunbury | sunbury, shepperton, hampton, hampton hill, hampton wick, twickenham, teddington, feltham, ashford, walton, kingston, staines, whitton\nZenex Brands | https://zenexbrands.com/ | |\nSt John Eye Hospital | https://www.stjohneyehospital.org/ | |";
-const parseClients = (t) => t.split(/\n/).map((line) => line.split("|").map((x) => x.trim())).filter((p) => p[0]).map(([name, url, town, near]) => ({ name, url: url || "", town: town || "", near: (near || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean) }));
+const CLIENT_DEFAULTS = "Thames Laundry | https://thameslaundry.co.uk/ | Sunbury | sunbury, shepperton, hampton, hampton hill, hampton wick, twickenham, teddington, feltham, ashford, walton, kingston, staines, whitton\nSt John Eye Hospital Group | https://www.stjohneyehospital.org/ | London | flagship";
+const parseClients = (t) => t.split(/\n/).map((line) => line.split("|").map((x) => x.trim())).filter((p) => p[0]).map(([name, url, town, near]) => { const list = (near || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean); return { name, url: url || "", town: town || "", near: list.filter((x) => x !== "flagship"), flagship: list.includes("flagship") }; });
 function LinksEditor() {
   const [links, setLinks] = useState(LINK_DEFAULTS);
   const [sender, setSender] = useState(SENDER_DEFAULTS);
@@ -255,7 +255,7 @@ function LinksEditor() {
       const { sender: sn, clients: cl, ...rest } = j.value;
       setLinks({ ...LINK_DEFAULTS, ...rest });
       if (sn) setSender({ ...SENDER_DEFAULTS, ...sn });
-      if (Array.isArray(cl) && cl.length) setClients(cl.map((c) => [c.name, c.url, c.town, (c.near || []).join(", ")].join(" | ")).join("\n"));
+      if (Array.isArray(cl) && cl.length) setClients(cl.map((c) => [c.name, c.url, c.town, [...(c.near || []), ...(c.flagship ? ["flagship"] : [])].join(", ")].join(" | ")).join("\n"));
     }).catch(() => {});
   }, []);
   async function save() {
@@ -277,7 +277,7 @@ function LinksEditor() {
         ))}
       </div>
       <label className="block text-sm"><span className="text-xs font-semibold text-zinc-600">Clients to mention</span>
-        <span className="block text-[11px] text-zinc-500">One per line: name | website | town | towns where a lead would know them (comma-separated). The first match on the lead&apos;s town is introduced as &quot;just down the road from you&quot;.</span>
+        <span className="block text-[11px] text-zinc-500">One per line: name | website | town | towns where a lead would know them (comma-separated). The first match on the lead&apos;s town is introduced as &quot;just down the road from you&quot;; otherwise the one marked <code>flagship</code> is used as the credibility name.</span>
         <textarea value={clients} onChange={(e) => setClients(e.target.value)} rows={4} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" /></label>
       <button onClick={save} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{saved ? "Saved" : "Save"}</button>
     </div>
