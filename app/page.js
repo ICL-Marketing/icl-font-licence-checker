@@ -958,7 +958,7 @@ function EmailCard({ e, open, toggle, result, client }) {
                 {client.emails.length > 0 && <button onClick={copyTo} className="inline-flex items-center gap-1 rounded border border-zinc-300 px-1.5 py-0.5 text-[11px] hover:bg-zinc-100">{copiedTo ? <><CheckIcon className="h-3 w-3" /> Copied</> : <><CopyIcon className="h-3 w-3" /> Copy addresses</>}</button>}
                 <span className="text-zinc-500">{client.name}{client.poc ? ` · ${client.poc}` : ""}{client.manager ? ` · Account manager: ${client.manager}` : ""}</span>
               </>
-            ) : <span className="text-amber-700">No client matched to {e.site}. Add the website to the client in Settings → Clients.</span>}
+            ) : <span className="text-amber-700">No client matched. Add the website in <Link href="/settings" className="font-medium underline">Settings</Link><span className="block font-mono text-[11px] text-amber-800">{e.site}</span></span>}
           </div>
           <div className="whitespace-pre-wrap rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm leading-relaxed text-zinc-800">
             {e.segments.map((seg, i) => typeof seg === "string"
