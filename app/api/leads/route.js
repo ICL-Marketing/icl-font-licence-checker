@@ -1,4 +1,4 @@
-import { leadsConfigured, leadsSearch, worthEnriching, leadsEnrich, checkWebsite, findEmail, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
+import { leadsConfigured, leadsSearch, worthEnriching, leadsEnrich, checkWebsite, findEmail, findContacts, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 50;
@@ -14,6 +14,12 @@ export async function GET() {
 export async function POST(request) {
   const b = await request.json().catch(() => ({}));
   try {
+    if (b.step === "contacts") {
+      const l = b.lead || {};
+      if (!l.companyNumber && !l.website) return Response.json({ error: "Needs a company number or a website." }, { status: 400 });
+      if (l.companyNumber && !leadsConfigured()) return Response.json({ error: "Companies House is not set up (Settings → Connections), so only the website can be searched." }, { status: 400 });
+      return Response.json(await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business }));
+    }
     if (b.step === "redraft") {
       // Fresh subject, pitch and email from the lead as it stands (works without a website).
       const lead = { ...b.lead };

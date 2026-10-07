@@ -28,6 +28,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const [open, setOpen] = useState(null);
   const [filter, setFilter] = useState("");
   const [showProblem, setShowProblem] = useState("");
+  const [selected, setSelected] = useState(() => new Set());
   const stopRef = useRef(false);
   const sharedRef = useRef(false);
 
@@ -74,6 +75,20 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     if (sharedRef.current) fetch("/api/results", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "leads", site: id }) }).catch(() => {});
     setOpen(null);
   };
+
+  const moveMany = (ids, status) => {
+    const at = new Date().toISOString();
+    const next = { ...leadsRef.current };
+    for (const id of ids) if (next[id]) { next[id] = { ...next[id], status, updatedAt: at }; push(id, next[id]); }
+    leadsRef.current = next; save(next); setLeads(next);
+  };
+  const removeMany = (ids) => {
+    const next = { ...leadsRef.current };
+    for (const id of ids) { delete next[id]; if (sharedRef.current) fetch("/api/results", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "leads", site: id }) }).catch(() => {}); }
+    leadsRef.current = next; save(next); setLeads(next); setSelected(new Set());
+  };
+  const toggle = (id) => setSelected((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const selectIds = (ids, on) => setSelected((prev) => { const n = new Set(prev); for (const id of ids) { if (on) n.add(id); else n.delete(id); } return n; });
 
   const list = Object.values(leads);
   const openLeads = list.filter((l) => ["new", "qualified", "replied"].includes(l.status)).length;
@@ -128,6 +143,11 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     } finally { onRunning?.(false); }
   }
 
+  async function findContacts(l) {
+    update(l.id, { checking: true, error: "" });
+    try { const r = await post({ step: "contacts", lead: l }); update(l.id, { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, checking: false, error: r.people.length ? "" : "No named people found; the Companies House directors need the API key, and the site has no team page." }); }
+    catch (e) { update(l.id, { checking: false, error: e.message }); }
+  }
   async function recheck(l, redraft = false) {
     update(l.id, { checking: true, error: "" });
     try { const { lead } = await post({ step: redraft ? "redraft" : "recheck", lead: l }); update(l.id, { ...lead, checking: false, error: "" }); }
@@ -196,9 +216,23 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         <span className="text-xs text-zinc-500">{visible.length} of {list.length} leads · drag a card to change its status</span>
       </div>
 
-      <Board leads={visible} onOpen={setOpen} onMove={(id, status) => update(id, { status })} />
+      {selected.size > 0 && (
+        <div className="sticky top-2 z-20 mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm shadow-sm">
+          <span className="font-medium">{selected.size} selected</span>
+          <label className="inline-flex items-center gap-1.5">Move to
+            <select defaultValue="" onChange={(e) => { if (e.target.value) { moveMany([...selected], e.target.value); setSelected(new Set()); e.target.value = ""; } }} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm">
+              <option value="" disabled>status…</option>
+              {LEAD_STATUSES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+          </label>
+          <button onClick={() => setSelected(new Set())} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100">Clear selection</button>
+          <button onClick={() => { if (confirm(`Delete ${selected.size} lead${selected.size === 1 ? "" : "s"}?`)) removeMany([...selected]); }} className="ml-auto inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50"><TrashIcon className="h-3.5 w-3.5" /> Delete</button>
+        </div>
+      )}
+      <Board leads={visible} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
+        onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status }); }} />
 
-      {current && <LeadDrawer l={current} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} />}
+      {current && <LeadDrawer l={current} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} />}
     </div>
   );
 }
@@ -212,21 +246,26 @@ const PLACES = {
 
 const sorted = (list) => list.slice().sort((a, b) => ({ High: 0, Medium: 1, Low: 2 }[a.likelihood] ?? 3) - ({ High: 0, Medium: 1, Low: 2 }[b.likelihood] ?? 3) || (b.netAssets || 0) - (a.netAssets || 0));
 
-function Board({ leads, onOpen, onMove }) {
+function Board({ leads, selected, onToggle, onSelectColumn, onOpen, onMove }) {
   const [over, setOver] = useState(null);
-  const cols = LEAD_STATUSES.map(([id, label]) => ({ id, label, items: sorted(leads.filter((l) => (l.status || "new") === id)) }));
+  const cols = LEAD_STATUSES.map(([id, label, hint]) => ({ id, label, hint, items: sorted(leads.filter((l) => (l.status || "new") === id)) }));
   return (
     <div className="mt-3 flex gap-3 overflow-x-auto pb-3">
       {cols.map((c) => (
         <div key={c.id} onDragOver={(e) => { e.preventDefault(); setOver(c.id); }} onDragLeave={() => setOver(null)}
           onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData("text/lead"); if (id) onMove(id, c.id); setOver(null); }}
           className={`flex w-64 shrink-0 flex-col rounded-xl border p-2 ${over === c.id ? "border-blue-400 bg-blue-50" : "border-zinc-200 bg-zinc-100/60"}`}>
-          <div className="flex items-center justify-between px-1 pb-2 text-xs font-semibold text-zinc-700"><span>{c.label}</span><span className="rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{c.items.length}</span></div>
+          <div className="flex items-center gap-1.5 px-1 text-xs font-semibold text-zinc-700">
+            <input type="checkbox" aria-label={`Select everything in ${c.label}`} title="Select everything in this column" checked={c.items.length > 0 && c.items.every((l) => selected.has(l.id))} onChange={(e) => onSelectColumn(c.items.map((l) => l.id), e.target.checked)} disabled={!c.items.length} className="h-3.5 w-3.5" />
+            <span>{c.label}</span><span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{c.items.length}</span>
+          </div>
+          <div className="px-1 pb-2 text-[11px] font-normal text-zinc-500">{c.hint}</div>
           <div className="flex flex-1 flex-col gap-2">
             {c.items.map((l) => (
-              <button key={l.id} draggable onDragStart={(e) => { e.dataTransfer.setData("text/lead", l.id); e.dataTransfer.effectAllowed = "move"; }} onClick={() => onOpen(l.id)}
-                className="cursor-grab rounded-lg border border-zinc-200 bg-white p-2.5 text-left shadow-sm hover:border-zinc-400 active:cursor-grabbing">
+              <div key={l.id} draggable onDragStart={(e) => { e.dataTransfer.setData("text/lead", l.id); e.dataTransfer.effectAllowed = "move"; }} onClick={() => onOpen(l.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") onOpen(l.id); }}
+                className={`cursor-grab rounded-lg border bg-white p-2.5 text-left shadow-sm hover:border-zinc-400 active:cursor-grabbing ${selected.has(l.id) ? "border-blue-500 ring-1 ring-blue-300" : "border-zinc-200"}`}>
                 <div className="flex items-start gap-1.5">
+                  <input type="checkbox" checked={selected.has(l.id)} onChange={() => onToggle(l.id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${l.business}`} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span className="flex-1 text-sm font-medium leading-tight">{l.business}</span>
                   {l.likelihood && <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${LIKELY[l.likelihood]}`}>{l.likelihood}</span>}
                 </div>
@@ -235,8 +274,9 @@ function Board({ leads, onOpen, onMove }) {
                   <span>{l.area}</span>
                   {l.netAssets != null && l.netAssets !== "" && <span>· {money(l.netAssets)}</span>}
                 </div>
+                {c.id === "not-pursuing" && l.caveats && <div className="mt-1 truncate text-[11px] text-zinc-500" title={l.caveats}>{l.caveats.split("; ").find((x) => /under £|already a client|current|dormant/i.test(x)) || l.caveats}</div>}
                 {l.checking && <div className="mt-1 text-[11px] text-blue-600">Checking…</div>}
-              </button>
+              </div>
             ))}
             {!c.items.length && <div className="rounded-lg border border-dashed border-zinc-300 p-3 text-center text-[11px] text-zinc-400">Drop here</div>}
           </div>
@@ -257,7 +297,66 @@ function TextField({ label, value, onChange, rows = 2, mono = false }) {
   );
 }
 
-function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck }) {
+// Pick a person: their address goes in To and the greeting uses their first name.
+function pickPerson(l, p, onChange) {
+  const first = p.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0];
+  const email = p.email || p.emailGuess || l.emailAddress || "";
+  const body = String(l.email || "").replace(/^Hi( there| [A-Z][a-z'’-]+)?,/, `Hi ${first},`);
+  onChange({ emailAddress: email, contactName: first, email: body });
+}
+
+function Contacts({ l, onChange, onContacts }) {
+  const people = l.contacts || [];
+  const channels = l.channels || [];
+  return (
+    <div className="rounded-lg border border-zinc-200 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold">Who to contact</span>
+        <span className="text-xs text-zinc-500">decision makers first</span>
+        <button onClick={onContacts} disabled={l.checking} className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {people.length ? "Look again" : "Find contacts"}</button>
+      </div>
+      {!people.length && !channels.length && <p className="mt-2 text-xs text-zinc-500">Nothing found yet. Find contacts reads the directors and owners from Companies House and any named people on the website.</p>}
+      {people.length > 0 && (
+        <ul className="mt-2 divide-y divide-zinc-100">
+          {people.map((p, i) => (
+            <li key={i} className="flex flex-wrap items-start gap-x-3 gap-y-1 py-2 text-sm">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="font-medium">{p.name}</span>
+                  <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">{p.role}</span>
+                  <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600">{p.source}</span>
+                </div>
+                <div className="text-xs text-zinc-500">{p.why}</div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                  {p.email && <span className="text-green-800">{p.email} <span className="text-zinc-500">· {p.emailStatus}</span></span>}
+                  {!p.email && p.emailGuess && <span className="text-amber-800">{p.emailGuess} <span className="text-zinc-500">· {p.emailStatus}</span></span>}
+                  <a href={p.linkedinSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Find on LinkedIn</a>
+                  <a href={p.googleSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Google</a>
+                </div>
+              </div>
+              <button onClick={() => pickPerson(l, p, onChange)} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100" title="Put this person in To and the greeting">Email this person</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {channels.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5 border-t border-zinc-100 pt-2 text-xs">
+          {channels.map((c, i) => (
+            <span key={i} className="inline-flex items-center gap-1 rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5">
+              <span className="text-zinc-500">{c.label}:</span>
+              {c.kind === "linkedin" ? <a href={c.value} target="_blank" rel="noreferrer" className="text-blue-700 underline">{c.value.replace(/^https?:\/\/(www\.)?/, "")}</a>
+                : c.kind === "email" ? <button onClick={() => onChange({ emailAddress: c.value })} className="text-blue-700 underline" title="Use as To">{c.value}</button>
+                : <span>{c.value}</span>}
+            </span>
+          ))}
+        </div>
+      )}
+      {l.contactsAt && <div className="mt-1 text-[11px] text-zinc-400">Looked up {new Date(l.contactsAt).toLocaleDateString("en-GB")}</div>}
+    </div>
+  );
+}
+
+function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts }) {
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
@@ -296,6 +395,8 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck }) {
           <TextField label="Caveats" value={l.caveats} onChange={(v) => onChange({ caveats: v })} rows={1} />
           <TextField label="Notes / next action" value={l.notes} onChange={(v) => onChange({ notes: v })} rows={3} />
 
+          <Contacts l={l} onChange={onChange} onContacts={onContacts} />
+
           <div className="rounded-lg border border-zinc-200 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold">Outreach email</span>
@@ -318,6 +419,7 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck }) {
           <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3 text-xs">
             {l.website && <button onClick={() => onRecheck(false)} disabled={l.checking} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-3.5 w-3.5" /> Re-check website</button>}
             {l.problem && <button onClick={() => onRecheck(true)} disabled={l.checking} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 hover:bg-zinc-100 disabled:opacity-40"><PlayIcon className="h-3.5 w-3.5" /> Redraft email</button>}
+            {l.problem && <label className="inline-flex items-center gap-1 text-zinc-600"><input type="checkbox" checked={!l.noVideoPitch} onChange={(e) => onChange({ noVideoPitch: !e.target.checked })} className="h-3.5 w-3.5" /> Mention hero video + brochure (applies on redraft)</label>}
             {l.checking && <span className="inline-flex items-center gap-1 text-blue-700"><SpinnerIcon className="h-3.5 w-3.5" /> Working…</span>}
             {l.error && <span className="text-red-700">{l.error}</span>}
             {l.checkedAt && !l.checking && <span className="text-zinc-500">Checked {new Date(l.checkedAt).toLocaleDateString("en-GB")}</span>}
