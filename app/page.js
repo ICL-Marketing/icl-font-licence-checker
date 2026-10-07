@@ -359,12 +359,12 @@ export default function Home() {
       </header>
 
       <nav className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 rounded-xl bg-zinc-200/70 p-1 sm:inline-grid sm:w-auto" aria-label="Licence area">
-        {[["design", "Design Checks", designCount || null],
+        {[["leads", "Website Leads", leadsCount || null],
+          ["design", "Design Checks", designCount || null],
           ["launch", "Launch Checks", launchCount || null],
           ["post", "Post Launch Checks", postCount || null],
           ["fonts", "Font Licenses", fontRows.length ? fontCounts.PROBLEM + fontCounts.CHECK : null],
-          ["images", "Image Licenses", imgRows.length ? imgPaidSites : null],
-          ["leads", "Website Leads", leadsCount || null]].map(([id, label, n]) => (
+          ["images", "Image Licenses", imgRows.length ? imgPaidSites : null]].map(([id, label, n]) => (
           <button key={id} onClick={() => setArea(id)} aria-current={area === id ? "page" : undefined}
             className={`rounded-lg px-4 py-2 text-sm font-semibold ${area === id ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"}`}>
             {label}{n != null && <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] text-zinc-700">{n}</span>}

@@ -179,8 +179,9 @@ function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemo
   const screens = r.screens || [];
   const dismissed = r.dismissed || {};
   const counts = { fail: 0, warn: 0, check: 0 };
-  let hidden = 0;
-  for (const s of screens) for (const f of s.findings || []) { if (dismissed[findingKey(f)]) hidden++; else counts[f.level] = (counts[f.level] || 0) + 1; }
+  let doneN = 0, ignoredN = 0;
+  for (const s of screens) for (const f of s.findings || []) { const d = dismissed[findingKey(f)]; if (d) { if (d.reason === "done") doneN++; else ignoredN++; } else counts[f.level] = (counts[f.level] || 0) + 1; }
+  const hidden = doneN + ignoredN;
   const done = r.status === "DONE";
   const pct = r.total ? Math.round((screens.length / r.total) * 100) : 0;
   const fonts = new Map();
@@ -195,7 +196,7 @@ function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemo
             : <span className="rounded-full bg-zinc-500 px-2 py-0.5 text-[11px] font-semibold text-white">{r.status === "ERROR" ? "COULD NOT CHECK" : "PAUSED"}</span>}
           <span className="font-medium">{r.name || r.key}</span>
           <span className="text-xs text-zinc-500">{screens.length} screen{screens.length === 1 ? "" : "s"}{r.total && !done ? ` of ${r.total}` : ""}</span>
-          {done && <span className="text-xs text-zinc-500">{counts.fail} to fix · {counts.warn} to improve · {counts.check} to check by eye{hidden ? ` · ${hidden} done or ignored` : ""}</span>}
+          {done && <span className="text-xs text-zinc-500">{counts.fail} to fix · {counts.warn} to improve · {counts.check} to check by eye{doneN ? ` · ${doneN} done` : ""}{ignoredN ? ` · ${ignoredN} ignored` : ""}</span>}
           {r.phase && <span className="basis-full text-xs text-blue-700">{r.phase}</span>}
           {r.error && <span className="basis-full text-xs text-red-700">{r.error}</span>}
           <span className="ml-auto text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>
