@@ -249,18 +249,23 @@ function LinksEditor() {
   const [links, setLinks] = useState(LINK_DEFAULTS);
   const [sender, setSender] = useState(SENDER_DEFAULTS);
   const [clients, setClients] = useState(CLIENT_DEFAULTS);
+  const [volumes, setVolumes] = useState("");
+  const [seen, setSeen] = useState([]);
   const [saved, setSaved] = useState(false);
   useEffect(() => {
     fetch("/api/settings?key=lead-links").then((r) => r.json()).then((j) => {
       if (!(j.shared && j.value)) return;
-      const { sender: sn, clients: cl, ...rest } = j.value;
+      const { sender: sn, clients: cl, volumes: vo, ...rest } = j.value;
       setLinks({ ...LINK_DEFAULTS, ...rest });
+      if (vo && typeof vo === "object") setVolumes(Object.entries(vo).map(([q, n]) => `${q} | ${n}`).join("\n"));
       if (sn) setSender({ ...SENDER_DEFAULTS, ...sn });
       if (Array.isArray(cl) && cl.length) setClients(cl.map((c) => [c.name, c.url, c.town, [...(c.near || []), ...(c.flagship ? ["flagship"] : [])].join(", ")].join(" | ")).join("\n"));
     }).catch(() => {});
+    fetch("/api/settings?key=queries-seen").then((r) => r.json()).then((j) => { if (j.shared && j.value) setSeen(Object.keys(j.value).sort()); }).catch(() => {});
   }, []);
+  const parseVolumes = (t) => Object.fromEntries(t.split(/\n/).map((line) => line.split("|").map((x) => x.trim())).filter((p) => p[0] && Number(p[1]) > 0).map(([q, n]) => [q.toLowerCase(), Number(n)]));
   async function save() {
-    await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "lead-links", value: { ...links, sender, clients: parseClients(clients) } }) }).catch(() => {});
+    await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "lead-links", value: { ...links, sender, clients: parseClients(clients), volumes: parseVolumes(volumes) } }) }).catch(() => {});
     setSaved(true); setTimeout(() => setSaved(false), 1500);
   }
   return (
@@ -280,6 +285,15 @@ function LinksEditor() {
       <label className="block text-sm"><span className="text-xs font-semibold text-zinc-600">Clients to mention</span>
         <span className="block text-[11px] text-zinc-500">One per line: name | website | town | towns where a lead would know them (comma-separated). The first match on the lead&apos;s town is introduced as &quot;just down the road from you&quot;; otherwise the one marked <code>flagship</code> is used as the credibility name.</span>
         <textarea value={clients} onChange={(e) => setClients(e.target.value)} rows={4} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" /></label>
+      <label className="block text-sm"><span className="text-xs font-semibold text-zinc-600">Monthly search volumes</span>
+        <span className="block text-[11px] text-zinc-500">One per line: search | people a month. Used in the email as &quot;Around 140 people a month make that exact search&quot;. Get the numbers free from Google Ads → Tools → Keyword Planner → Discover new keywords (UK, exact phrase); a figure only goes in an email when its search matches exactly.</span>
+        <textarea value={volumes} onChange={(e) => setVolumes(e.target.value)} rows={5} placeholder={"plumber teddington | 140\ncafe twickenham | 320"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" /></label>
+      {seen.length > 0 && (
+        <details className="text-xs text-zinc-600"><summary className="cursor-pointer">Searches the scans have used so far ({seen.length}), to look up in Keyword Planner</summary>
+          <div className="mt-1 flex flex-wrap gap-1">{seen.filter((q) => !parseVolumes(volumes)[q]).map((q) => <span key={q} className="rounded bg-zinc-100 px-1.5 py-0.5">{q}</span>)}</div>
+          <button onClick={() => { try { navigator.clipboard.writeText(seen.filter((q) => !parseVolumes(volumes)[q]).join("\n")); } catch {} }} className="mt-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] hover:bg-zinc-100">Copy the ones without a number</button>
+        </details>
+      )}
       <button onClick={save} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{saved ? "Saved" : "Save"}</button>
     </div>
   );
