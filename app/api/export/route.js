@@ -220,7 +220,7 @@ export async function POST(request) {
 
   if (kind === "leads") {
     // ---- Website leads, same columns as the Client Matrix sheet.
-    const STATUS = { new: "New", qualified: "Not contacted", "no-contact": "No contact found", contacted: "Contacted", cold: "Cold (no reply)", replied: "Replied", meeting: "Meeting", won: "Won", lost: "Lost", "not-pursuing": "Not pursuing" };
+    const STATUS = { new: "New", qualified: "Not contacted", "no-contact": "Contact not verified", contacted: "Contacted", cold: "Cold (no reply)", replied: "Replied", meeting: "Meeting", won: "Won", lost: "Lost", "not-pursuing": "Not pursuing" };
     const rows = (results || []).map((l) => ({
       business: l.business, area: l.area, website: l.website, problem: l.problem, problemDetail: l.problemDetail, companyNumber: l.companyNumber,
       netAssets: l.netAssets ?? "", reChange: l.reChange ?? "", likelihood: l.likelihood, likelihoodWhy: l.likelihoodWhy, background: l.background, pitch: l.pitch,
