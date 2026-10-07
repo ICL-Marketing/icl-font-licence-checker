@@ -13,7 +13,7 @@
     "background": "The borough's brewery, est. 2004; taproom + trade sales",
     "pitch": "Brand site worthy of the beer; e-commerce + wholesale/trade section",
     "caveats": "",
-    "status": "contacted",
+    "status": "lost",
     "notes": "",
     "email": "Hi Steve,\n\nI run a small web studio in the area and was looking into other local businesses when I came across yourselves. Love the Naked Ladies story, and being the oldest independent brewery in London is a great thing to have behind you.\n\nI noticed the site's still running on the free Square Online template though. For a brand with that much history, I think it could be doing a lot more, especially with online ordering and a proper page for trade and wholesale enquiries.\n\nIf you're ever open to it, happy to put a few ideas together and show you what that could look like. No pressure either way.",
     "emailAddress": "info@twickenham-fine-ales.co.uk",
@@ -21,7 +21,8 @@
     "id": "05072665",
     "source": "Client Matrix v4.1",
     "addedAt": "2026-10-07T00:00:00.000Z",
-    "subject": "Quick one about your website"
+    "subject": "Quick one about your website",
+    "sheetLost": true
   },
   {
     "business": "Westend Bed Company Ltd",
@@ -37,7 +38,7 @@
     "background": "Bed showroom, 215 Upper Richmond Rd W",
     "pitch": "'Customers Googling you find a parking page' — full site + local SEO",
     "caveats": "iXBRL year order ambiguous (£247k/£321k)",
-    "status": "contacted",
+    "status": "lost",
     "notes": "",
     "email": "Hi Brent,\n\nI run a small web studio in the area and was looking into other local businesses when I came across yourselves. Really like what you've built at westendbedcompany.com, the pricing pages especially. Not something you see often in the bed trade.\n\nOne small thing I noticed: your .co.uk domain doesn't lead anywhere. A lot of people default to typing that instead of .com out of habit, so you might be missing a bit of traffic without realising it.\n\nEasy enough to point one at the other. Happy to help with that if it's useful.",
     "emailAddress": "enquiries@westendbedcompany.com",
@@ -45,7 +46,8 @@
     "id": "08426920",
     "source": "Client Matrix v4.1",
     "addedAt": "2026-10-07T00:00:00.000Z",
-    "subject": "Your .co.uk domain"
+    "subject": "Your .co.uk domain",
+    "sheetLost": true
   },
   {
     "business": "Ivytree Nursery Hampton Ltd",
@@ -61,7 +63,7 @@
     "background": "Plant nursery + café on the URC site",
     "pitch": "Quick SSL rescue as the door-opener, redesign as the upsell",
     "caveats": "",
-    "status": "contacted",
+    "status": "lost",
     "notes": "",
     "email": "Hi Liane,\n\nI run a small web studio in the area and was looking into other local businesses when I came across Ivytree Nursery. That Ofsted \"outstanding\" rating says a lot, and it's clear you keep the site content current.\n\nOne thing worth flagging: the SSL certificate looks to be broken, so people visiting will probably hit a security warning before the page even loads. Easy to miss, but it can put parents off before they see anything else.\n\nUsually a quick fix. Happy to sort it out, and if you ever want to talk about a bigger refresh down the line, I'm around for that too.",
     "emailAddress": "info@ivytreenursery.co.uk",
@@ -69,7 +71,8 @@
     "id": "09969364",
     "source": "Client Matrix v4.1",
     "addedAt": "2026-10-07T00:00:00.000Z",
-    "subject": "Small thing on your site worth fixing"
+    "subject": "Small thing on your site worth fixing",
+    "sheetLost": true
   },
   {
     "business": "Henry Prideaux & Associates Ltd",
@@ -85,7 +88,7 @@
     "background": "Interior design studio, 57 Church Street",
     "pitch": "Image-led portfolio rebuild; the site should sell the way their rooms do",
     "caveats": "",
-    "status": "contacted",
+    "status": "lost",
     "notes": "",
     "email": "Hi Henry (and Amy),\n\nI run a small web studio in the area and was looking into other local businesses when I came across yours. Congrats on making House & Garden's HG101 this year, that's a great one to land. I had a look at the site afterwards and noticed the homepage still has some placeholder text where your intro copy should be, and the copyright's still showing 2014.\n\nGiven the studio's moved since and you've picked up some nice recognition lately, might be worth getting the site caught up with where things actually are. Happy to help with as much or as little as you'd like, from just fixing the copy through to a fuller refresh.\n\nLet me know if that's of any interest.",
     "emailAddress": "info@henryprideaux.com",
@@ -93,7 +96,8 @@
     "id": "08067464",
     "source": "Client Matrix v4.1",
     "addedAt": "2026-10-07T00:00:00.000Z",
-    "subject": "Quick note about your website"
+    "subject": "Quick note about your website",
+    "sheetLost": true
   },
   {
     "business": "Milbank Carpets Ltd",
@@ -109,7 +113,7 @@
     "background": "Carpet retailer est. 1989, 4 staff; +£24k implied profit",
     "pitch": "Own your web asset instead of renting a template; better local SEO",
     "caveats": "",
-    "status": "contacted",
+    "status": "lost",
     "notes": "",
     "email": "Hi there,\n\nI run a small web studio in the area and was looking into other local businesses when I came across Milbank Carpets. 35+ years on the high street is no small thing.\n\nI noticed the site runs on it'seeze, a monthly subscription template. Since you're already paying for a website each month anyway, it might be worth looking at owning one outright instead, built around your brand rather than a shared template. Could help with local search too, against other flooring shops nearby.\n\nHappy to show you what that might look like if you're curious, no obligation.",
     "emailAddress": "info@milbankcarpets.com",
@@ -117,7 +121,8 @@
     "id": "03085464",
     "source": "Client Matrix v4.1",
     "addedAt": "2026-10-07T00:00:00.000Z",
-    "subject": "About your website"
+    "subject": "About your website",
+    "sheetLost": true
   },
   {
     "business": "Paws for Coffee Ltd",
@@ -133,7 +138,7 @@
     "background": "Dog café, 41 High St; +£16k implied profit",
     "pitch": "Rescue the dead site, then community/events rebuild",
     "caveats": "",
-    "status": "contacted",
+    "status": "lost",
     "notes": "",
     "email": "Hi Louise,\n\nI run a small web studio in the area and was looking into other local businesses when I came across Paws for Coffee. Keeps coming up as a favourite around Hampton Hill, the reviews are great.\n\nI noticed the homepage is still showing an old Covid-era message about grocery deliveries, with a menu link that doesn't work anymore. Looks like you've actually got newer pages built (About, Shop, Gallery) that just aren't connected to the homepage properly.\n\nShould be a quick fix to get things pointing the right way again. Happy to sort it if useful.",
     "emailAddress": "info@pawsforcoffee.co.uk",
@@ -141,7 +146,8 @@
     "id": "10133470",
     "source": "Client Matrix v4.1",
     "addedAt": "2026-10-07T00:00:00.000Z",
-    "subject": "Your homepage looks a bit stuck"
+    "subject": "Your homepage looks a bit stuck",
+    "sheetLost": true
   },
   {
     "business": "Completely Floored Ltd",
@@ -157,7 +163,7 @@
     "background": "Flooring specialist est. 1985, 5 staff (Amtico/Marmoleum)",
     "pitch": "Showroom-quality portfolio site aligned to the premium brands they fit",
     "caveats": "RE drop likely dividends",
-    "status": "contacted",
+    "status": "lost",
     "notes": "",
     "email": "Hi there,\n\nI run a small web studio in the area and was looking into other local businesses when I came across Completely Floored. 40 years on Church Street fitting Amtico and Marmoleum is a serious track record.\n\nI noticed the website's still hand-built from the look of it, and the copyright line at the bottom is actually blank rather than showing a year. Doesn't do justice to a business with that kind of history behind it.\n\nWould be happy to put together a showroom-quality site that matches the premium brands you fit, if that's of interest.",
     "emailAddress": "enquiries@completely-floored.com",
@@ -165,7 +171,8 @@
     "id": "04131225",
     "source": "Client Matrix v4.1",
     "addedAt": "2026-10-07T00:00:00.000Z",
-    "subject": "Quick one about your website"
+    "subject": "Quick one about your website",
+    "sheetLost": true
   },
   {
     "business": "Parkwood Interiors & Building Services Ltd",
@@ -181,7 +188,7 @@
     "background": "Interiors & building services, 77 Sheen Lane, inc. 2008",
     "pitch": "First-ever site; capture East Sheen renovation demand",
     "caveats": "",
-    "status": "not-pursuing",
+    "status": "lost",
     "notes": "",
     "email": "parkwoodflooring.co.uk built 2024 - NOT CONTACTING",
     "emailAddress": "",
@@ -189,7 +196,8 @@
     "id": "06525657",
     "source": "Client Matrix v4.1",
     "addedAt": "2026-10-07T00:00:00.000Z",
-    "subject": ""
+    "subject": "",
+    "sheetLost": true
   },
   {
     "business": "WTS Tyres Richmond Ltd",
@@ -205,7 +213,7 @@
     "background": "Garage est. 1969, Kew Road",
     "pitch": "Online booking/quote form; MOT reminder emails",
     "caveats": "",
-    "status": "contacted",
+    "status": "lost",
     "notes": "",
     "email": "Hi there,\n\nI run a small web studio in the area and was looking into other local businesses when I came across WTS Tyres. 50+ years on Richmond Circus roundabout, and the reviews on your site are great, people clearly rate you.\n\nNoticed the site's copyright is still showing 2020 though. Might be worth an online booking or quote form, plus MOT reminder emails, to make it easier for people to come back when they're due a service.\n\nHappy to show you what that could look like if useful.",
     "emailAddress": "info@wtstyresrichmond.com",
@@ -213,7 +221,8 @@
     "id": "09132546",
     "source": "Client Matrix v4.1",
     "addedAt": "2026-10-07T00:00:00.000Z",
-    "subject": "About your website"
+    "subject": "About your website",
+    "sheetLost": true
   },
   {
     "business": "The Cavan Bakery Ltd",
@@ -229,7 +238,7 @@
     "background": "Family bakery est. 1929 (inc. 1937), branches across the borough",
     "pitch": "Online ordering / click & collect across the branch network; heritage brand refresh",
     "caveats": "",
-    "status": "contacted",
+    "status": "lost",
     "notes": "",
     "email": "Bakery has fully rebuilt on WordPress, added an Ashtead branch, and has current 2026 content",
     "emailAddress": "",
@@ -237,7 +246,8 @@
     "id": "00334432",
     "source": "Client Matrix v4.1",
     "addedAt": "2026-10-07T00:00:00.000Z",
-    "subject": ""
+    "subject": "",
+    "sheetLost": true
   },
   {
     "business": "Siva Yogan & Co Ltd",
@@ -253,7 +263,7 @@
     "background": "Accountancy practice, Holly Road",
     "pitch": "A security warning on a finance firm's website erodes client trust — fix then rebuild",
     "caveats": "",
-    "status": "not-pursuing",
+    "status": "lost",
     "notes": "",
     "email": "they have a fully made site on - sivayoganandco.co.uk.",
     "emailAddress": "",
@@ -261,7 +271,8 @@
     "id": "10866550",
     "source": "Client Matrix v4.1",
     "addedAt": "2026-10-07T00:00:00.000Z",
-    "subject": ""
+    "subject": "",
+    "sheetLost": true
   },
   {
     "business": "Twickenham Surveys Ltd",
@@ -277,7 +288,7 @@
     "background": "Chartered surveyors est. 1982; ~£57k implied profit",
     "pitch": "Solicitors, lenders and homebuyers see a cert error before they see your credentials",
     "caveats": "",
-    "status": "contacted",
+    "status": "lost",
     "notes": "",
     "email": "Hi there,\n\nI run a small web studio in the area and was looking into other local businesses when I came across Twickenham Surveys. Noticed the Chelsea FC pitch survey in your gallery, that's a great credential to have.\n\nThe site itself has a broken SSL certificate though, so anyone visiting gets a security warning before they see any of that. It's also still showing a 2019 copyright line. For a firm whose work gets relied on by solicitors and lenders, that first impression probably isn't ideal.\n\nHappy to get the certificate sorted as a quick first step, and talk about a fuller refresh if useful after that.",
     "emailAddress": "mail@twickenhamsurveys.co.uk",
@@ -285,7 +296,8 @@
     "id": "04681492",
     "source": "Client Matrix v4.1",
     "addedAt": "2026-10-07T00:00:00.000Z",
-    "subject": "Your website's security certificate"
+    "subject": "Your website's security certificate",
+    "sheetLost": true
   },
   {
     "business": "Merchant & Daughters Ltd",
@@ -301,7 +313,7 @@
     "background": "Funeral directors, 61 High St; +£61k implied profit",
     "pitch": "Families Google first; rival Lodge Brothers has a modern site",
     "caveats": "",
-    "status": "qualified",
+    "status": "lost",
     "notes": "",
     "email": "site bought by Hampton Hill Fish & Chips. Either they've rebranded or closed - No current site found for the funeral directors under any name may be worth a call to confirm they're still trading before any outreach.",
     "emailAddress": "",
@@ -309,7 +321,8 @@
     "id": "10661872",
     "source": "Client Matrix v4.1",
     "addedAt": "2026-10-07T00:00:00.000Z",
-    "subject": ""
+    "subject": "",
+    "sheetLost": true
   },
   {
     "business": "Abacus Carpet Company Ltd",
@@ -325,7 +338,7 @@
     "background": "Carpet retailer est. 1986, 10 staff",
     "pitch": "Local SEO against Richmond/Sheen flooring rivals; showroom appointment booking",
     "caveats": "RE drop likely dividends",
-    "status": "contacted",
+    "status": "lost",
     "notes": "",
     "email": "Hi there,\n\nI run a small web studio in the area and was looking into other local businesses when I came across Abacus Carpets. 40+ years supplying and fitting carpet and flooring around Kew is impressive.\n\nThe site's actually pretty well put together, but the copyright in the footer still says 2018, so it might be overdue a refresh and a check that it's still pulling its weight against other flooring shops in Richmond and Sheen.\n\nHappy to take a look and suggest a few updates if that's useful, no pressure either way.",
     "emailAddress": "sales@abacuscarpets.co.uk",
@@ -333,7 +346,8 @@
     "id": "01983449",
     "source": "Client Matrix v4.1",
     "addedAt": "2026-10-07T00:00:00.000Z",
-    "subject": "About your website"
+    "subject": "About your website",
+    "sheetLost": true
   },
   {
     "business": "David Rose Lighting Ltd",
@@ -349,7 +363,7 @@
     "background": "Lighting retail/wholesale/event & exhibition hire, inc. 1997",
     "pitch": "First-ever site: portfolio + hire enquiry pipeline",
     "caveats": "Implied profit <£10k but assets healthy",
-    "status": "not-pursuing",
+    "status": "lost",
     "notes": "",
     "email": "davidroselighting.com have updated their site",
     "emailAddress": "",
@@ -357,7 +371,8 @@
     "id": "03322257",
     "source": "Client Matrix v4.1",
     "addedAt": "2026-10-07T00:00:00.000Z",
-    "subject": ""
+    "subject": "",
+    "sheetLost": true
   },
   {
     "business": "CJR Contracts Ltd",
@@ -373,7 +388,7 @@
     "background": "Contracts & interiors, SW14; +£27k implied profit",
     "pitch": "Project gallery + commercial credentials page",
     "caveats": "Verify co. number — reg office is an Essex accountant",
-    "status": "contacted",
+    "status": "lost",
     "notes": "",
     "email": "Hi there,\n\nI run a small web studio in the area and was looking into other local businesses when I came across CJR Contracts. Over 40 years making soft furnishings for commercial and residential clients is a great story to tell.\n\nNoticed the website's copyright still reads 2019 though. For a business winning work partly on commercial credentials, a project gallery and an up to date site could help make a stronger first impression with new clients.\n\nHappy to put a few ideas together if useful.",
     "emailAddress": "sales@cjrcontracts.co.uk",
@@ -381,6 +396,7 @@
     "id": "10885685",
     "source": "Client Matrix v4.1",
     "addedAt": "2026-10-07T00:00:00.000Z",
-    "subject": "Quick one about your website"
+    "subject": "Quick one about your website",
+    "sheetLost": true
   }
 ]
