@@ -86,6 +86,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       for (const l of Object.values(local)) if (l.status === "no-contact" && contactExhausted(l)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); }
       // "info", "hello" and the like are inboxes, not people: the email opens "Hi there," instead.
       for (const l of Object.values(local)) if (l.contactName && !firstNameOf(l.contactName)) { l.contactName = ""; l.updatedAt = new Date().toISOString(); }
+      // Company-name searches are no longer run; drop any stored ones so only the trade search shows.
+      for (const l of Object.values(local)) if (l.seo?.searches?.some((x) => x.kind !== "trade")) { l.seo = { ...l.seo, searches: l.seo.searches.filter((x) => x.kind === "trade") }; l.updatedAt = new Date().toISOString(); }
       // Parked only for a missing contact? That has its own column now.
       for (const l of Object.values(local)) if (l.status === "not-pursuing" && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); }
       // One-off: every lead imported from the Client Matrix sheet was closed as Lost (7 Oct 2026).
@@ -103,6 +105,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const l of Object.values(next)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried) && ["new", "qualified"].includes(l.status)) { l.contactUnverified = true; l.status = parkStatus(l); l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "no-contact" && contactExhausted(l)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.contactName && !firstNameOf(l.contactName)) { l.contactName = ""; l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (l.seo?.searches?.some((x) => x.kind !== "trade")) { l.seo = { ...l.seo, searches: l.seo.searches.filter((x) => x.kind === "trade") }; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "not-pursuing" && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         save(next);
