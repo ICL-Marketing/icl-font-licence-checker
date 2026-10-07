@@ -273,7 +273,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     for (const id of ids) {
       if (stopRef.current) break;
       const l = leadsRef.current[id]; if (!l) { st.done++; continue; }
-      const useHunter = !!cfg?.hunter && l.likelihood !== "Low" && !l.hunterTried;
+      const useHunter = !!cfg?.hunter && l.likelihood === "High" && !l.hunterTried;
       st.phase = `Contacts for ${l.business}${useHunter ? " (Hunter)" : ""}…`; setRun({ ...st });
       try {
         const r = await post({ step: "contacts", lead: l, useHunter });
@@ -405,13 +405,13 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
               : <button onClick={() => findLeads()} disabled={cfg?.configured === false || (!areas.length && !place.trim()) || !sectors.length} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find leads</button>}
             <button onClick={() => refreshLeads(list.filter((l) => !["won", "lost", "not-pursuing"].includes(l.status)).map((l) => l.id))} disabled={running || !list.length} title="Re-run the website, search, accounts and contact checks on every open lead with the latest rules (Won, Lost and Not pursuing are skipped). Statuses and notes are kept." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Rescan all leads</button>
             {(() => { const due = list.filter((l) => (l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && l.contactsStamp !== contactsStamp(cfg)); return due.length > 0 && (
-              <button onClick={() => retryContacts(due.map((l) => l.id))} disabled={running} title="The contact finder has improved since these were parked (or Hunter.io was connected). Look again; any that now have an address come back to the board." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-900 hover:bg-red-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Retry contacts ({due.length}{cfg?.hunter ? `, ${due.filter((l) => l.likelihood !== "Low" && !l.hunterTried).length} via Hunter` : ""})</button>
+              <button onClick={() => retryContacts(due.map((l) => l.id))} disabled={running} title="The contact finder has improved since these were parked (or Hunter.io was connected). Look again; any that now have an address come back to the board." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-900 hover:bg-red-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Retry contacts ({due.length}{cfg?.hunter ? `, ${due.filter((l) => l.likelihood === "High" && !l.hunterTried).length} High via Hunter` : ""})</button>
             ); })()}
             <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
           </div>
         </div>
         {cfg?.hunter && cfg.hunterUsage?.cap > 0 && (
-          <p className="mt-2 text-xs text-zinc-500" title="One Hunter credit per lead, spent only on Medium and High leads where the site and Companies House gave no address. Low leads and background lookups never use one.">Hunter credits used this month: <span className={cfg.hunterUsage.used >= cfg.hunterUsage.cap ? "font-semibold text-red-700" : "font-semibold"}>{cfg.hunterUsage.used}</span> of {cfg.hunterUsage.cap}. Spent only on Medium and High leads the free routes couldn&apos;t find an address for.</p>
+          <p className="mt-2 text-xs text-zinc-500" title="One Hunter credit per lead, spent only on High leads where the site and Companies House gave no address. Medium and Low leads and background lookups never use one.">Hunter credits used this month: <span className={cfg.hunterUsage.used >= cfg.hunterUsage.cap ? "font-semibold text-red-700" : "font-semibold"}>{cfg.hunterUsage.used}</span> of {cfg.hunterUsage.cap}. Spent only on High leads the free routes couldn&apos;t find an address for.</p>
         )}
         {cfg?.brave && cfg.usage?.cap > 0 && (
           <p className="mt-2 text-xs text-zinc-500" title="Searches check where each lead ranks for its trade and town (the SEO point in the email) and find websites the name-guess misses. Two per lead; the app stops at the cap so the card is never charged.">Search credit used this month: <span className={cfg.usage.used >= cfg.usage.cap ? "font-semibold text-red-700" : "font-semibold"}>{cfg.usage.used}</span> of {cfg.usage.cap} searches, about {Math.max(0, Math.floor((cfg.usage.cap - cfg.usage.used) / 2))} more leads.</p>
@@ -731,6 +731,7 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, onClose, onChange, onRem
                 {l.seo.searches.map((x, i) => (
                   <li key={i} className="flex flex-wrap items-baseline gap-x-2">
                     <span className="text-zinc-600">“{x.query}”</span>
+                    <a href={`https://www.google.com/search?q=${encodeURIComponent(x.query)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-xs text-blue-700 underline" title="See the live Google results for this search">check on Google <ExternalIcon /></a>
                     {x.error ? <span className="text-red-700">{x.error}</span> : <>
                       <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${x.position === 1 ? "bg-green-100 text-green-800" : x.position && x.position <= 3 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>{x.position ? `#${x.position}` : "Not on page 1"}</span>
                       {x.volume > 0 && <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-700">{x.volume.toLocaleString("en-GB")} searches/month</span>}
