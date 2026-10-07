@@ -275,9 +275,11 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     catch (e) { update(l.id, { checking: false, error: e.message }); }
   }
   // Re-run the finder's checks on existing leads with the latest rules (statuses and notes are kept).
+  const [pendingRescan, setPendingRescan] = useState(() => new Set());
   async function refreshLeads(ids) {
     stopRef.current = false;
     onRunning?.(true);
+    setPendingRescan(new Set(ids)); // hidden from the board until their fresh data is in
     const knownSites = clients.flatMap((c) => c.websites || []).map((w) => String(w).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""));
     const st = { kind: "refresh", phase: "Refreshing leads…", done: 0, total: ids.length, found: 0, errors: [] };
     setRun({ ...st });
@@ -295,10 +297,12 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         if (lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
         if (lead.problem && ["qualified", "contacted", "replied", "meeting"].includes(lead.status)) { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = { ...r.lead, status: lead.status }; } catch {} }
         update(id, lead); st.found++;
+        setPendingRescan((prev) => { const n = new Set(prev); n.delete(id); return n; });
       }
-      catch (e) { if (stopRef.current) { left = [id, ...left]; break; } st.errors.push(`${l.business}: ${e.message}`); }
+      catch (e) { if (stopRef.current) { left = [id, ...left]; break; } st.errors.push(`${l.business}: ${e.message}`); setPendingRescan((prev) => { const n = new Set(prev); n.delete(id); return n; }); }
       st.done++; setRun({ ...st });
     }
+    setPendingRescan(new Set());
     if (stopRef.current && left.length) { saveScan({ kind: "refresh", ids: left, done: st.done, total: st.total, found: st.found }); setPending(loadScan()); } else saveScan(null);
     st.phase = stopRef.current ? `Stopped with ${left.length} leads still to rescan.` : `Done: ${st.found} lead${st.found === 1 ? "" : "s"} refreshed with the latest checks.`;
     setRun({ ...st });
@@ -411,7 +415,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   }, [running]);
 
   const q = filter.trim().toLowerCase();
-  const visible = list.filter((l) => (!q || `${l.business} ${l.area} ${l.website} ${l.problem} ${l.notes || ""}`.toLowerCase().includes(q)) && (!showProblem || l.problem === showProblem));
+  const visible = list.filter((l) => !pendingRescan.has(l.id) && (!q || `${l.business} ${l.area} ${l.website} ${l.problem} ${l.notes || ""}`.toLowerCase().includes(q)) && (!showProblem || l.problem === showProblem));
   const current = open ? leads[open] : null;
 
   return (
@@ -474,7 +478,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           <option value="">All problems</option>
           {PROBLEMS.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
-        <span className="text-xs text-zinc-500">{visible.length} of {list.length} leads · drag a card to change its status</span>
+        <span className="text-xs text-zinc-500">{visible.length} of {list.length} leads · drag a card to change its status{pendingRescan.size ? <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-blue-800">{pendingRescan.size} hidden until rescanned</span> : null}</span>
       </div>
 
       {selected.size > 0 && (
