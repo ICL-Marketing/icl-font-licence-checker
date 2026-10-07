@@ -111,8 +111,12 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   // Pages on icldigital.com the emails link to (shared setting, edited in Settings → Connections).
   const linksRef = useRef({});
   useEffect(() => { fetch("/api/settings?key=lead-links").then((r) => r.json()).then((j) => { if (j.shared && j.value) linksRef.current = j.value; }).catch(() => {}); }, []);
+  // Stop aborts the request in flight as well, so it does not wait for the current company to finish.
+  const abortRef = useRef(null);
+  function stopNow() { stopRef.current = true; try { abortRef.current?.abort(); } catch {} setRun((r) => (r ? { ...r, phase: "Stopping…" } : r)); }
   async function post(body) {
-    const r = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, links: linksRef.current }) });
+    const ctrl = new AbortController(); abortRef.current = ctrl;
+    const r = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, links: linksRef.current }), signal: ctrl.signal }).catch((e) => { if (e?.name === "AbortError") throw new Error("Stopped"); throw e; });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
     return j;
@@ -136,7 +140,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           if (stopRef.current) break;
           let start = 0;
           for (let page = 0; page < 5; page++) {
-            const j = await post({ step: "search", place: pl, sectors, startIndex: start, areas: place.trim() ? [] : areas });
+            let j; try { j = await post({ step: "search", place: pl, sectors, startIndex: start, areas: place.trim() ? [] : areas }); } catch (e) { if (stopRef.current) break; throw e; }
             for (const c of j.candidates) if (!known.has(c.companyNumber)) { known.add(c.companyNumber); candidates.push(c); }
             start += 100;
             st.phase = `Searching ${pl}… ${candidates.length} candidates`; setRun({ ...st });
@@ -161,7 +165,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           if (lead.problem && !tooSmall) { if (["new", "qualified"].includes(lead.status)) st.found++; else st.parked = (st.parked || 0) + 1; update(lead.id, lead); }
           else if (lead.problem) { st.parked = (st.parked || 0) + 1; update(lead.id, { ...lead, status: "not-pursuing" }); }
           // Current sites with no licence problems are not kept: nothing to pitch.
-        } catch (e) { st.done++; st.errors.push(`${c.name}: ${e.message}`); }
+        } catch (e) { if (stopRef.current) break; st.done++; st.errors.push(`${c.name}: ${e.message}`); }
         candidates = candidates.slice(1);
         setRun({ ...st });
       }
@@ -210,7 +214,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         if (lead.problem && ["qualified", "contacted", "replied", "meeting"].includes(lead.status)) { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = { ...r.lead, status: lead.status }; } catch {} }
         update(id, lead); st.found++;
       }
-      catch (e) { st.errors.push(`${l.business}: ${e.message}`); }
+      catch (e) { if (stopRef.current) { left = [id, ...left]; break; } st.errors.push(`${l.business}: ${e.message}`); }
       st.done++; setRun({ ...st });
     }
     if (stopRef.current && left.length) { saveScan({ kind: "refresh", ids: left, done: st.done, total: st.total, found: st.found }); setPending(loadScan()); } else saveScan(null);
@@ -330,7 +334,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
               <button onClick={continueScan} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white"><PlayIcon className="h-4 w-4" /> Continue {pending.kind === "refresh" ? "rescan" : "scan"} ({(pending.queue || pending.ids || []).length} left)</button>
             )}
             {running
-              ? <button onClick={() => { stopRef.current = true; }} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
+              ? <button onClick={stopNow} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
               : <button onClick={() => findLeads()} disabled={cfg?.configured === false || (!areas.length && !place.trim()) || !sectors.length} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find leads</button>}
             <button onClick={() => refreshLeads(list.filter((l) => !["won", "lost", "not-pursuing"].includes(l.status)).map((l) => l.id))} disabled={running || !list.length} title="Re-run the website, search, accounts and contact checks on every open lead with the latest rules (Won, Lost and Not pursuing are skipped). Statuses and notes are kept." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Rescan all leads</button>
             <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
