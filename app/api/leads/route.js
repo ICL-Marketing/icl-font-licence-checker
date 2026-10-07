@@ -56,6 +56,15 @@ export async function POST(request) {
       if (!l.business) return Response.json({ error: "Needs a business name." }, { status: 400 });
       const seo = await seoCheck({ business: l.business, website: l.website, area: l.area, sics: l.sics });
       const lead = { ...l, seo };
+      // A current site that is not found for its own trade is a lead in itself: that is business going elsewhere.
+      const trade = seo.searches.find((x) => x.kind === "trade" && !x.error);
+      if (!lead.problem && lead.website && trade && (trade.position === null || trade.position > 3)) {
+        lead.problem = "Low search visibility";
+        lead.problemDetail = `${trade.position ? `#${trade.position}` : "Not on page 1"} for "${trade.query}"`;
+        try { if (!lead.contactsTried) { const ct = await findContacts({ companyNumber: lead.companyNumber, website: lead.website, business: lead.business }); lead.contacts = ct.people; lead.channels = ct.channels; lead.contactsAt = ct.contactsAt; lead.contactsTried = true; const best = ct.people.find((p) => p.email); if (best && !lead.emailAddress) { lead.emailAddress = best.email; lead.contactName = lead.contactName || best.name.split(" ")[0]; } } } catch {}
+        if (!lead.emailAddress) { lead.contactUnverified = true; lead.status = "no-contact"; }
+        else if (lead.status === "not-pursuing" && /current/i.test(lead.likelihoodWhy || "")) lead.status = "qualified";
+      }
       if (!l.website && seo.foundWebsite) {
         const w = await checkWebsite(seo.foundWebsite);
         Object.assign(lead, { website: seo.foundWebsite, problem: w.problem, problemDetail: w.detail, platform: w.platform || "", year: w.year || 0, title: w.title || "", siteUrl: w.siteUrl || "", caveats: [l.caveats, "Website found by web search, not by name; double-check it is theirs"].filter(Boolean).join("; ") });
