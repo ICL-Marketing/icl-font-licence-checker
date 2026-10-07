@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { loadTeam, normaliseTeam } from "@/app/team";
 import { loadClients } from "@/app/clients";
 import { scanFonts, scanImages } from "@/app/scans";
-import { isEmbeddedIconFont, isFreeFontAwesome, issueLabel, mergeImageSizes } from "@/lib/fontlink";
+import { isEmbeddedIconFont, isFreeFontAwesome, issueLabel, mergeImageSizes, fixedFix, freeRouteLink } from "@/lib/fontlink";
 import { isFreeLib } from "@/lib/email";
 import { clientForSite, normaliseClients, teamMemberForManager } from "@/lib/clients";
 import { evaluateLaunch, CHECK_STAGES } from "@/lib/launchChecks";
@@ -301,7 +301,7 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
           progress("Checking font licences", 0, 1, "fonts");
           let f = {};
           await scanFonts(post, siteKey, (fields) => { f = { ...f, ...fields }; onSiteResult?.(siteKey, fields); });
-          w.fontScan = { status: f.status, error: f.error || "", fonts: (f.fonts || []).filter((x) => (x.status === "PROBLEM" || x.status === "CHECK") && !isEmbeddedIconFont(x) && !isFreeFontAwesome(x)).map((x) => ({ family: x.family, status: x.status, label: issueLabel(x), note: x.note, source: x.source })), okCount: (f.fonts || []).filter((x) => x.status === "OK").length };
+          w.fontScan = { status: f.status, error: f.error || "", fonts: (f.fonts || []).filter((x) => (x.status === "PROBLEM" || x.status === "CHECK") && !isEmbeddedIconFont(x) && !isFreeFontAwesome(x)).map((x) => ({ family: x.family, status: x.status, label: issueLabel(x), note: x.note, source: x.source, styles: x.styles || [], kind: x.kind || "", hostedOn: x.hostedOn || "", fix: fixedFix(x), fixUrl: freeRouteLink(x) })), okCount: (f.fonts || []).filter((x) => x.status === "OK").length };
           progress("Checking font licences", 1, 1, "fonts");
         }
         if (!w.imageScan) {
