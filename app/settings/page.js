@@ -154,6 +154,11 @@ export default function Settings() {
                 </>}
           </section>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+            <h2 className="font-semibold">Email links</h2>
+            <p className="mb-3 text-sm text-zinc-500">Pages on icldigital.com that lead emails link to. Change one here if a page moves; emails redraft on the next rescan.</p>
+            <LinksEditor />
+          </section>
+          <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
             <h2 className="font-semibold">Google search (optional)</h2>
             <p className="mb-3 text-sm text-zinc-500">Website Leads checks where each business ranks for its name and trade. Without a key it uses DuckDuckGo, which can block busy sessions; Google&apos;s Programmable Search gives 100 reliable searches a day free.</p>
             {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.googleSearch
@@ -230,6 +235,27 @@ function StatusPanel({ status }) {
           <p className="mt-2 text-xs">Scans already in this browser are uploaded to the shared store the first time the checker loads after connecting.</p>
         </div>
       )}
+    </div>
+  );
+}
+
+const LINK_DEFAULTS = { site: "https://icldigital.com/", websites: "https://icldigital.com/services/websites/", videography: "https://icldigital.com/services/videography/", contact: "https://icldigital.com/get-in-touch/" };
+const LINK_LABELS = { site: "Homepage", websites: "Websites service page", videography: "Videography service page", contact: "Contact page" };
+function LinksEditor() {
+  const [links, setLinks] = useState(LINK_DEFAULTS);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => { fetch("/api/settings?key=lead-links").then((r) => r.json()).then((j) => { if (j.shared && j.value) setLinks({ ...LINK_DEFAULTS, ...j.value }); }).catch(() => {}); }, []);
+  async function save() {
+    await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "lead-links", value: links }) }).catch(() => {});
+    setSaved(true); setTimeout(() => setSaved(false), 1500);
+  }
+  return (
+    <div className="space-y-2">
+      {Object.keys(LINK_DEFAULTS).map((k) => (
+        <label key={k} className="block text-sm"><span className="text-xs font-semibold text-zinc-600">{LINK_LABELS[k]}</span>
+          <input value={links[k] || ""} onChange={(e) => setLinks({ ...links, [k]: e.target.value })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
+      ))}
+      <button onClick={save} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{saved ? "Saved" : "Save links"}</button>
     </div>
   );
 }

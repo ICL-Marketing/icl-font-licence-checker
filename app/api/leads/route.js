@@ -13,6 +13,7 @@ export async function GET() {
 //   recheck {website, business, ...lead}        -> re-run the website check and redraft
 export async function POST(request) {
   const b = await request.json().catch(() => ({}));
+  const links = b.links && typeof b.links === "object" ? b.links : {};
   try {
     if (b.step === "contacts") {
       const l = b.lead || {};
@@ -22,7 +23,7 @@ export async function POST(request) {
     }
     if (b.step === "refresh") {
       if (!b.lead?.business) return Response.json({ error: "lead required" }, { status: 400 });
-      const lead = await leadsRefresh(b.lead, { knownSites: new Set((Array.isArray(b.knownSites) ? b.knownSites : []).map((s) => String(s).toLowerCase().replace(/^www\./, ""))) });
+      const lead = await leadsRefresh({ ...b.lead, links }, { knownSites: new Set((Array.isArray(b.knownSites) ? b.knownSites : []).map((s) => String(s).toLowerCase().replace(/^www\./, ""))) });
       return Response.json({ lead });
     }
     if (b.step === "seo") {
@@ -35,7 +36,7 @@ export async function POST(request) {
       // Fresh drafts for several leads at once (no network, so cheap). Hand-edited emails are left alone.
       const leads = (Array.isArray(b.leads) ? b.leads : []).slice(0, 200).map((l) => {
         if (!l.problem || l.emailEdited) return l;
-        const d = draftOutreach(l);
+        const d = draftOutreach({ ...l, links });
         return { ...l, emailPrevious: l.email && l.email !== d.email ? l.email : l.emailPrevious, subject: d.subject, pitch: l.source === "Client Matrix v4.1" && l.pitch ? l.pitch : d.pitch, email: d.email, draftVersion: d.draftVersion };
       });
       return Response.json({ leads });
@@ -44,8 +45,8 @@ export async function POST(request) {
       // Fresh subject, pitch and email from the lead as it stands (works without a website).
       const lead = { ...b.lead };
       if (!lead.problem) return Response.json({ error: "Nothing to pitch: the site is marked as current." }, { status: 400 });
-      const d = draftOutreach(lead);
-      return Response.json({ lead: { ...lead, subject: d.subject, pitch: d.pitch, email: d.email } });
+      const d = draftOutreach({ ...lead, links });
+      return Response.json({ lead: { ...lead, subject: d.subject, pitch: d.pitch, email: d.email, draftVersion: d.draftVersion } });
     }
     if (b.step === "recheck") {
       const lead = { ...b.lead };
@@ -53,7 +54,7 @@ export async function POST(request) {
       const w = await checkWebsite(lead.website);
       Object.assign(lead, { problem: w.problem, problemDetail: w.detail, platform: w.platform || "", year: w.year || 0, title: w.title || "", siteUrl: w.siteUrl || "" });
       if (!lead.emailAddress) lead.emailAddress = await findEmail(lead.website, "").catch(() => "");
-      if (lead.problem) { Object.assign(lead, scoreLead(lead)); if (!lead.email || b.redraft) { const d = draftOutreach(lead); Object.assign(lead, { subject: d.subject, pitch: d.pitch, email: d.email }); } }
+      if (lead.problem) { Object.assign(lead, scoreLead(lead)); if (!lead.email || b.redraft) { const d = draftOutreach({ ...lead, links }); Object.assign(lead, { subject: d.subject, pitch: d.pitch, email: d.email, draftVersion: d.draftVersion }); } }
       else { lead.likelihood = "Low"; lead.likelihoodWhy = "Site is current; no outreach planned"; }
       lead.checkedAt = new Date().toISOString();
       return Response.json({ lead });
@@ -69,7 +70,7 @@ export async function POST(request) {
     }
     if (b.step === "enrich") {
       if (!b.company?.companyNumber) return Response.json({ error: "company required" }, { status: 400 });
-      const lead = await leadsEnrich(b.company, { knownSites: new Set((Array.isArray(b.knownSites) ? b.knownSites : []).map((s) => String(s).toLowerCase().replace(/^www\./, ""))) });
+      const lead = await leadsEnrich({ ...b.company, links }, { knownSites: new Set((Array.isArray(b.knownSites) ? b.knownSites : []).map((s) => String(s).toLowerCase().replace(/^www\./, ""))) });
       return Response.json({ lead });
     }
     return Response.json({ error: "unknown step" }, { status: 400 });

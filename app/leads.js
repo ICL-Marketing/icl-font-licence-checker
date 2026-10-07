@@ -94,8 +94,11 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const openLeads = list.filter((l) => ["new", "qualified", "replied"].includes(l.status)).length;
   useEffect(() => { onCount?.(openLeads); }, [openLeads, onCount]);
 
+  // Pages on icldigital.com the emails link to (shared setting, edited in Settings → Connections).
+  const linksRef = useRef({});
+  useEffect(() => { fetch("/api/settings?key=lead-links").then((r) => r.json()).then((j) => { if (j.shared && j.value) linksRef.current = j.value; }).catch(() => {}); }, []);
   async function post(body) {
-    const r = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const r = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, links: linksRef.current }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
     return j;
@@ -176,7 +179,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     redraftingRef.current = true;
     (async () => {
       try {
-        const r = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ step: "redraft-many", leads: stale }) });
+        const r = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ step: "redraft-many", leads: stale, links: linksRef.current }) });
         const j = await r.json();
         for (const l of j.leads || []) update(l.id, { ...l, draftVersion: DRAFT_VERSION });
       } catch {}
@@ -510,11 +513,6 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onS
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold">Outreach email</span>
               <span className="ml-auto flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1 text-[11px] text-amber-900">Attach:</span>
-                {!l.noVideoPitch && (
-                  <a href="/brochures/ICL-Digital-Videography.pdf" download="ICL Digital - Videography.pdf" title="The email says the videography brochure is attached. Download it here, then drop it into the Outlook message." className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100"><DownloadIcon className="h-3.5 w-3.5" /> Videography</a>
-                )}
-                <a href="/brochures/ICL-Digital-Packages.pdf" download="ICL Digital - Packages.pdf" title="Our packages brochure, worth attaching when they ask about price or scope." className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100"><DownloadIcon className="h-3.5 w-3.5" /> Packages</a>
                 <a href={outlook} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100"><MailIcon className="h-3.5 w-3.5" /> Open in Outlook</a>
                 <button onClick={copy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy email</>}</button>
               </span>
@@ -538,7 +536,7 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onS
             <button onClick={() => onRefresh()} disabled={l.checking} className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2.5 py-1 font-medium text-white disabled:opacity-40"><RefreshIcon className="h-3.5 w-3.5" /> Rescan this lead</button>
             {l.website && <button onClick={() => onRecheck(false)} disabled={l.checking} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-3.5 w-3.5" /> Re-check website</button>}
             {l.problem && <button onClick={() => onRecheck(true)} disabled={l.checking} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 hover:bg-zinc-100 disabled:opacity-40"><PlayIcon className="h-3.5 w-3.5" /> Redraft email</button>}
-            {l.problem && <label className="inline-flex items-center gap-1 text-zinc-600"><input type="checkbox" checked={!l.noVideoPitch} onChange={(e) => onChange({ noVideoPitch: !e.target.checked })} className="h-3.5 w-3.5" /> Mention hero video + brochure (applies on redraft)</label>}
+            {l.problem && <label className="inline-flex items-center gap-1 text-zinc-600"><input type="checkbox" checked={!l.noVideoPitch} onChange={(e) => onChange({ noVideoPitch: !e.target.checked })} className="h-3.5 w-3.5" /> Mention hero video (applies on redraft)</label>}
             {l.checking && <span className="inline-flex items-center gap-1 text-blue-700"><SpinnerIcon className="h-3.5 w-3.5" /> Working…</span>}
             {l.error && <span className="text-red-700">{l.error}</span>}
             {l.checkedAt && !l.checking && <span className="text-zinc-500">Checked {new Date(l.checkedAt).toLocaleDateString("en-GB")}</span>}
