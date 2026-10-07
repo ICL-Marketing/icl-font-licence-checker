@@ -517,7 +517,6 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onS
                 <button onClick={copy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy email</>}</button>
               </span>
             </div>
-            {!l.noVideoPitch && <p className="mt-1 text-[11px] text-amber-800">The email mentions the videography brochure as attached. Outlook on the web can&apos;t attach it for you: download it with the button above and drop it into the message before sending.</p>}
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">To</div>
                 <input value={l.emailAddress || ""} onChange={(e) => onChange({ emailAddress: e.target.value })} placeholder={l.emailNote || "email address"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
