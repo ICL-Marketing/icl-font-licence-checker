@@ -193,7 +193,7 @@ export default function Settings() {
             {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.keywords
               ? <><StatusRow ok label="Keyword Planner connected" detail="volumes are looked up during the search step and cached for 90 days" /><KeywordTest /></>
               : <>
-                  <StatusRow ok={false} label="Not connected" detail="emails use the manual volumes below, or no figure" />
+                  <StatusRow ok={false} label="Not connected" detail="emails say 'the search most new customers make' instead of a figure" />
                   <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-700">
                     <li><b>Developer token:</b> in Google Ads, switch to (or create) a <b>Manager account</b> → Admin → <b>API Center</b> → copy the developer token, then click <b>Apply for Basic access</b>. Google usually approves an agency in 1–3 working days; test-account access is not enough.</li>
                     <li><b>OAuth client:</b> at console.cloud.google.com create a project → APIs &amp; Services → <b>Credentials</b> → Create credentials → <b>OAuth client ID</b> → type <b>Desktop app</b>. Copy the client ID and secret. Under OAuth consent screen add your Google account as a test user.</li>
@@ -280,27 +280,23 @@ function LinksEditor() {
   const [links, setLinks] = useState(LINK_DEFAULTS);
   const [sender, setSender] = useState(SENDER_DEFAULTS);
   const [clients, setClients] = useState(CLIENT_DEFAULTS);
-  const [volumes, setVolumes] = useState("");
   const [subjects, setSubjects] = useState(SUBJECT_DEFAULTS);
   const [followUp, setFollowUp] = useState({ chaseDays: 7, coldDays: 21, lostDays: 60 });
-  const [seen, setSeen] = useState([]);
   const [saved, setSaved] = useState(false);
   useEffect(() => {
     fetch("/api/settings?key=lead-links").then((r) => r.json()).then((j) => {
       if (!(j.shared && j.value)) return;
       const { sender: sn, clients: cl, volumes: vo, subjects: su, followUp: fu, ...rest } = j.value;
+      void vo; // manual volumes are no longer edited here; Keyword Planner supplies them automatically
       if (fu && typeof fu === "object") setFollowUp({ chaseDays: 7, coldDays: 21, lostDays: 60, ...fu });
       if (su && typeof su === "object") setSubjects({ ...SUBJECT_DEFAULTS, ...su });
       setLinks({ ...LINK_DEFAULTS, ...rest });
-      if (vo && typeof vo === "object") setVolumes(Object.entries(vo).map(([q, n]) => `${q} | ${n}`).join("\n"));
       if (sn) setSender({ ...SENDER_DEFAULTS, ...sn });
       if (Array.isArray(cl) && cl.length) setClients(cl.map((c) => [c.name, c.url, c.town, [...(c.near || []), ...(c.flagship ? ["flagship"] : [])].join(", ")].join(" | ")).join("\n"));
     }).catch(() => {});
-    fetch("/api/settings?key=queries-seen").then((r) => r.json()).then((j) => { if (j.shared && j.value) setSeen(Object.keys(j.value).sort()); }).catch(() => {});
   }, []);
-  const parseVolumes = (t) => Object.fromEntries(t.split(/\n/).map((line) => line.split("|").map((x) => x.trim())).filter((p) => p[0] && Number(p[1]) > 0).map(([q, n]) => [q.toLowerCase(), Number(n)]));
   async function save() {
-    await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "lead-links", value: { ...links, sender, clients: parseClients(clients), volumes: parseVolumes(volumes), subjects, followUp: { chaseDays: Number(followUp.chaseDays) || 7, coldDays: Number(followUp.coldDays) || 21, lostDays: Number(followUp.lostDays) || 60 } } }) }).catch(() => {});
+    await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "lead-links", value: { ...links, sender, clients: parseClients(clients), subjects, followUp: { chaseDays: Number(followUp.chaseDays) || 7, coldDays: Number(followUp.coldDays) || 21, lostDays: Number(followUp.lostDays) || 60 } } }) }).catch(() => {});
     setSaved(true); setTimeout(() => setSaved(false), 1500);
   }
   return (
@@ -339,15 +335,6 @@ function LinksEditor() {
           ))}
         </div>
       </div>
-      <label className="block text-sm"><span className="text-xs font-semibold text-zinc-600">Monthly search volumes</span>
-        <span className="block text-[11px] text-zinc-500">One per line: search | people a month. Used in the email as &quot;Around 140 people a month make that exact search&quot;. Get the numbers free from Google Ads → Tools → Keyword Planner → Discover new keywords (UK, exact phrase); a figure only goes in an email when its search matches exactly.</span>
-        <textarea value={volumes} onChange={(e) => setVolumes(e.target.value)} rows={5} placeholder={"plumber teddington | 140\ncafe twickenham | 320"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" /></label>
-      {seen.length > 0 && (
-        <details className="text-xs text-zinc-600"><summary className="cursor-pointer">Searches the scans have used so far ({seen.length}), to look up in Keyword Planner</summary>
-          <div className="mt-1 flex flex-wrap gap-1">{seen.filter((q) => !parseVolumes(volumes)[q]).map((q) => <span key={q} className="rounded bg-zinc-100 px-1.5 py-0.5">{q}</span>)}</div>
-          <button onClick={() => { try { navigator.clipboard.writeText(seen.filter((q) => !parseVolumes(volumes)[q]).join("\n")); } catch {} }} className="mt-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] hover:bg-zinc-100">Copy the ones without a number</button>
-        </details>
-      )}
       <button onClick={save} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{saved ? "Saved" : "Save"}</button>
     </div>
   );
