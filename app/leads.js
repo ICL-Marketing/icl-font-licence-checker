@@ -548,7 +548,7 @@ function TextField({ label, value, onChange, rows = 2, mono = false }) {
 // Pick a person: their address goes in To and the greeting uses their first name.
 function pickPerson(l, p, onChange) {
   const first = p.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0];
-  const email = p.email || p.emailGuess || l.emailAddress || "";
+  const email = p.email || l.emailAddress || "";
   const body = String(l.email || "").replace(/^Hi( there| [A-Z][a-z'’-]+)?,/, `Hi ${first},`);
   const verified = !!p.email;
   onChange({ emailAddress: email, contactName: first, email: body, ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && verified ? { status: l.likelihood === "Low" ? "new" : "qualified", contactUnverified: false } : {}) });
@@ -570,7 +570,7 @@ function Contacts({ l, onChange, onContacts }) {
             <li key={i} className="flex flex-wrap items-start gap-x-3 gap-y-1 py-2 text-sm">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="font-medium">{p.name}</span>
+                  <span className={`font-medium ${p.email ? "" : "text-red-700"}`} title={p.email ? "" : "No verified email address found for this person"}>{p.name}</span>
                   <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">{p.role}</span>
                   <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600">{p.source}</span>
                 </div>
@@ -578,12 +578,11 @@ function Contacts({ l, onChange, onContacts }) {
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
                   {p.email && <span className="text-green-800">{p.email} <span className="text-zinc-500">· {p.emailStatus}</span></span>}
                   {p.linkedin && <a href={/^https?:/.test(p.linkedin) ? p.linkedin : `https://${p.linkedin}`} target="_blank" rel="noreferrer" className="text-blue-700 underline">LinkedIn profile</a>}
-                  {!p.email && p.emailGuess && <span className="font-medium text-red-700">{p.emailGuess} <span className="font-normal text-red-600">· {p.emailStatus}</span></span>}
                   <a href={p.linkedinSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Find on LinkedIn</a>
                   <a href={p.googleSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Google</a>
                 </div>
               </div>
-              <button onClick={() => pickPerson(l, p, onChange)} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100" title="Put this person in To and the greeting">Email this person</button>
+              {p.email && <button onClick={() => pickPerson(l, p, onChange)} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100" title="Put this person in To and the greeting">Email this person</button>}
             </li>
           ))}
         </ul>
