@@ -250,7 +250,7 @@ function groupFindings(findings) {
   return [...groups.values()];
 }
 // A finding's identity survives rescans: the check plus the Figma layer id in its link.
-const findingKey = (f) => `${f.id}|${(String(f.href || "").match(/node-id=([^&]+)/) || [])[1] || f.node}`;
+const findingKey = (f) => { let n = (String(f.href || "").match(/node-id=([^&]+)/) || [])[1] || f.node; try { n = decodeURIComponent(n); } catch {} return `${f.id}|${n}`; };
 const score = (s, dismissed = {}) => (s.findings || []).reduce((n, f) => n + (dismissed[findingKey(f)] ? 0 : f.level === "fail" ? 100 : f.level === "warn" ? 10 : 1), 0);
 
 function ScreenRow({ s, dismissed = {}, onDismiss }) {
