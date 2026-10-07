@@ -222,6 +222,27 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     setRun({ ...st });
     onRunning?.(false);
   }
+  // Parked for "contact not verified": look for contacts again (new decoding, Hunter) and bring back any that now have an address.
+  async function retryContacts(ids) {
+    stopRef.current = false; onRunning?.(true); setPending(null);
+    const st = { phase: "Looking for contacts again…", done: 0, total: ids.length, found: 0, errors: [] };
+    setRun({ ...st });
+    for (const id of ids) {
+      if (stopRef.current) break;
+      const l = leadsRef.current[id]; if (!l) { st.done++; continue; }
+      st.phase = `Contacts for ${l.business}…`; setRun({ ...st });
+      try {
+        const r = await post({ step: "contacts", lead: l });
+        const best = r.people.find((p) => p.email) || null; const generic = r.channels.find((c) => c.kind === "email");
+        const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true };
+        if (best || generic) { f.emailAddress = best ? best.email : generic.value; if (best) f.contactName = l.contactName || best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; f.contactUnverified = false; f.status = l.likelihood === "Low" ? "new" : "qualified"; st.found++; }
+        update(id, f);
+      } catch (e) { if (stopRef.current) break; st.errors.push(`${l.business}: ${e.message}`); }
+      st.done++; setRun({ ...st });
+    }
+    st.phase = stopRef.current ? "Stopped." : `Done: ${st.found} of ${st.done} parked leads now have a contact and are back on the board.`;
+    setRun({ ...st }); onRunning?.(false);
+  }
   function continueScan() {
     const sc = pending || loadScan();
     if (!sc) return;
@@ -337,6 +358,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
               ? <button onClick={stopNow} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
               : <button onClick={() => findLeads()} disabled={cfg?.configured === false || (!areas.length && !place.trim()) || !sectors.length} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find leads</button>}
             <button onClick={() => refreshLeads(list.filter((l) => !["won", "lost", "not-pursuing"].includes(l.status)).map((l) => l.id))} disabled={running || !list.length} title="Re-run the website, search, accounts and contact checks on every open lead with the latest rules (Won, Lost and Not pursuing are skipped). Statuses and notes are kept." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Rescan all leads</button>
+            {list.some((l) => l.status === "not-pursuing" && l.contactUnverified) && (
+              <button onClick={() => retryContacts(list.filter((l) => l.status === "not-pursuing" && l.contactUnverified).map((l) => l.id))} disabled={running} title="Look again for contacts on every lead parked as 'contact not verified'. Any that now have an address come back to the board." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-900 hover:bg-red-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Retry contacts ({list.filter((l) => l.status === "not-pursuing" && l.contactUnverified).length})</button>
+            )}
             <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
           </div>
         </div>
