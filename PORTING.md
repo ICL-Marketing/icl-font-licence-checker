@@ -33,7 +33,7 @@ inside the PHP max execution time.
 | `POST /api/launch` step `psi` | `{url}` | compact Google PageSpeed result | `lib/launch.js` → `psiAudit()`, `compactPsi()` |
 | `POST /api/export` | `{kind, results}` or `{kind:"launch", launch}` | `.xlsx` | `app/api/export/route.js` (ExcelJS → PhpSpreadsheet) |
 | `POST /api/signoff-log` | `{site, url, scannedAt, checks, signed, log}` | `.docx` | `app/api/signoff-log/route.js` (docx → PhpWord) |
-| `GET/POST /api/signoffs`, `/api/team` | | shared sign-offs / team names | `lib/store.js` (replace with DB tables) |
+| `GET/POST /api/signoffs`, `/api/team` | | shared sign-offs / team names | `lib/store.js` (Upstash REST or any redis:// via ioredis; replace with DB tables) |
 | `GET/POST /api/settings?key=marker\|email-edits` | | shared Marker.io project links and edited email wording | `lib/store.js` `getSetting/setSetting` (one JSON column per key) |
 | `GET /api/status` | | is the login set and the store reachable | `lib/store.js` `pingStore`, `lib/auth.js` |
 | `GET/POST /api/clients` | | shared client list (name, websites, account manager, contacts, emails) | `lib/clients.js`, `data/clients.json` (seed from the Web Clients sheet) |

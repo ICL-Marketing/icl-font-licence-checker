@@ -185,8 +185,8 @@ function StatusPanel({ status }) {
           <p className="font-medium">To turn this on (about 5 minutes, free):</p>
           <ol className="mt-1 list-decimal space-y-1 pl-5">
             {!storeOk && !st.configured && (<>
-              <li>In Vercel open the project → <b>Storage</b> tab → <b>Create Database</b> → choose <b>Upstash</b> → <b>Redis</b> → Free plan.</li>
-              <li>Connect it to this project (all environments). Vercel adds <code>KV_REST_API_URL</code> and <code>KV_REST_API_TOKEN</code> automatically.</li>
+              <li>In Vercel open the project → <b>Storage</b> tab → <b>Create Database</b> → <b>Redis</b> (Redis Cloud) or <b>Upstash</b> → Free plan.</li>
+              <li>Connect it to this project (all environments). Vercel adds the connection variables automatically.</li>
             </>)}
             {!status.login && <li>Project → <b>Settings</b> → <b>Environment Variables</b>: add <code>CHECKER_PASSWORD</code> with the password the team will share.</li>}
             <li>Deployments → <b>Redeploy</b> the latest deployment (a new deployment is needed before it can see new variables), then reload this page.</li>
@@ -194,7 +194,7 @@ function StatusPanel({ status }) {
           {!storeOk && (
             <p className="mt-2 text-xs">
               {st.vars?.length
-                ? <>Storage variables this deployment can see: <code>{st.vars.join(", ")}</code>. {st.configured ? "" : "None of these is a REST URL + token pair, so the store was probably created as a different type (it needs an Upstash Redis store, which gives a REST URL and token)."}</>
+                ? <>Storage variables this deployment can see: <code>{st.vars.join(", ")}</code>. {st.configured ? "" : "None of these is a Redis connection, so the store was probably created as a different type (it needs a Redis store)."}</>
                 : "This deployment can't see any storage variables yet. If the store is connected in Vercel, it was connected after this deployment was built: redeploy."}
             </p>
           )}
