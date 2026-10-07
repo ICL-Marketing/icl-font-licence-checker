@@ -4,6 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { PlayIcon, StopIcon, RefreshIcon, TrashIcon, ChevronDownIcon, ChevronUpIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, InfoIcon } from "@/app/icons";
 import { CHECK_NAMES } from "@/lib/figma";
 
+// "CreativeZooSans-RegularItalic" under the family "Creative Zoo Sans" reads as "Regular Italic".
+function styleLabel(fam, st) {
+  let t = String(st);
+  for (const f of [fam, fam.replace(/\s+/g, ""), fam.replace(/\s+/g, "-")]) if (f && t.toLowerCase().startsWith(f.toLowerCase())) { t = t.slice(f.length); break; }
+  t = t.replace(/^[-_ ]+/, "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[-_]+/g, " ").trim();
+  return t || "Regular";
+}
+
 // Accessibility checks on Figma designs, before anything is coded.
 // One run per Figma link; each run keeps a result per screen (top-level frame).
 const RUNS_KEY = "flc-design-v1";
@@ -254,7 +262,10 @@ function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemo
                     const tone = { free: "bg-green-100 text-green-800", paid: "bg-red-100 text-red-800", check: "bg-amber-100 text-amber-800" }[c?.status] || "bg-zinc-100 text-zinc-600";
                     return (
                       <tr key={fam} className="border-t border-zinc-100 align-top">
-                        <td className="py-1 pr-2 whitespace-nowrap"><span className="font-medium">{fam}</span> <span className="text-zinc-500">{[...styles].join(", ")}</span></td>
+                        <td className="py-1 pr-2">
+                          <div className="font-medium whitespace-nowrap">{fam}</div>
+                          {styles.size > 0 && <div className="mt-0.5 flex flex-wrap gap-1">{[...styles].sort().map((st) => <span key={st} className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600" title={st}>{styleLabel(fam, st)}</span>)}</div>}
+                        </td>
                         <td className="py-1 pr-2 whitespace-nowrap">{c ? (c.link ? <a href={c.link} target="_blank" rel="noreferrer" className={`rounded px-1.5 py-0.5 font-semibold ${tone}`}>{c.label} ↗</a> : <span className={`rounded px-1.5 py-0.5 font-semibold ${tone}`}>{c.label}</span>) : <span className="text-zinc-400">Not checked yet, run Check again</span>}</td>
                         <td className="py-1 text-zinc-600">{c?.note}{c?.searchGoogle && <> <a href={c.searchGoogle} target="_blank" rel="noreferrer" className="text-blue-700 underline">Search Google Fonts</a></>}</td>
                       </tr>

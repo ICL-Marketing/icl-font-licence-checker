@@ -1,4 +1,4 @@
-import { searchUsage, hunterUsage, applyTradingAddress, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
+import { verifyWebsite, websiteIsVerified, searchUsage, hunterUsage, applyTradingAddress, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 50;
@@ -28,7 +28,7 @@ export async function POST(request) {
       const l = b.lead || {};
       if (!l.companyNumber && !l.website) return Response.json({ error: "Needs a company number or a website." }, { status: 400 });
       if (l.companyNumber && !leadsConfigured()) return Response.json({ error: "Companies House is not set up (Settings → Connections), so only the website can be searched." }, { status: 400 });
-      const ct = await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business, useHunter: !!b.useHunter, forceHunter: !!b.forceHunter });
+      const ct = await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business, employees: l.employees, websiteVerified: websiteIsVerified(l), useHunter: !!b.useHunter, forceHunter: !!b.forceHunter });
       const patch = { postcode: l.postcode, area: l.area, caveats: l.caveats || "" };
       applyTradingAddress(patch, ct.tradingAddress, null);
       return Response.json({ ...ct, tradingPostcode: patch.tradingPostcode || "", tradingAddressText: patch.tradingAddress || "", tradesElsewhere: !!patch.tradesElsewhere, caveats: patch.caveats });
@@ -54,7 +54,7 @@ export async function POST(request) {
     if (b.step === "seo") {
       const l = b.lead || {};
       if (!l.business) return Response.json({ error: "Needs a business name." }, { status: 400 });
-      const seo = await seoCheck({ business: l.business, website: l.website, area: l.area, sics: l.sics });
+      const seo = await seoCheck({ business: l.business, website: l.website, area: l.area, sics: l.sics, companyNumber: l.companyNumber, rejectedSites: l.rejectedSites || [] });
       const lead = { ...l, seo };
       // A current site that is not found for its own trade is a lead in itself: that is business going elsewhere.
       const trade = seo.searches.find((x) => x.kind === "trade" && !x.error);
@@ -88,6 +88,13 @@ export async function POST(request) {
       if (!lead.problem) return Response.json({ error: "Nothing to pitch: the site is marked as current." }, { status: 400 });
       const d = draftOutreach({ ...lead, links }, b.person || null);
       return Response.json({ lead: { ...lead, subject: d.subject, pitch: d.pitch, email: d.email, issueId: d.issueId, draftVersion: d.draftVersion } });
+    }
+    if (b.step === "verify-site") {
+      // Free: does the site carry this company's number, registered postcode or a director's name?
+      const l = b.lead || {};
+      if (!l.website) return Response.json({ error: "No website on this lead." }, { status: 400 });
+      const v = await verifyWebsite({ website: l.website, companyNumber: l.companyNumber, postcode: l.postcode });
+      return Response.json(v);
     }
     if (b.step === "recheck") {
       const lead = { ...b.lead };

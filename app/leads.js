@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, firstNameOf, GENERIC_BOX_RE } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, firstNameOf, GENERIC_BOX_RE, websiteIsVerified } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 
 // Website leads: local businesses whose site is letting them down, found
@@ -79,7 +79,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       // Dormant companies scored before the rule existed: Low, parked, with the reason.
       for (const l of Object.values(local)) if (/dormant/i.test(l.caveats || "") && (l.likelihood !== "Low" || !/dormant/i.test(l.likelihoodWhy || ""))) { l.likelihood = "Low"; l.likelihoodWhy = "Filed as dormant at Companies House, so not trading through this company; nothing to sell to"; if (["new", "qualified", "no-contact"].includes(l.status)) l.status = "not-pursuing"; l.updatedAt = new Date().toISOString(); }
       // A lead with nothing to pitch (site current, no licence risk) does not belong in an open column.
-      for (const l of Object.values(local)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); }
+      for (const l of Object.values(local)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status) && websiteIsVerified(l)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); }
       // Open leads with no verified email address are parked, whatever column they were in.
       for (const l of Object.values(local)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried) && ["new", "qualified"].includes(l.status)) { l.contactUnverified = true; l.status = parkStatus(l); l.updatedAt = new Date().toISOString(); }
       // Contact not verified, and every route tried: nothing more to do, so park it.
@@ -99,7 +99,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const [id, l] of Object.entries(j.results || {})) { if (!next[id] || String(l.updatedAt || "") >= String(next[id].updatedAt || "")) next[id] = l; }
         for (const l of Object.values(next)) if (l.email && !l.email.includes("\n\n")) l.email = l.email.trim().replace(/\n+/g, "\n\n");
         for (const l of Object.values(next)) if (/dormant/i.test(l.caveats || "") && (l.likelihood !== "Low" || !/dormant/i.test(l.likelihoodWhy || ""))) { l.likelihood = "Low"; l.likelihoodWhy = "Filed as dormant at Companies House, so not trading through this company; nothing to sell to"; if (["new", "qualified", "no-contact"].includes(l.status)) l.status = "not-pursuing"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
-        for (const l of Object.values(next)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status) && websiteIsVerified(l)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried) && ["new", "qualified"].includes(l.status)) { l.contactUnverified = true; l.status = parkStatus(l); l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "no-contact" && contactExhausted(l)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.contactName && !firstNameOf(l.contactName)) { l.contactName = ""; l.updatedAt = new Date().toISOString(); push(l.id, l); }
@@ -234,10 +234,11 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           if (!tooSmall && lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
           // Last step (spends search credit): are they found for their own trade? A current site that is not
           // becomes a "Low search visibility" lead; leads with no site get a search for one when open.
-          if (!tooSmall && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site" && lead.status !== "not-pursuing" && (lead.website ? (!lead.problem || ["new", "qualified"].includes(lead.status)) : ["new", "qualified"].includes(lead.status))) { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = r.lead; } catch {} }
+          if (!tooSmall && websiteIsVerified(lead) && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site" && lead.status !== "not-pursuing" && (lead.website ? (!lead.problem || ["new", "qualified"].includes(lead.status)) : ["new", "qualified"].includes(lead.status))) { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = r.lead; } catch {} }
           st.done++;
           if (lead.problem && !tooSmall) { if (["new", "qualified"].includes(lead.status)) st.found++; else st.parked = (st.parked || 0) + 1; update(lead.id, lead); markSeen(c.companyNumber, lead.status); }
           else if (lead.problem) { st.parked = (st.parked || 0) + 1; update(lead.id, { ...lead, status: "not-pursuing" }); markSeen(c.companyNumber, "too-small"); }
+          else if (!websiteIsVerified(lead)) { st.found++; update(lead.id, { ...lead, status: "new", caveats: [lead.caveats, "Confirm the website is theirs before the checks run"].filter(Boolean).join("; ") }); markSeen(c.companyNumber, "new"); }
           else { st.parked = (st.parked || 0) + 1; update(lead.id, { ...lead, status: "not-pursuing", likelihood: "Low", likelihoodWhy: lead.likelihoodWhy || "Site is current; no outreach planned", caveats: [lead.caveats, "Site is current"].filter(Boolean).join("; ") }); markSeen(c.companyNumber, "site-fine"); } // nothing to pitch, but it goes on the board so you can see it was checked
         } catch (e) { if (stopRef.current) break; st.done++; st.errors.push(`${c.name}: ${e.message}`); }
         candidates = candidates.slice(1);
@@ -304,7 +305,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       try {
         let { lead } = await post({ step: "refresh", lead: l, knownSites });
         if (lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
-        if (lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site" && (lead.website ? (!lead.problem || !["not-pursuing", "lost", "won", "no-contact"].includes(lead.status)) : ["new", "qualified", "contacted", "replied", "meeting"].includes(lead.status))) { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = { ...r.lead, status: !lead.problem && r.lead.problem ? r.lead.status : lead.status }; } catch {} }
+        if (websiteIsVerified(lead) && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site" && (lead.website ? (!lead.problem || !["not-pursuing", "lost", "won", "no-contact"].includes(lead.status)) : ["new", "qualified", "contacted", "replied", "meeting"].includes(lead.status))) { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = { ...r.lead, status: !lead.problem && r.lead.problem ? r.lead.status : lead.status }; } catch {} }
         update(id, lead); st.found++;
         setPendingRescan((prev) => { const n = new Set(prev); n.delete(id); return n; });
       }
@@ -423,11 +424,18 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   useEffect(() => {
     if (running || catchingUpRef.current) return;
     const siteOk = (l) => l.website && l.problem !== "Parked domain" && l.problem !== "Dead/broken site" && !l.checking;
-    const open = (l) => ["new", "qualified"].includes(l.status) || (l.status === "not-pursuing" && !l.problem && /current/i.test(l.likelihoodWhy || ""));
-    const todo = Object.values(leadsRef.current).filter((l) => siteOk(l) && open(l) && (!l.licence || !l.seo));
-    if (!todo.length) return;
+    const open = (l) => ["new", "qualified", "no-contact"].includes(l.status) || (l.status === "not-pursuing" && !l.problem && /current/i.test(l.likelihoodWhy || ""));
+    // Leads from before websites were verified get the free check (company number, postcode, director on the site).
+    const toVerify = Object.values(leadsRef.current).filter((l) => siteOk(l) && l.websiteVerified === undefined && !["lost", "won"].includes(l.status));
+    const todo = Object.values(leadsRef.current).filter((l) => siteOk(l) && open(l) && websiteIsVerified(l) && (!l.licence || !l.seo));
+    if (!toVerify.length && !todo.length) return;
     catchingUpRef.current = true;
     (async () => {
+      for (const l of toVerify) {
+        if (stopRef.current) break;
+        try { const v = await post({ step: "verify-site", lead: l }); update(l.id, { websiteVerified: v.evidence || "", websiteEvidence: v.evidence || v.soft || leadsRef.current[l.id]?.websiteEvidence || "name on the site", ...(v.conflict ? { websiteDoubt: `Website may be wrong: ${v.conflict}, not ${l.companyNumber}. Check it, or mark it as not theirs.` } : {}) }); }
+        catch { update(l.id, { websiteVerified: "" }); }
+      }
       for (const l of todo) {
         if (stopRef.current) break;
         const cur = leadsRef.current[l.id]; if (!cur) continue;
@@ -454,19 +462,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
         <h2 className="font-semibold">Website Leads</h2>
         {cfg && !cfg.configured && <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Companies House is not connected yet. Add the free API key in <Link href="/settings?section=connections" className="underline">Settings → Connections</Link>. The board below still works.</p>}
-        <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
-          <fieldset className="rounded-lg border border-zinc-200 p-3">
-            <legend className="px-1 text-xs font-semibold text-zinc-600">Where</legend>
-            <p className="text-xs text-zinc-600">Every active trading company within about 20 minutes of Richmond: Twickenham, Teddington, Kingston, Sheen, Kew, Chiswick, Hounslow, Putney, Wimbledon, Sunbury, Staines, Walton and the towns between. Anything registered further out is dropped.</p>
-          </fieldset>
-          <fieldset className="rounded-lg border border-zinc-200 p-3">
-            <legend className="px-1 text-xs font-semibold text-zinc-600">Size</legend>
-            <p className="text-xs text-zinc-500">Every active trading company in the area is checked (holding, property and dormant companies are skipped).</p>
-            <label className="mt-2 flex items-center gap-2 text-xs text-zinc-600" title="Changing this re-sorts the board: parked leads above the new floor come back, open leads below it are parked. Leads already in conversation are left alone.">Only keep companies with net assets of at least £
-              <input type="number" value={minAssets} onChange={(e) => setMinAssets(Number(e.target.value) || 0)} step={5000} min={0} className="w-24 rounded-md border border-zinc-300 px-2 py-0.5" />
-            </label>
-          </fieldset>
-          <div className="flex flex-col justify-end gap-2">
+        <div className="mt-3 flex flex-col gap-3">
+          <p className="text-xs text-zinc-600">Every active trading company within about 20 minutes of Richmond: Twickenham, Teddington, Kingston, Sheen, Kew, Chiswick, Hounslow, Putney, Wimbledon, Sunbury, Staines, Walton and the towns between. Anything registered further out is dropped.</p>
+          <div className="flex flex-wrap items-center gap-2">
             {!running && pending && (
               <button onClick={continueScan} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white"><PlayIcon className="h-4 w-4" /> Continue {pending.kind === "refresh" ? "rescan" : "scan"} ({(pending.queue || pending.ids || []).length} left)</button>
             )}
@@ -496,6 +494,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search leads" className="w-56 rounded-md border border-zinc-300 px-3 py-1.5 text-sm" />
+        <label className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-700" title="Only keep companies with net assets of at least this. Changing it re-sorts the board: parked leads above the new floor come back, open leads below it are parked. Leads already in conversation are left alone.">Net assets ≥ £<input type="number" value={minAssets} onChange={(e) => setMinAssets(Number(e.target.value) || 0)} step={5000} min={0} className="w-20 rounded border border-zinc-200 px-1.5 py-0.5 text-sm" /></label>
         <select value={showProblem} onChange={(e) => setShowProblem(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm">
           <option value="">All problems</option>
           {PROBLEMS.map((p) => <option key={p} value={p}>{p}</option>)}
@@ -543,7 +542,7 @@ function parkExplain(l) {
   if (/Verified email not found/i.test(r)) return `No verified email address anywhere: the website and Companies House gave nothing${l.hunterTried ? " and a Hunter credit was spent with no result" : l.hunterOnFile === 0 ? " and Hunter has nothing on file" : ""}. Add an address by hand if you find one and it comes straight back.`;
   return r;
 }
-const addressFields = (r) => (r.tradingPostcode ? { tradingPostcode: r.tradingPostcode, tradingAddress: r.tradingAddressText, tradesElsewhere: !!r.tradesElsewhere, ...(r.caveats !== undefined ? { caveats: r.caveats } : {}) } : {});
+const addressFields = (r) => ({ ...(r.tradingPostcode ? { tradingPostcode: r.tradingPostcode, tradingAddress: r.tradingAddressText, tradesElsewhere: !!r.tradesElsewhere, ...(r.caveats !== undefined ? { caveats: r.caveats } : {}) } : {}), ...(r.websiteDoubt !== undefined ? { websiteDoubt: r.websiteDoubt || "" } : {}) });
 const FOLLOW_UP_DEFAULTS = { chaseDays: 7, coldDays: 21, lostDays: 60 };
 // What a contact lookup "knows": the logic version plus whether Hunter was available. A parked lead
 // is only worth retrying when this has changed since its last lookup.
@@ -591,6 +590,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
                   {l.optedOut && <span className="rounded-full bg-red-600 px-1.5 py-0.5 font-semibold text-white" title={`Asked not to be contacted${l.optedOutAt ? ` on ${new Date(l.optedOutAt).toLocaleDateString("en-GB")}` : ""}`}>Opted out</span>}
                   {l.tradesElsewhere && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800" title={`Website address: ${l.tradingAddress}`}>Trades elsewhere</span>}
+                  {!websiteIsVerified(l) && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="The website was matched on its name only. Open the lead and confirm it is theirs before anything goes out.">Confirm website</span>}
                   {needsChase(l, followUp) && <span className="rounded-full bg-amber-500 px-1.5 py-0.5 font-semibold text-white" title={`No reply ${Math.floor(daysSince(l))} days after contact: send the follow-up`}>Chase</span>}
                   {l.status === "contacted" && l.chasedAt && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 text-zinc-700">Chased {new Date(l.chasedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>}
                   <span>{l.area}</span>
@@ -766,6 +766,13 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjec
     const d = draftFor(l, person, issue, subjects);
     onChange({ subject: d.subject, email: d.body, issueId: d.issueId, emailEdited: false, emailPrevious: l.email && l.email !== d.body ? l.email : l.emailPrevious });
   }
+  // Wrong website: remember it as rejected, drop everything that came from it, rescan without it.
+  function rejectWebsite() {
+    const host = String(l.website || "").replace(/^https?:\/\//i, "").replace(/^www\./, "").replace(/\/.*$/, "").toLowerCase();
+    const fromCH = (l.contacts || []).filter((p) => /Companies House/.test(p.source || "") && !/Hunter/.test(p.source || ""));
+    onChange({ rejectedSites: [...new Set([...(l.rejectedSites || []), host])], website: "", websiteConfirmed: false, websiteDoubt: "", siteUrl: "", licence: null, seo: null, contacts: fromCH.map((p) => ({ ...p, email: p.email && p.email.endsWith("@" + host) ? "" : p.email })), channels: [], emailAddress: l.emailAddress && l.emailAddress.endsWith("@" + host) ? "" : l.emailAddress, contactName: l.emailAddress && l.emailAddress.endsWith("@" + host) ? "" : l.contactName, hunterTried: false, hunterOnFile: null, drafts: {}, emailEdited: false, caveats: [l.caveats, `${host} was a different business`].filter(Boolean).join("; ") });
+    setTimeout(() => onRefresh(), 50);
+  }
   const withEmail = (l.contacts || []).filter((p) => p.email);
   const [showAllWriteTo, setShowAllWriteTo] = useState(false);
   const writeToOthers = withEmail.filter((p) => !decides(p) && p.email !== l.emailAddress);
@@ -785,7 +792,20 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjec
                 {site && <a href={site} target="_blank" rel="noreferrer" aria-label="Open website" className="text-blue-700"><ExternalIcon /></a>}
               </span>
               {l.companyNumber && <a href={`https://find-and-update.company-information.service.gov.uk/company/${l.companyNumber}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700 underline">Companies House {l.companyNumber} <ExternalIcon /></a>}
+              {l.website && <button onClick={rejectWebsite} title="This website belongs to a different business. It is dropped, remembered as wrong, and the lead is rescanned without it." className="rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[11px] text-red-800 hover:bg-red-100">Not their website</button>}
             </div>
+            {l.websiteDoubt && l.website && <div className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">Check the website.</span> {l.websiteDoubt}</div>}
+            {l.website && !websiteIsVerified(l) && !l.websiteDoubt && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border-2 border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                <span><span className="font-semibold">Is this their website?</span> {l.websiteVerified === undefined ? "Checking it against Companies House…" : `Matched on ${l.websiteEvidence || "the name"} only; nothing on the site ties it to company ${l.companyNumber || "number"} yet. Open it and check before anything goes out.`}</span>
+                {l.websiteVerified !== undefined && <span className="ml-auto flex gap-2">
+                  {site && <a href={site} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white px-2 py-1 text-xs hover:bg-amber-100">Open site <ExternalIcon /></a>}
+                  <button onClick={() => onChange({ websiteVerified: "confirmed by you", websiteConfirmed: true, websiteDoubt: "" })} className="rounded-md bg-emerald-700 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-800">Yes, it’s theirs</button>
+                  <button onClick={rejectWebsite} className="rounded-md border border-red-300 bg-white px-2 py-1 text-xs text-red-800 hover:bg-red-50">Not theirs</button>
+                </span>}
+              </div>
+            )}
+            {l.website && websiteIsVerified(l) && l.websiteVerified && <div className="text-[11px] text-emerald-700">Website verified: {l.websiteVerified}</div>}
           </div>
           <select value={l.status || "new"} onChange={(e) => onChange({ status: e.target.value })} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm">
             {LEAD_STATUSES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
@@ -826,10 +846,10 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjec
               <span className="text-sm font-semibold">Search visibility</span>
               <button onClick={onSeo} disabled={l.checking} className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {l.seo ? "Search again" : "Check search"}</button>
             </div>
-            {!l.seo && <p className="mt-2 text-xs text-zinc-500">Runs automatically as the last step for Qualified leads. Searches their name + town and their trade + town, records where their site ranks and who is ahead, and can turn up a website the name-guess missed.</p>}
+            {!l.seo && <p className="mt-2 text-xs text-zinc-500">Runs on its own once the website is confirmed. Searches their trade + town (the search customers make) and records where their site comes. A lead with no website gets a name search to find one.</p>}
             {l.seo && (
               <ul className="mt-2 space-y-1 text-sm">
-                {l.seo.searches.map((x, i) => (
+                {l.seo.searches.filter((x) => x.kind === "trade" || !l.website).map((x, i) => (
                   <li key={i} className="flex flex-wrap items-baseline gap-x-2">
                     <span className="text-zinc-600">“{x.query}”</span>
                     <a href={`https://www.google.com/search?q=${encodeURIComponent(x.query)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-xs text-blue-700 underline" title="See the live Google results for this search">check on Google <ExternalIcon /></a>
@@ -881,7 +901,7 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjec
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold">Outreach email</span>
               <span className="ml-auto flex flex-wrap items-center gap-2">
-                {l.optedOut ? <span className="text-xs text-red-700">Opted out: not to be emailed</span> : <>
+                {l.optedOut ? <span className="text-xs text-red-700">Opted out: not to be emailed</span> : !websiteIsVerified(l) ? <span className="text-xs text-amber-800">Confirm the website above before sending</span> : <>
                   <a href={outlook} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100"><MailIcon className="h-3.5 w-3.5" /> Open in Outlook</a>
                   <button onClick={copy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy email</>}</button>
                 </>}
