@@ -846,10 +846,10 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjec
               <span className="text-sm font-semibold">Search visibility</span>
               <button onClick={onSeo} disabled={l.checking} className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {l.seo ? "Search again" : "Check search"}</button>
             </div>
-            {!l.seo && <p className="mt-2 text-xs text-zinc-500">Runs on its own once the website is confirmed. Searches their trade + town (the search customers make) and records where their site comes. A lead with no website gets a name search to find one.</p>}
+            {!l.seo && <p className="mt-2 text-xs text-zinc-500">Runs on its own once the website is confirmed. Searches their trade + town, the search customers make, and records where their site comes. Company-name searches are not run.</p>}
             {l.seo && (
               <ul className="mt-2 space-y-1 text-sm">
-                {l.seo.searches.filter((x) => x.kind === "trade" || !l.website).map((x, i) => (
+                {l.seo.searches.filter((x) => x.kind === "trade").map((x, i) => (
                   <li key={i} className="flex flex-wrap items-baseline gap-x-2">
                     <span className="text-zinc-600">“{x.query}”</span>
                     <a href={`https://www.google.com/search?q=${encodeURIComponent(x.query)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-xs text-blue-700 underline" title="See the live Google results for this search">check on Google <ExternalIcon /></a>
