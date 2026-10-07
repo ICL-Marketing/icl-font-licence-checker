@@ -202,7 +202,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           st.done++;
           if (lead.problem && !tooSmall) { if (["new", "qualified"].includes(lead.status)) st.found++; else st.parked = (st.parked || 0) + 1; update(lead.id, lead); markSeen(c.companyNumber, lead.status); }
           else if (lead.problem) { st.parked = (st.parked || 0) + 1; update(lead.id, { ...lead, status: "not-pursuing" }); markSeen(c.companyNumber, "too-small"); }
-          else markSeen(c.companyNumber, "site-fine"); // current site, nothing to pitch: not kept, but not checked again for a while either
+          else { st.parked = (st.parked || 0) + 1; update(lead.id, { ...lead, status: "not-pursuing", likelihood: "Low", likelihoodWhy: lead.likelihoodWhy || "Site is current; no outreach planned", caveats: [lead.caveats, "Site is current"].filter(Boolean).join("; ") }); markSeen(c.companyNumber, "site-fine"); } // nothing to pitch, but it goes on the board so you can see it was checked
         } catch (e) { if (stopRef.current) break; st.done++; st.errors.push(`${c.name}: ${e.message}`); }
         candidates = candidates.slice(1);
         setRun({ ...st });
@@ -484,6 +484,7 @@ const sorted = (list) => list.slice().sort((a, b) => ({ High: 0, Medium: 1, Low:
 
 function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn, onOpen, onMove }) {
   const [over, setOver] = useState(null);
+  const [shown, setShown] = useState({}); // cards rendered per column; big columns page in
   // While searching or filtering, only columns with a match are shown.
   const cols = LEAD_STATUSES.map(([id, label, hint]) => ({ id, label, hint, items: sorted(leads.filter((l) => (l.status || "new") === id)) })).filter((c) => !filtering || c.items.length);
   return (
@@ -499,7 +500,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
           </div>
           <div className="px-1 pb-2 text-[11px] font-normal text-zinc-500">{c.hint}</div>
           <div className="flex flex-1 flex-col gap-2">
-            {c.items.map((l) => (
+            {c.items.slice(0, shown[c.id] || 60).map((l) => (
               <div key={l.id} draggable onDragStart={(e) => { e.dataTransfer.setData("text/lead", l.id); e.dataTransfer.effectAllowed = "move"; }} onClick={() => onOpen(l.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") onOpen(l.id); }}
                 className={`cursor-grab rounded-lg border bg-white p-2.5 text-left shadow-sm hover:border-zinc-400 active:cursor-grabbing ${selected.has(l.id) ? "border-blue-500 ring-1 ring-blue-300" : "border-zinc-200"}`}>
                 <div className="flex items-start gap-1.5">
@@ -520,6 +521,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
               </div>
             ))}
             {!c.items.length && <div className="rounded-lg border border-dashed border-zinc-300 p-3 text-center text-[11px] text-zinc-400">Drop here</div>}
+            {c.items.length > (shown[c.id] || 60) && <button onClick={() => setShown({ ...shown, [c.id]: (shown[c.id] || 60) + 100 })} className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100">Show {Math.min(100, c.items.length - (shown[c.id] || 60))} more of {c.items.length}</button>}
           </div>
         </div>
       ))}
