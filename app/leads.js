@@ -510,9 +510,11 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onS
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold">Outreach email</span>
               <span className="ml-auto flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1 text-[11px] text-amber-900">Attach:</span>
                 {!l.noVideoPitch && (
-                  <a href="/brochures/ICL-Digital-Videography.pdf" download="ICL Digital - Videography.pdf" title="The email says the brochure is attached. Download it here, then drag it into the Outlook message." className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100"><DownloadIcon className="h-3.5 w-3.5" /> Attach brochure: download</a>
+                  <a href="/brochures/ICL-Digital-Videography.pdf" download="ICL Digital - Videography.pdf" title="The email says the videography brochure is attached. Download it here, then drop it into the Outlook message." className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100"><DownloadIcon className="h-3.5 w-3.5" /> Videography</a>
                 )}
+                <a href="/brochures/ICL-Digital-Packages.pdf" download="ICL Digital - Packages.pdf" title="Our packages brochure, worth attaching when they ask about price or scope." className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100"><DownloadIcon className="h-3.5 w-3.5" /> Packages</a>
                 <a href={outlook} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100"><MailIcon className="h-3.5 w-3.5" /> Open in Outlook</a>
                 <button onClick={copy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy email</>}</button>
               </span>
