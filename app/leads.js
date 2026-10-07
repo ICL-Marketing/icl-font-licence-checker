@@ -460,7 +460,12 @@ const parkReason = (l) => { const m = `${l.caveats || ""}; ${l.likelihoodWhy || 
 // The same reason spelled out with the numbers, for the top of the lead page.
 function parkExplain(l) {
   const r = parkReason(l);
-  if (!r) return "";
+  if (!r) {
+    if (l.contactUnverified && !l.emailAddress) return "No verified email address was found on the site or at Companies House, so there is nobody to write to.";
+    if (!l.problem) return "The site is current and no licence problems were found, so there is nothing to pitch.";
+    if (l.autoMoved) return l.autoMoved + ".";
+    return "Moved here by hand; no automatic reason was recorded.";
+  }
   if (/dormant/i.test(r)) return `Filed as dormant at Companies House (accounts to ${l.accountsDate || "the last filing"}). The company isn't trading, so whatever the site looks like there is nobody to sell to.`;
   if (/under £/i.test(r)) { const floor = (r.match(/£([\d,]+)/) || [])[1]; return `Net assets are ${l.netAssets != null ? `£${Math.round(l.netAssets).toLocaleString("en-GB")}` : "unknown"}${l.reChange != null && l.reChange < 0 ? ` and fell by £${Math.abs(Math.round(l.reChange)).toLocaleString("en-GB")} last year` : ""}, under the £${floor || "20,000"} floor set for the scan. Too small to have a budget for this.`; }
   if (/already a client/i.test(r)) return `${l.website || "This site"} is already one of ours.`;
@@ -506,7 +511,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                 <div className="flex items-start gap-1.5">
                   <input type="checkbox" checked={selected.has(l.id)} onChange={() => onToggle(l.id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${l.business}`} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span className="flex-1 text-sm font-medium leading-tight">{l.business}</span>
-                  {l.likelihood && !(c.id === "not-pursuing" && parkReason(l)) && <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${LIKELY[l.likelihood]}`} title={l.likelihoodWhy || ""}>{l.likelihood}</span>}
+                  {l.likelihood && c.id !== "not-pursuing" && <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${LIKELY[l.likelihood]}`} title={l.likelihoodWhy || ""}>{l.likelihood}</span>}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
                   {l.problem && <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
@@ -516,7 +521,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                   <span>{l.area}</span>
                   {l.netAssets != null && l.netAssets !== "" && <span>· {money(l.netAssets)}</span>}
                 </div>
-                {c.id === "not-pursuing" && (l.caveats || l.contactUnverified) && <div className={`mt-1 truncate text-[11px] ${parkReason(l) ? "font-medium text-red-700" : "text-zinc-500"}`} title={l.caveats}>{parkReason(l) || (l.contactUnverified ? "No verified email address" : l.caveats)}</div>}
+                {c.id === "not-pursuing" && <div className="mt-1 truncate text-[11px] font-medium text-red-700" title={parkExplain(l)}>{parkReason(l) || (l.contactUnverified && !l.emailAddress ? "No verified email address" : !l.problem ? "Site is current" : "Moved by hand")}</div>}
                 {l.checking && <div className="mt-1 text-[11px] text-blue-600">Checking…</div>}
               </div>
             ))}
@@ -694,14 +699,14 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, onClose, onChange, onRem
           <button onClick={onClose} aria-label="Close" className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900"><CloseIcon /></button>
         </div>
         <div className="space-y-4 px-5 py-4">
-          {l.status === "not-pursuing" && parkReason(l) ? (
+          {l.status === "not-pursuing" ? (
             <div className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">Not worth pursuing.</span> {parkExplain(l)} <span className="text-red-700">Change the status above if you still want to go for it.</span></div>
           ) : l.likelihood && (
             <div className={`rounded-lg px-3 py-2 text-sm ${LIKELY[l.likelihood]}`}>
               <span className="font-semibold">{l.likelihood} likelihood</span>{l.likelihoodWhy ? <span>: {l.likelihoodWhy}</span> : null}
             </div>
           )}
-          {l.contactUnverified && !(l.status === "not-pursuing" && parkReason(l)) && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"><span className="font-semibold">Contact not verified.</span> No email address was found on their site or at Companies House. Add a verified address below, or pick a person with one, and it moves back to Qualified.</div>}
+          {l.contactUnverified && l.status !== "not-pursuing" && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"><span className="font-semibold">Contact not verified.</span> No email address was found on their site or at Companies House. Add a verified address below, or pick a person with one, and it moves back to Qualified.</div>}
           <DesignNotes l={l} onChange={onChange} />
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Field label="Likelihood"><select value={l.likelihood || ""} onChange={(e) => onChange({ likelihood: e.target.value })} className={`rounded px-1.5 py-0.5 text-sm font-semibold ${LIKELY[l.likelihood] || ""}`}><option value="">—</option><option>High</option><option>Medium</option><option>Low</option></select></Field>
