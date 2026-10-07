@@ -129,9 +129,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   }
 
   async function recheck(l, redraft = false) {
-    update(l.id, { checking: true });
-    try { const { lead } = await post({ step: "recheck", lead: l, redraft }); update(l.id, { ...lead, checking: false }); }
-    catch (e) { update(l.id, { checking: false, caveats: [l.caveats, `Recheck failed: ${e.message}`].filter(Boolean).join("; ") }); }
+    update(l.id, { checking: true, error: "" });
+    try { const { lead } = await post({ step: redraft ? "redraft" : "recheck", lead: l }); update(l.id, { ...lead, checking: false, error: "" }); }
+    catch (e) { update(l.id, { checking: false, error: e.message }); }
   }
 
   async function exportExcel() {
@@ -318,7 +318,9 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck }) {
           <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3 text-xs">
             {l.website && <button onClick={() => onRecheck(false)} disabled={l.checking} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-3.5 w-3.5" /> Re-check website</button>}
             {l.problem && <button onClick={() => onRecheck(true)} disabled={l.checking} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 hover:bg-zinc-100 disabled:opacity-40"><PlayIcon className="h-3.5 w-3.5" /> Redraft email</button>}
-            {l.checkedAt && <span className="text-zinc-500">Checked {new Date(l.checkedAt).toLocaleDateString("en-GB")}</span>}
+            {l.checking && <span className="inline-flex items-center gap-1 text-blue-700"><SpinnerIcon className="h-3.5 w-3.5" /> Working…</span>}
+            {l.error && <span className="text-red-700">{l.error}</span>}
+            {l.checkedAt && !l.checking && <span className="text-zinc-500">Checked {new Date(l.checkedAt).toLocaleDateString("en-GB")}</span>}
             <span className="ml-auto">
               {asking
                 ? <><button onClick={onRemove} className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2 py-1 font-medium text-white"><TrashIcon className="h-3.5 w-3.5" /> Delete</button> <button onClick={() => setAsking(false)} className="rounded-md border border-zinc-300 px-2 py-1">Keep</button></>

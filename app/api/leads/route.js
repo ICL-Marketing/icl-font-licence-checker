@@ -14,6 +14,13 @@ export async function GET() {
 export async function POST(request) {
   const b = await request.json().catch(() => ({}));
   try {
+    if (b.step === "redraft") {
+      // Fresh subject, pitch and email from the lead as it stands (works without a website).
+      const lead = { ...b.lead };
+      if (!lead.problem) return Response.json({ error: "Nothing to pitch: the site is marked as current." }, { status: 400 });
+      const d = draftOutreach(lead);
+      return Response.json({ lead: { ...lead, subject: d.subject, pitch: d.pitch, email: d.email } });
+    }
     if (b.step === "recheck") {
       const lead = { ...b.lead };
       if (!lead.website) return Response.json({ error: "No website on this lead." }, { status: 400 });
