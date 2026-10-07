@@ -174,6 +174,20 @@ export default function Settings() {
                 </>}
           </section>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+            <h2 className="font-semibold">Contact finder (Hunter.io)</h2>
+            <p className="mb-3 text-sm text-zinc-500">Finds named people at each company with their role and a scored email address, marketing managers included, so far fewer leads end up as &quot;contact not verified&quot;. Free for 25 lookups a month; the Starter plan (about £30 a month) covers 500. One lookup per lead, only for leads worth pitching, cached 60 days.</p>
+            {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.hunter
+              ? <StatusRow ok label="Hunter.io connected" detail="runs inside every contact lookup" />
+              : <>
+                  <StatusRow ok={false} label="Not connected" detail="contacts come from Companies House and the website only" />
+                  <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-700">
+                    <li>Sign up at <a href="https://hunter.io/users/sign_up" target="_blank" rel="noreferrer" className="text-blue-700 underline">hunter.io</a> with the work email (free plan to start).</li>
+                    <li>Open <b>API</b> in the left menu and copy the API key.</li>
+                    <li>In Vercel add <code>HUNTER_API_KEY</code>, then Redeploy. Optional: <code>HUNTER_MONTHLY_CAP</code> to stop the app at your plan&apos;s limit (default 450).</li>
+                  </ol>
+                </>}
+          </section>
+          <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
             <h2 className="font-semibold">Search volumes (Google Ads Keyword Planner)</h2>
             <p className="mb-3 text-sm text-zinc-500">Puts &quot;around 140 people a month make that exact search&quot; in lead emails automatically. Free, but Google makes you apply for API access once.</p>
             {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.keywords

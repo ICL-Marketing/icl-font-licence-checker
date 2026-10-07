@@ -471,6 +471,7 @@ function Contacts({ l, onChange, onContacts }) {
                 <div className="text-xs text-zinc-500">{p.why}</div>
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
                   {p.email && <span className="text-green-800">{p.email} <span className="text-zinc-500">· {p.emailStatus}</span></span>}
+                  {p.linkedin && <a href={/^https?:/.test(p.linkedin) ? p.linkedin : `https://${p.linkedin}`} target="_blank" rel="noreferrer" className="text-blue-700 underline">LinkedIn profile</a>}
                   {!p.email && p.emailGuess && <span className="font-medium text-red-700">{p.emailGuess} <span className="font-normal text-red-600">· {p.emailStatus}</span></span>}
                   <a href={p.linkedinSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Find on LinkedIn</a>
                   <a href={p.googleSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Google</a>
