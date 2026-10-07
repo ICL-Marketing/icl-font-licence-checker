@@ -253,7 +253,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     try {
       const r = await post({ step: "contacts", lead: l, useHunter: true, forceHunter: true });
       const best = r.people.find((p) => p.email) || null;
-      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: true, checking: false, error: r.hunterNote || (best || r.hunterDomain ? "" : l.website ? "Hunter had nothing for this domain." : "Hunter did not recognise the company name.") };
+      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), ...(r.hunterOnFile !== undefined && r.hunterOnFile !== null ? { hunterOnFile: r.hunterOnFile } : {}), contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: !!r.hunterUsed, ...(r.hunterUsed ? {} : { hunterOnFile: 0 }), checking: false, error: r.hunterNote || (best || r.hunterDomain ? "" : l.website ? "Hunter had nothing for this domain." : "Hunter did not recognise the company name.") };
       if (!l.website && r.hunterDomain) { f.website = r.hunterDomain; f.websiteConfirmed = false; f.caveats = [l.caveats, `Website ${r.hunterDomain} came from Hunter's company lookup; double-check it is theirs`].filter(Boolean).join("; "); }
       if (best && !l.emailAddress) { f.emailAddress = best.email; f.contactName = l.contactName || best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; if (["no-contact", "not-pursuing"].includes(l.status) && l.contactUnverified) { f.status = l.likelihood === "Low" ? "new" : "qualified"; f.contactUnverified = false; } }
       update(l.id, f);
@@ -267,7 +267,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     try {
       const r = await post({ step: "contacts", lead: l, useHunter: false });
       const best = r.people.find((p) => p.email) || null; const generic = r.channels.find((c) => c.kind === "email");
-      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: l.hunterTried || r.hunterUsed, checking: false, error: r.people.length ? "" : "No named people found; the Companies House directors need the API key, and the site has no team page." };
+      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), ...(r.hunterOnFile !== undefined && r.hunterOnFile !== null ? { hunterOnFile: r.hunterOnFile } : {}), contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: l.hunterTried || r.hunterUsed, checking: false, error: r.people.length ? "" : "No named people found; the Companies House directors need the API key, and the site has no team page." };
       if (!l.emailAddress && (best || generic)) { f.emailAddress = best ? best.email : generic.value; if (best && !l.contactName) f.contactName = best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; }
       if (["new", "qualified", "no-contact"].includes(l.status) || (l.status === "not-pursuing" && l.contactUnverified)) { if (f.emailAddress || l.emailAddress) { f.status = l.status === "new" ? "new" : (l.likelihood === "Low" ? "new" : "qualified"); f.contactUnverified = false; } else { f.contactUnverified = true; f.status = parkStatus(l); } }
       update(l.id, f);
@@ -316,13 +316,13 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     for (const id of ids) {
       if (stopRef.current) break;
       const l = leadsRef.current[id]; if (!l) { st.done++; continue; }
-      const useHunter = !!cfg?.hunter && l.likelihood === "High" && !l.hunterTried && !!l.website;
+      const useHunter = !!cfg?.hunter && l.likelihood === "High" && !l.hunterTried && !!l.website && l.hunterOnFile !== 0;
       st.phase = `Contacts for ${l.business}${useHunter ? " (Hunter)" : ""}…`; setRun({ ...st });
       try {
         const r = await post({ step: "contacts", lead: l, useHunter });
         if (r.hunterNote && /cap reached|out of searches/i.test(r.hunterNote)) st.phase = "Hunter credits used up for this month; carrying on with the free routes only.";
         const best = r.people.find((p) => p.email) || null; const generic = r.channels.find((c) => c.kind === "email");
-        const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: l.hunterTried || r.hunterUsed };
+        const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), ...(r.hunterOnFile !== undefined && r.hunterOnFile !== null ? { hunterOnFile: r.hunterOnFile } : {}), contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: l.hunterTried || r.hunterUsed };
         if (best || generic) { f.emailAddress = best ? best.email : generic.value; if (best) f.contactName = l.contactName || best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; f.contactUnverified = false; f.status = l.likelihood === "Low" ? "new" : "qualified"; st.found++; }
         update(id, f);
       } catch (e) { if (stopRef.current) break; st.errors.push(`${l.business}: ${e.message}`); }
@@ -351,7 +351,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           const r = await post({ step: "contacts", lead: l, useHunter: false });
           const cur = leadsRef.current[l.id]; if (!cur) continue;
           const best = r.people.find((p) => p.email) || null;
-          const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), contactsTried: true, contactsStamp: contactsStamp(cfg) };
+          const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), ...(r.hunterOnFile !== undefined && r.hunterOnFile !== null ? { hunterOnFile: r.hunterOnFile } : {}), contactsTried: true, contactsStamp: contactsStamp(cfg) };
           const generic = r.channels.find((c) => c.kind === "email");
           if (!cur.emailAddress && (best || generic)) { f.emailAddress = best ? best.email : generic.value; if (best && !cur.contactName) f.contactName = best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; }
           const email = f.emailAddress || cur.emailAddress;
@@ -631,7 +631,9 @@ function Contacts({ l, onChange, onContacts, onHunter, cfgHunter = false, subjec
         <span className="ml-auto flex flex-wrap gap-2">
           {cfgHunter && (l.hunterTried
             ? <span className="inline-flex items-center rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs text-zinc-500" title="Hunter has already been asked about this domain">Hunter used</span>
-            : <button onClick={onHunter} disabled={l.checking} title={l.website ? "Ask Hunter.io for named people at this domain with their roles and addresses. Spends one credit." : "No website on file: Hunter looks the company up by name, which can also turn up the domain. Spends one credit."} className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs text-amber-900 hover:bg-amber-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> Use a Hunter credit{l.website ? "" : " (by company name)"}</button>)}
+            : l.hunterOnFile === 0
+            ? <span className="inline-flex items-center rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs text-zinc-500" title="Checked free: Hunter holds no addresses for this domain, so a credit would buy nothing">Hunter has nothing</span>
+            : <button onClick={onHunter} disabled={l.checking} title={l.website ? "Ask Hunter.io for named people at this domain with their roles and addresses. Spends one credit." : "No website on file: Hunter looks the company up by name, which can also turn up the domain. Spends one credit."} className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs text-amber-900 hover:bg-amber-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> Use a Hunter credit{l.website ? "" : " (by company name)"}{l.hunterOnFile > 0 ? ` · ${l.hunterOnFile} on file` : ""}</button>)}
           <button onClick={onContacts} disabled={l.checking} title="Companies House and the website, free" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {people.length ? "Look again" : "Find contacts"}</button>
         </span>
       </div>
