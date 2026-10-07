@@ -168,7 +168,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     const known = new Set(Object.keys(leadsRef.current));
     let skipped = 0;
     const knownSites = clients.flatMap((c) => c.websites || []).map((w) => String(w).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""));
-    const st = resume ? { phase: "Continuing…", done: resume.done || 0, total: resume.total || 0, found: resume.found || 0, errors: [] } : { phase: "Searching Companies House…", done: 0, total: 0, found: 0, errors: [] };
+    const st = resume ? { kind: "find", phase: "Continuing…", done: resume.done || 0, total: resume.total || 0, found: resume.found || 0, errors: [] } : { kind: "find", phase: "Searching Companies House…", done: 0, total: 0, found: 0, errors: [] };
     const floor = resume ? resume.minAssets : minAssets;
     setRun({ ...st });
     try {
@@ -236,7 +236,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     stopRef.current = false;
     onRunning?.(true);
     const knownSites = clients.flatMap((c) => c.websites || []).map((w) => String(w).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""));
-    const st = { phase: "Refreshing leads…", done: 0, total: ids.length, found: 0, errors: [] };
+    const st = { kind: "refresh", phase: "Refreshing leads…", done: 0, total: ids.length, found: 0, errors: [] };
     setRun({ ...st });
     setPending(null);
     let left = [...ids];
@@ -268,7 +268,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     // bigger balance sheets first. Low leads get the free routes only.
     const rank = { High: 0, Medium: 1, Low: 2 };
     ids = ids.slice().sort((a, b) => { const x = leadsRef.current[a] || {}, y = leadsRef.current[b] || {}; return (rank[x.likelihood] ?? 3) - (rank[y.likelihood] ?? 3) || (y.netAssets || 0) - (x.netAssets || 0); });
-    const st = { phase: "Looking for contacts again…", done: 0, total: ids.length, found: 0, errors: [] };
+    const st = { kind: "contacts", phase: "Looking for contacts again…", done: 0, total: ids.length, found: 0, errors: [] };
     setRun({ ...st });
     for (const id of ids) {
       if (stopRef.current) break;
@@ -292,7 +292,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   function continueScan() {
     const sc = pending || loadScan();
     if (!sc) return;
-    if (sc.kind === "refresh") { const st = sc; setRun({ phase: "Continuing…", done: st.done || 0, total: st.total || 0, found: st.found || 0, errors: [] }); refreshLeads(sc.ids || []); }
+    if (sc.kind === "refresh") { const st = sc; setRun({ kind: "refresh", phase: "Continuing…", done: st.done || 0, total: st.total || 0, found: st.found || 0, errors: [] }); refreshLeads(sc.ids || []); }
     else findLeads(sc);
   }
   // Leads that have never had a contact lookup get one automatically, one at a time in the background.
@@ -418,7 +418,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         )}
         {run && (
           <div className="mt-3 text-sm">
-            <div className="flex items-center gap-2">{running && <SpinnerIcon className="h-4 w-4 text-blue-600" />}<span className={running ? "text-blue-700" : "text-zinc-700"}>{run.phase}</span>{run.total > 0 && <span className="text-xs text-zinc-500">{run.done} of {run.total} checked · {run.found} lead{run.found === 1 ? "" : "s"}{run.parked ? ` · ${run.parked} parked` : ""}</span>}</div>
+            <div className="flex items-center gap-2">{running && <SpinnerIcon className="h-4 w-4 text-blue-600" />}<span className={running ? "text-blue-700" : "text-zinc-700"}>{run.phase}</span>{run.total > 0 && <span className="text-xs text-zinc-500">{run.kind === "refresh" ? `${run.done} of ${run.total} rescanned` : run.kind === "contacts" ? `${run.done} of ${run.total} looked up · ${run.found} now have a contact` : `${run.done} of ${run.total} checked · ${run.found} new lead${run.found === 1 ? "" : "s"}${run.parked ? ` · ${run.parked} parked` : ""}`}</span>}</div>
             {run.total > 0 && <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-zinc-100"><div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.round((run.done / run.total) * 100)}%` }} /></div>}
           </div>
         )}
