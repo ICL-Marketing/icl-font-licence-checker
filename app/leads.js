@@ -59,7 +59,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     setMinAssetsState(v);
     try { localStorage.setItem("flc-leads-floor", String(v)); } catch {}
     clearTimeout(floorTimer.current);
-    floorTimer.current = setTimeout(() => { const n = applyFloor(v); if (n) setRun({ kind: "floor", phase: `Floor set to £${v.toLocaleString("en-GB")}: ${n} lead${n === 1 ? "" : "s"} moved.`, done: 0, total: 0, found: 0, errors: [] }); }, 700);
+    floorTimer.current = setTimeout(() => { const n = applyFloor(v); if (n) setRun({ kind: "floor", phase: `Done: floor set to £${v.toLocaleString("en-GB")}, ${n} lead${n === 1 ? "" : "s"} moved between columns.`, done: 0, total: 0, found: 0, errors: [] }); }, 700);
   }
   const [run, setRun] = useState(null); // {phase, done, total, found, errors}
   const [pending, setPending] = useState(null); // interrupted scan found on load
@@ -406,7 +406,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   }
 
   // Leaving mid-scan loses nothing (it can be continued), but warn anyway.
-  const running = !!run && !/^(Done|Stopped)/.test(run.phase);
+  // A run is in progress only while its loop is going; summary lines (Done, Stopped, floor changes) are not runs.
+  const running = !!run && run.kind !== "floor" && !/^(Done|Stopped)/.test(run.phase);
   useEffect(() => {
     if (!running) return;
     const h = (e) => { e.preventDefault(); e.returnValue = "A lead scan is still running. Leave anyway? You can continue it from where it stopped."; };
