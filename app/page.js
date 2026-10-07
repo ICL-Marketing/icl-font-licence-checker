@@ -936,12 +936,11 @@ function EmailCard({ e, open, toggle, result, client }) {
   return (
     <div className="rounded-xl border border-zinc-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-        <button onClick={toggle} className="flex-1 text-left">
-          <span className="font-medium">{e.site}</span>
-          <span className="ml-2 text-xs text-zinc-500">{e.count} {e.kind === "fonts" ? "font" : "image"}{e.count === 1 ? "" : "s"}{e.attach ? " · spreadsheet to attach" : ""}</span>
+        <div className="flex-1">
+          <span className="font-medium">Email</span>
+          {e.attach && <span className="ml-2 text-xs text-zinc-500">spreadsheet to attach</span>}
           {edited && <span className="ml-2 rounded bg-orange-100 px-1.5 py-0.5 text-[11px] font-semibold text-orange-800">Edited</span>}
-          <span className="ml-2 inline-block align-middle text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>
-        </button>
+        </div>
         {e.attach && (
           <button onClick={downloadSheet} disabled={sheetBusy} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-50" title="Spreadsheet of all the images to attach to this email"><DownloadIcon className="h-3.5 w-3.5" /> {sheetBusy ? "Building…" : "Spreadsheet to attach"}</button>
         )}
@@ -960,7 +959,7 @@ function EmailCard({ e, open, toggle, result, client }) {
               </>
             ) : <span className="text-amber-700">No client matched to {e.site}. Add the website to the client in Settings → Clients.</span>}
           </div>
-          <p className="mb-2 text-[11px] text-zinc-500"><span className="rounded bg-orange-100 px-1 text-orange-900">Orange text</span> is specific to this site. Click it to edit; changes are saved in this browser and included when you copy.</p>
+          <p className="mb-2 text-[11px] text-zinc-500"><span className="rounded bg-orange-100 px-1 text-orange-900">Orange text</span> is specific to this site. Click it to edit; changes are saved and included when you copy or open in Outlook.</p>
           <div className="whitespace-pre-wrap rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm leading-relaxed text-zinc-800">
             {e.segments.map((seg, i) => typeof seg === "string"
               ? <span key={i}>{seg}</span>
