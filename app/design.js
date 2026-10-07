@@ -257,6 +257,8 @@ function ScreenRow({ s, dismissed = {}, onDismiss }) {
   const [show, setShow] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showDone, setShowDone] = useState(false);
+  const [lastAction, setLastAction] = useState(null); // {keys, label} for a one-click undo
+  const act = (keys, reason, label) => { onDismiss(keys, reason); setLastAction({ keys, label }); };
   const all = (s.findings || []).slice().sort((a, b) => ORDER[a.level] - ORDER[b.level]);
   const findings = all.filter((f) => !dismissed[findingKey(f)]);
   const doneList = all.filter((f) => dismissed[findingKey(f)]);
@@ -281,10 +283,18 @@ function ScreenRow({ s, dismissed = {}, onDismiss }) {
           {doneList.length > 0 && <button onClick={() => setShowDone((v) => !v)} className="ml-1 text-zinc-500 underline">{showDone ? "Hide" : "Show"} {doneList.length} done/ignored</button>}
         </span>
       </div>
-      {findings.length > 0 && (
+      {lastAction && (
+        <div className="mt-2 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-900">
+          <span>{lastAction.label}.</span>
+          <button onClick={() => { onDismiss(lastAction.keys, null); setLastAction(null); }} className="font-semibold underline">Undo</button>
+          <button onClick={() => setLastAction(null)} aria-label="Dismiss" className="ml-auto text-blue-400 hover:text-blue-900">✕</button>
+        </div>
+      )}
+      {(findings.length > 0 || doneList.length > 0) && (
         <div className="mt-2 flex flex-wrap gap-2">
-          <button onClick={() => setShow((v) => !v)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100">{show ? <><ChevronUpIcon className="h-3.5 w-3.5" /> Hide {findings.length} details</> : <><ChevronDownIcon className="h-3.5 w-3.5" /> Show {findings.length} details</>}</button>
-          <button onClick={copy} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy for the designer</>}</button>
+          {findings.length > 0 && <button onClick={() => setShow((v) => !v)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100">{show ? <><ChevronUpIcon className="h-3.5 w-3.5" /> Hide {findings.length} details</> : <><ChevronDownIcon className="h-3.5 w-3.5" /> Show {findings.length} details</>}</button>}
+          {findings.length > 0 && <button onClick={copy} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy for the designer</>}</button>}
+          {doneList.length > 0 && <button onClick={() => { onDismiss(doneList.map((f) => findingKey(f)), null); setLastAction(null); }} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100">Restore all {doneList.length} done/ignored</button>}
         </div>
       )}
       {show && (
@@ -295,15 +305,15 @@ function ScreenRow({ s, dismissed = {}, onDismiss }) {
               {g.rule}
               <span className="ml-1 text-xs text-zinc-500">{g.items.length} layer{g.items.length === 1 ? "" : "s"}</span>
               <span className="ml-2 inline-flex gap-1 text-[11px]">
-                <button onClick={() => onDismiss(g.items.map((f) => f.key), "done")} title="Mark every layer in this line as fixed; it stays hidden on rescans" className="rounded border border-green-300 bg-white px-1.5 py-0.5 text-green-800 hover:bg-green-50">✓ All done</button>
-                <button onClick={() => onDismiss(g.items.map((f) => f.key), "ignore")} title="Not a real problem here; hidden on rescans" className="rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-zinc-600 hover:bg-zinc-100">Ignore all</button>
+                <button onClick={() => act(g.items.map((f) => f.key), "done", `${g.items.length} marked done`)} title="Mark every layer in this line as fixed; it stays hidden on rescans" className="rounded border border-green-300 bg-white px-1.5 py-0.5 text-green-800 hover:bg-green-50">✓ All done</button>
+                <button onClick={() => act(g.items.map((f) => f.key), "ignore", `${g.items.length} ignored`)} title="Not a real problem here; hidden on rescans" className="rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-zinc-600 hover:bg-zinc-100">Ignore all</button>
               </span>
               <ul className="mt-1 flex flex-wrap gap-1">
                 {g.items.map((f, j) => (
                   <li key={j} className="inline-flex max-w-sm items-stretch rounded border border-zinc-200 bg-white text-xs">
                     <a href={f.href} target="_blank" rel="noreferrer" title="Open in Figma" className="inline-flex min-w-0 items-center gap-1 px-1.5 py-0.5 text-blue-700 hover:bg-blue-50"><span className="truncate">{f.node}</span>{f.detail ? <span className="shrink-0 text-zinc-500">· {f.detail}</span> : null}<span className="shrink-0"><ExternalIcon /></span></a>
-                    <button onClick={() => onDismiss([f.key], "done")} title="Done (fixed)" className="border-l border-zinc-200 px-1.5 text-green-700 hover:bg-green-50">✓</button>
-                    <button onClick={() => onDismiss([f.key], "ignore")} title="Ignore this one" className="border-l border-zinc-200 px-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">✕</button>
+                    <button onClick={() => act([f.key], "done", "1 marked done")} title="Done (fixed)" className="border-l border-zinc-200 px-1.5 text-green-700 hover:bg-green-50">✓</button>
+                    <button onClick={() => act([f.key], "ignore", "1 ignored")} title="Ignore this one" className="border-l border-zinc-200 px-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">✕</button>
                   </li>
                 ))}
               </ul>
