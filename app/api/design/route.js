@@ -1,4 +1,4 @@
-import { figmaConfigured, parseFigmaLink, listFrames, fetchFrames, checkFrame } from "@/lib/figma";
+import { figmaConfigured, parseFigmaLink, listFrames, fetchFrames, checkFrame, checkDesignFonts } from "@/lib/figma";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 50;
@@ -25,6 +25,10 @@ export async function POST(request) {
       if (!b.fileKey || !ids.length) return Response.json({ error: "fileKey and ids required" }, { status: 400 });
       const docs = await fetchFrames(String(b.fileKey), ids);
       return Response.json({ results: docs.map((d) => checkFrame(d, String(b.fileKey))) });
+    }
+    if (b.step === "fonts") {
+      const fams = [...new Set((Array.isArray(b.families) ? b.families : []).map(String).filter(Boolean))];
+      return Response.json({ fonts: await checkDesignFonts(fams) });
     }
     return Response.json({ error: "unknown step" }, { status: 400 });
   } catch (e) {

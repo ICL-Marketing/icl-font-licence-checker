@@ -101,7 +101,12 @@ export default function DesignArea({ onRunning, onCount }) {
         w.queue = w.queue.slice(BATCH);
         patch(key, { screens: w.screens, work: w });
       }
-      patch(key, { status: "DONE", phase: "", scannedAt: new Date().toISOString(), screens: w.screens, work: null });
+      // Licence check on every font the design uses.
+      patch(key, { phase: "Checking font licences…" });
+      const fams = [...new Set(w.screens.flatMap((s) => (s.fonts || []).map((f) => f.family)))];
+      let fontChecks = [];
+      try { fontChecks = (await post({ step: "fonts", families: fams })).fonts || []; } catch {}
+      patch(key, { status: "DONE", phase: "", scannedAt: new Date().toISOString(), screens: w.screens, fontChecks, work: null });
     } catch (e) {
       patch(key, { status: "ERROR", phase: "", error: String(e?.message || e), work: w });
     } finally {
@@ -119,7 +124,7 @@ export default function DesignArea({ onRunning, onCount }) {
     <div>
       <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
         <h2 className="font-semibold">Design Checks</h2>
-        <p className="mt-1 text-sm text-zinc-600">Paste a Figma file, page or frame link. Every screen is checked for colour contrast, text size, line height, tap target size, link wording and placeholder copy, and the fonts used are listed so licences can be sorted before build.</p>
+        <p className="mt-1 text-sm text-zinc-600">Paste a Figma file, page or frame link. Every screen is checked for colour contrast, text size, line height, tap target size and link wording, and every font used is checked against Google Fonts and Adobe Fonts so licences are sorted before build.</p>
         {figma === false && <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Figma is not connected yet. Add the token in Settings → Figma.</p>}
         <form onSubmit={(e) => { e.preventDefault(); if (!running && link.trim()) runCheck(link); }} className="mt-3 flex flex-col gap-2 sm:flex-row">
           <input value={link} onChange={(e) => setLink(e.target.value)} disabled={!!running} placeholder="https://www.figma.com/design/…" className="min-w-0 flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm" />
@@ -187,11 +192,22 @@ function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemo
           </div>
           {fonts.size > 0 && (
             <div className="mb-3 rounded-lg border border-zinc-200 p-3 text-sm">
-              <div className="font-medium">Fonts used in the design</div>
-              <p className="text-xs text-zinc-500">Check these are licensed (Adobe Fonts, Google Fonts or a bought licence) before build.</p>
-              <ul className="mt-1 flex flex-wrap gap-1.5">
-                {[...fonts.entries()].sort().map(([fam, styles]) => <li key={fam} className="rounded bg-zinc-100 px-2 py-0.5 text-xs"><span className="font-medium">{fam}</span> <span className="text-zinc-500">{[...styles].join(", ")}</span></li>)}
-              </ul>
+              <div className="font-medium">Font licences</div>
+              <table className="mt-1 w-full text-xs">
+                <tbody>
+                  {[...fonts.entries()].sort().map(([fam, styles]) => {
+                    const c = (r.fontChecks || []).find((x) => x.family.toLowerCase() === fam.toLowerCase().replace(/[-_](bold|regular|medium|light|italic|black|thin|semibold|extrabold|heavy)$/i, ""));
+                    const tone = { free: "bg-green-100 text-green-800", paid: "bg-red-100 text-red-800", check: "bg-amber-100 text-amber-800" }[c?.status] || "bg-zinc-100 text-zinc-600";
+                    return (
+                      <tr key={fam} className="border-t border-zinc-100 align-top">
+                        <td className="py-1 pr-2 whitespace-nowrap"><span className="font-medium">{fam}</span> <span className="text-zinc-500">{[...styles].join(", ")}</span></td>
+                        <td className="py-1 pr-2 whitespace-nowrap">{c ? (c.link ? <a href={c.link} target="_blank" rel="noreferrer" className={`rounded px-1.5 py-0.5 font-semibold ${tone}`}>{c.label} ↗</a> : <span className={`rounded px-1.5 py-0.5 font-semibold ${tone}`}>{c.label}</span>) : <span className="text-zinc-400">Not checked yet, run Check again</span>}</td>
+                        <td className="py-1 text-zinc-600">{c?.note}{c?.searchGoogle && <> <a href={c.searchGoogle} target="_blank" rel="noreferrer" className="text-blue-700 underline">Search Google Fonts</a></>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
           <div className="space-y-2">
