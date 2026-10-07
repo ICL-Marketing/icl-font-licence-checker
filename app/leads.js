@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, firstNameOf, GENERIC_BOX_RE, websiteIsVerified } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 
 // Website leads: local businesses whose site is letting them down, found
@@ -85,9 +85,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       // Contact not verified, and every route tried: nothing more to do, so park it.
       for (const l of Object.values(local)) if (l.status === "no-contact" && contactExhausted(l)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); }
       // "info", "hello" and the like are inboxes, not people: the email opens "Hi there," instead.
-      for (const l of Object.values(local)) if (l.contactName && !firstNameOf(l.contactName)) { l.contactName = ""; l.updatedAt = new Date().toISOString(); }
+      for (const l of Object.values(local)) if (!isFrozen(l) && l.contactName && !firstNameOf(l.contactName)) { l.contactName = ""; l.updatedAt = new Date().toISOString(); }
       // Company-name searches are no longer run; drop any stored ones so only the trade search shows.
-      for (const l of Object.values(local)) if (l.seo?.searches?.some((x) => x.kind !== "trade")) { l.seo = { ...l.seo, searches: l.seo.searches.filter((x) => x.kind === "trade") }; l.updatedAt = new Date().toISOString(); }
+      for (const l of Object.values(local)) if (!isFrozen(l) && l.seo?.searches?.some((x) => x.kind !== "trade")) { l.seo = { ...l.seo, searches: l.seo.searches.filter((x) => x.kind === "trade") }; l.updatedAt = new Date().toISOString(); }
       // Parked only for a missing contact? That has its own column now.
       for (const l of Object.values(local)) if (l.status === "not-pursuing" && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); }
       // One-off: every lead imported from the Client Matrix sheet was closed as Lost (7 Oct 2026).
@@ -104,8 +104,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const l of Object.values(next)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status) && websiteIsVerified(l)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried) && ["new", "qualified"].includes(l.status)) { l.contactUnverified = true; l.status = parkStatus(l); l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "no-contact" && contactExhausted(l)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
-        for (const l of Object.values(next)) if (l.contactName && !firstNameOf(l.contactName)) { l.contactName = ""; l.updatedAt = new Date().toISOString(); push(l.id, l); }
-        for (const l of Object.values(next)) if (l.seo?.searches?.some((x) => x.kind !== "trade")) { l.seo = { ...l.seo, searches: l.seo.searches.filter((x) => x.kind === "trade") }; l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (!isFrozen(l) && l.contactName && !firstNameOf(l.contactName)) { l.contactName = ""; l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (!isFrozen(l) && l.seo?.searches?.some((x) => x.kind !== "trade")) { l.seo = { ...l.seo, searches: l.seo.searches.filter((x) => x.kind === "trade") }; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "not-pursuing" && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         save(next);
@@ -237,11 +237,10 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           if (!tooSmall && lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
           // Last step (spends search credit): are they found for their own trade? A current site that is not
           // becomes a "Low search visibility" lead; leads with no site get a search for one when open.
-          if (!tooSmall && websiteIsVerified(lead) && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site" && lead.status !== "not-pursuing" && (lead.website ? (!lead.problem || ["new", "qualified"].includes(lead.status)) : ["new", "qualified"].includes(lead.status))) { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = r.lead; } catch {} }
+          if (!tooSmall && websiteIsVerified(lead) && lead.problem && ["High", "Medium"].includes(lead.likelihood) && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site" && ["new", "qualified"].includes(lead.status)) { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = r.lead; } catch {} }
           st.done++;
           if (lead.problem && !tooSmall) { if (["new", "qualified"].includes(lead.status)) st.found++; else st.parked = (st.parked || 0) + 1; update(lead.id, lead); markSeen(c.companyNumber, lead.status); }
           else if (lead.problem) { st.parked = (st.parked || 0) + 1; update(lead.id, { ...lead, status: "not-pursuing" }); markSeen(c.companyNumber, "too-small"); }
-          else if (!websiteIsVerified(lead)) { st.found++; update(lead.id, { ...lead, status: "new", caveats: [lead.caveats, "Confirm the website is theirs before the checks run"].filter(Boolean).join("; ") }); markSeen(c.companyNumber, "new"); }
           else { st.parked = (st.parked || 0) + 1; update(lead.id, { ...lead, status: "not-pursuing", likelihood: "Low", likelihoodWhy: lead.likelihoodWhy || "Site is current; no outreach planned", caveats: [lead.caveats, "Site is current"].filter(Boolean).join("; ") }); markSeen(c.companyNumber, "site-fine"); } // nothing to pitch, but it goes on the board so you can see it was checked
         } catch (e) { if (stopRef.current) break; st.done++; st.errors.push(`${c.name}: ${e.message}`); }
         candidates = candidates.slice(1);
@@ -266,7 +265,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       const r = await post({ step: "contacts", lead: l, useHunter: true, forceHunter: true });
       const best = r.people.find((p) => p.email) || null;
       const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), ...(r.hunterOnFile !== undefined && r.hunterOnFile !== null ? { hunterOnFile: r.hunterOnFile } : {}), contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: !!r.hunterUsed, ...(r.hunterUsed ? {} : { hunterOnFile: 0 }), checking: false, error: r.hunterNote || (best || r.hunterDomain ? "" : l.website ? "Hunter had nothing for this domain." : "Hunter did not recognise the company name.") };
-      if (!l.website && r.hunterDomain) { f.website = r.hunterDomain; f.websiteConfirmed = false; f.caveats = [l.caveats, `Website ${r.hunterDomain} came from Hunter's company lookup; double-check it is theirs`].filter(Boolean).join("; "); }
+      if (r.hunterUsed) f.hunterDomain = r.hunterDomain || String(l.website || "").replace(/^https?:\/\//i, "").replace(/^www\./, "").replace(/\/.*$/, "");
+      if (!l.website && r.hunterDomain) { f.website = r.hunterDomain; f.websiteConfirmed = false; f.websiteVerified = ""; f.websiteEvidence = "Hunter's company lookup"; f.caveats = [l.caveats, `Website ${r.hunterDomain} came from Hunter's company lookup; double-check it is theirs`].filter(Boolean).join("; "); }
       if (!best && !l.emailAddress && !r.hunterDomain && ["no-contact", "new", "qualified"].includes(l.status)) { f.status = "not-pursuing"; f.contactUnverified = true; }
       if (best && !l.emailAddress) { f.emailAddress = best.email; f.contactName = l.contactName || best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; if (["no-contact", "not-pursuing"].includes(l.status) && l.contactUnverified) { f.status = l.likelihood === "Low" ? "new" : "qualified"; f.contactUnverified = false; } }
       update(l.id, f);
@@ -308,7 +308,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       try {
         let { lead } = await post({ step: "refresh", lead: l, knownSites });
         if (lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
-        if (websiteIsVerified(lead) && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site" && (lead.website ? (!lead.problem || !["not-pursuing", "lost", "won", "no-contact"].includes(lead.status)) : ["new", "qualified", "contacted", "replied", "meeting"].includes(lead.status))) { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = { ...r.lead, status: !lead.problem && r.lead.problem ? r.lead.status : lead.status }; } catch {} }
+        if (websiteIsVerified(lead) && lead.problem && ["High", "Medium"].includes(lead.likelihood) && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site" && ["new", "qualified", "contacted", "replied", "meeting"].includes(lead.status)) { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = { ...r.lead, status: !lead.problem && r.lead.problem ? r.lead.status : lead.status }; } catch {} }
         update(id, lead); st.found++;
         setPendingRescan((prev) => { const n = new Set(prev); n.delete(id); return n; });
       }
@@ -383,7 +383,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   // Emails written before the current wording get redrafted automatically on load.
   const redraftingRef = useRef(false);
   useEffect(() => {
-    const stale = Object.values(leads).filter((l) => l.problem && !l.emailEdited && (l.draftVersion || 0) < DRAFT_VERSION);
+    const stale = Object.values(leads).filter((l) => l.problem && !l.emailEdited && !isFrozen(l) && (l.draftVersion || 0) < DRAFT_VERSION);
     if (!stale.length || redraftingRef.current) return;
     redraftingRef.current = true;
     (async () => {
@@ -427,10 +427,11 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   useEffect(() => {
     if (running || catchingUpRef.current) return;
     const siteOk = (l) => l.website && l.problem !== "Parked domain" && l.problem !== "Dead/broken site" && !l.checking;
-    const open = (l) => ["new", "qualified", "no-contact"].includes(l.status) || (l.status === "not-pursuing" && !l.problem && /current/i.test(l.likelihoodWhy || ""));
+    const open = (l) => ["new", "qualified", "no-contact"].includes(l.status) && !!l.problem;
+    const wantsSeo = (l) => !l.seo && ["High", "Medium"].includes(l.likelihood);
     // Leads from before websites were verified get the free check (company number, postcode, director on the site).
-    const toVerify = Object.values(leadsRef.current).filter((l) => siteOk(l) && l.websiteVerified === undefined && !["lost", "won"].includes(l.status));
-    const todo = Object.values(leadsRef.current).filter((l) => siteOk(l) && open(l) && websiteIsVerified(l) && (!l.licence || !l.seo));
+    const toVerify = Object.values(leadsRef.current).filter((l) => siteOk(l) && l.websiteVerified === undefined && !isFrozen(l)).sort((x, y) => (open(x) ? 0 : 1) - (open(y) ? 0 : 1));
+    const todo = Object.values(leadsRef.current).filter((l) => siteOk(l) && open(l) && websiteIsVerified(l) && (!l.licence || wantsSeo(l)));
     if (!toVerify.length && !todo.length) return;
     catchingUpRef.current = true;
     (async () => {
@@ -444,7 +445,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         const cur = leadsRef.current[l.id]; if (!cur) continue;
         if (!cur.licence) await checkLicence(cur);
         const now = leadsRef.current[l.id] || cur;
-        if (!now.seo) await checkSeo(now);
+        if (wantsSeo(now)) await checkSeo(now);
       }
       catchingUpRef.current = false;
     })();
@@ -475,7 +476,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
               ? <button onClick={stopNow} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
               : <button onClick={() => findLeads()} disabled={cfg?.configured === false} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find leads</button>}
             <button onClick={() => refreshLeads(list.filter((l) => !["won", "lost", "not-pursuing"].includes(l.status)).map((l) => l.id))} disabled={running || !list.length} title="Re-run the website, search, accounts and contact checks on every open lead with the latest rules (Won, Lost and Not pursuing are skipped). Statuses and notes are kept." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Rescan all leads</button>
-            {(() => { const due = list.filter((l) => (l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified && !contactExhausted(l))) && l.contactsStamp !== contactsStamp(cfg)); return due.length > 0 && (
+            {(() => { const due = list.filter((l) => !isFrozen(l) && (l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified && !contactExhausted(l))) && l.contactsStamp !== contactsStamp(cfg)); return due.length > 0 && (
               <button onClick={() => retryContacts(due.map((l) => l.id))} disabled={running} title="The contact finder has improved since these were parked (or Hunter.io was connected). Look again; any that now have an address come back to the board." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-900 hover:bg-red-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Retry contacts ({due.length}{(() => { const h = cfg?.hunter ? due.filter((l) => l.likelihood === "High" && !l.hunterTried && l.website).length : 0; return h ? `, ${h} High via Hunter` : ""; })()})</button>
             ); })()}
             <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
@@ -593,7 +594,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
                   {l.optedOut && <span className="rounded-full bg-red-600 px-1.5 py-0.5 font-semibold text-white" title={`Asked not to be contacted${l.optedOutAt ? ` on ${new Date(l.optedOutAt).toLocaleDateString("en-GB")}` : ""}`}>Opted out</span>}
                   {l.tradesElsewhere && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800" title={`Website address: ${l.tradingAddress}`}>Trades elsewhere</span>}
-                  {!websiteIsVerified(l) && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="The website was matched on its name only. Open the lead and confirm it is theirs before anything goes out.">Confirm website</span>}
+                  {!websiteIsVerified(l) && !isFrozen(l) && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="The website was matched on its name only. Open the lead and confirm it is theirs before anything goes out.">Confirm website</span>}
                   {needsChase(l, followUp) && <span className="rounded-full bg-amber-500 px-1.5 py-0.5 font-semibold text-white" title={`No reply ${Math.floor(daysSince(l))} days after contact: send the follow-up`}>Chase</span>}
                   {l.status === "contacted" && l.chasedAt && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 text-zinc-700">Chased {new Date(l.chasedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>}
                   <span>{l.area}</span>
@@ -660,6 +661,8 @@ const decides = (p) => { const r = `${p.role || ""} ${p.why || ""}`; if (/market
 
 function Contacts({ l, onChange, onContacts, onHunter, cfgHunter = false, subjects = {} }) {
   const all = l.contacts || [];
+  const siteHost = String(l.website || "").replace(/^https?:\/\//i, "").replace(/^www\./, "").replace(/\/.*$/, "");
+  const hunterAt = l.hunterDomain || siteHost;
   const [showOthers, setShowOthers] = useState(false);
   const deciders = all.filter(decides);
   const others = all.filter((p) => !decides(p));
@@ -671,10 +674,11 @@ function Contacts({ l, onChange, onContacts, onHunter, cfgHunter = false, subjec
         <span className="text-sm font-semibold">Who to contact</span>
         <span className="ml-auto flex flex-wrap gap-2">
           {cfgHunter && (l.hunterTried
-            ? <span className="inline-flex items-center rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs text-zinc-500" title="Hunter has already been asked about this domain">Hunter used</span>
+            ? <span className="inline-flex items-center rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs text-zinc-500" title="Hunter has already been asked about this domain">Hunter used{hunterAt ? ` · ${hunterAt}` : " · by company name"}</span>
             : l.hunterOnFile === 0
             ? <span className="inline-flex items-center rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs text-zinc-500" title="Checked free: Hunter holds no addresses for this domain, so a credit would buy nothing">Hunter has nothing</span>
-            : <button onClick={onHunter} disabled={l.checking} title={l.website ? "Ask Hunter.io for named people at this domain with their roles and addresses. Spends one credit." : "No website on file: Hunter looks the company up by name, which can also turn up the domain. Spends one credit."} className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs text-amber-900 hover:bg-amber-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> Use a Hunter credit{l.website ? "" : " (by company name)"}{l.hunterOnFile > 0 ? ` · ${l.hunterOnFile} on file` : ""}</button>)}
+            : !(l.hunterOnFile > 0) ? null
+            : <button onClick={onHunter} disabled={l.checking} title={l.website ? "Ask Hunter.io for named people at this domain with their roles and addresses. Spends one credit." : "No website on file: Hunter looks the company up by name, which can also turn up the domain. Spends one credit."} className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs text-amber-900 hover:bg-amber-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> Use a Hunter credit · {l.hunterOnFile} on file {siteHost ? `at ${siteHost}` : "under the company name (Hunter picks the domain)"}</button>)}
           <button onClick={onContacts} disabled={l.checking} title="Companies House and the website, free" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {people.length ? "Look again" : "Find contacts"}</button>
         </span>
       </div>
@@ -763,17 +767,36 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjec
   const issues = issuesFor(l);
   const current = issues.find((i) => i.id === l.issueId) || null;
   const person = (l.contacts || []).find((p) => p.email && p.email === l.emailAddress) || null;
+  // No issue chosen yet (or the old one no longer applies): land on the one this person would care about.
+  const shownIssue = current || (issues.length ? pickIssue(l, person || { role: "owner" }, []) : null);
+  useEffect(() => {
+    if (!shownIssue || current || l.emailEdited || isFrozen(l)) return;
+    const d = draftFor(l, person, shownIssue, subjects);
+    onChange({ subject: d.subject, email: d.body, issueId: d.issueId, emailEdited: false, emailPrevious: l.email && l.email !== d.body ? l.email : l.emailPrevious });
+  }, [l.id, l.issueId, issues.length]); // eslint-disable-line react-hooks/exhaustive-deps
   function chooseIssue(id) {
     const issue = issues.find((i) => i.id === id) || null;
     if (l.emailEdited && !confirm("This email was edited by hand. Replace it with the draft for the chosen issue?")) return;
     const d = draftFor(l, person, issue, subjects);
     onChange({ subject: d.subject, email: d.body, issueId: d.issueId, emailEdited: false, emailPrevious: l.email && l.email !== d.body ? l.email : l.emailPrevious });
   }
+  // The website field is committed on blur, Enter or paste, not on every keystroke (uncontrolled, re-keyed per lead).
+  // A website you confirm (button) or paste/type counts as verified by you. The lead is rescanned straight away
+  // so the problem, licence, search and contacts all come from the real site, and its status is decided again.
+  function commitWebsite(value, force = false) {
+    const host = String(value || "").trim().replace(/^https?:\/\//i, "").replace(/^www\./, "").replace(/\/.*$/, "").toLowerCase();
+    if (!host || (!force && host === String(l.website || "").toLowerCase() && websiteIsVerified(l))) return;
+    if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(host)) return;
+    const fromOld = (e) => e && l.website && e.endsWith("@" + String(l.website).replace(/^www\./, "")) && host !== String(l.website).toLowerCase();
+    onChange({ website: host, websiteConfirmed: true, websiteVerified: "confirmed by you", websiteEvidence: "confirmed by you", websiteDoubt: "", siteUrl: "", ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}), ...(fromOld(l.emailAddress) ? { emailAddress: "", contactName: "" } : {}), caveats: String(l.caveats || "").split("; ").filter((x) => x && !/no website|not found by name|confirm the website/i.test(x)).join("; ") });
+    setTimeout(() => onRefresh(), 50);
+  }
   // Wrong website: remember it as rejected, drop everything that came from it, rescan without it.
   function rejectWebsite() {
     const host = String(l.website || "").replace(/^https?:\/\//i, "").replace(/^www\./, "").replace(/\/.*$/, "").toLowerCase();
-    const fromCH = (l.contacts || []).filter((p) => /Companies House/.test(p.source || "") && !/Hunter/.test(p.source || ""));
-    onChange({ rejectedSites: [...new Set([...(l.rejectedSites || []), host])], website: "", websiteConfirmed: false, websiteDoubt: "", siteUrl: "", licence: null, seo: null, contacts: fromCH.map((p) => ({ ...p, email: p.email && p.email.endsWith("@" + host) ? "" : p.email })), channels: [], emailAddress: l.emailAddress && l.emailAddress.endsWith("@" + host) ? "" : l.emailAddress, contactName: l.emailAddress && l.emailAddress.endsWith("@" + host) ? "" : l.contactName, hunterTried: false, hunterOnFile: null, drafts: {}, emailEdited: false, caveats: [l.caveats, `${host} was a different business`].filter(Boolean).join("; ") });
+    const fromCH = (l.contacts || []).filter((p) => /Companies House/.test(p.source || "")).map((p) => ({ ...p, source: p.source.replace(/\s*\+\s*Hunter\.io/, ""), email: p.email && p.email.endsWith("@" + host) ? "" : p.email, emailStatus: p.email && p.email.endsWith("@" + host) ? "" : p.emailStatus }));
+    const fromOld = (e) => !!e && e.endsWith("@" + host);
+    onChange({ rejectedSites: [...new Set([...(l.rejectedSites || []), host])], website: "", websiteConfirmed: false, websiteVerified: "", websiteEvidence: "", websiteDoubt: "", siteUrl: "", problem: "No website", problemDetail: `${host} belongs to a different business; no site found`, licence: null, seo: null, contacts: fromCH, channels: [], emailAddress: fromOld(l.emailAddress) ? "" : l.emailAddress, contactName: fromOld(l.emailAddress) ? "" : l.contactName, hunterOnFile: null, hunterDomain: "", drafts: {}, emailEdited: false, caveats: [...String(l.caveats || "").split("; ").filter((x) => x && !/came from Hunter|different business/i.test(x)), `${host} was a different business`].join("; ") });
     setTimeout(() => onRefresh(), 50);
   }
   const withEmail = (l.contacts || []).filter((p) => p.email);
@@ -791,21 +814,21 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjec
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
               {l.problem && <span className={`rounded-full px-2 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
               <span className="inline-flex items-center gap-1">
-                <input value={l.website || ""} onChange={(e) => onChange({ website: e.target.value.trim(), websiteConfirmed: true, siteUrl: "" })} placeholder="website (type to correct)" title="Correct the website here; a corrected website is kept on rescan" size={Math.max(8, (l.website || "").length + 1)} className="rounded border border-transparent px-1 text-xs text-blue-700 hover:border-zinc-300 focus:border-zinc-400" />
+                <input key={`${l.id}:${l.website || ""}`} defaultValue={l.website || ""} onBlur={(e) => commitWebsite(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitWebsite(e.currentTarget.value); e.currentTarget.blur(); } }} onPaste={(e) => { const t = e.clipboardData?.getData("text"); if (t && /\./.test(t)) { e.preventDefault(); e.currentTarget.value = t.trim(); commitWebsite(t); } }} placeholder="website (paste or type to correct)" title="Paste or type their website. It counts as confirmed by you and the lead is rescanned straight away." size={Math.max(12, (l.website || "").length + 2)} className="rounded border border-transparent px-1 text-xs text-blue-700 hover:border-zinc-300 focus:border-zinc-400" />
                 {site && <a href={site} target="_blank" rel="noreferrer" aria-label="Open website" className="text-blue-700"><ExternalIcon /></a>}
               </span>
               {l.companyNumber && <a href={`https://find-and-update.company-information.service.gov.uk/company/${l.companyNumber}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700 underline">Companies House {l.companyNumber} <ExternalIcon /></a>}
               {l.website && <button onClick={rejectWebsite} title="This website belongs to a different business. It is dropped, remembered as wrong, and the lead is rescanned without it." className="rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[11px] text-red-800 hover:bg-red-100">Not their website</button>}
             </div>
             {l.websiteDoubt && l.website && <div className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">Check the website.</span> {l.websiteDoubt}</div>}
-            {l.website && !websiteIsVerified(l) && !l.websiteDoubt && (
+            {l.website && !websiteIsVerified(l) && !l.websiteDoubt && !isFrozen(l) && (
               <div className="flex flex-wrap items-center gap-2 rounded-lg border-2 border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                 <span><span className="font-semibold">Is this their website?</span> {l.websiteVerified === undefined ? "Checking it against Companies House…" : `Matched on ${l.websiteEvidence || "the name"} only; nothing on the site ties it to company ${l.companyNumber || "number"} yet. Open it and check before anything goes out.`}</span>
-                {l.websiteVerified !== undefined && <span className="ml-auto flex gap-2">
+                <span className="ml-auto flex gap-2">
                   {site && <a href={site} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white px-2 py-1 text-xs hover:bg-amber-100">Open site <ExternalIcon /></a>}
-                  <button onClick={() => onChange({ websiteVerified: "confirmed by you", websiteConfirmed: true, websiteDoubt: "" })} className="rounded-md bg-emerald-700 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-800">Yes, it’s theirs</button>
+                  <button onClick={() => commitWebsite(l.website, true)} className="rounded-md bg-emerald-700 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-800">Yes, it’s theirs</button>
                   <button onClick={rejectWebsite} className="rounded-md border border-red-300 bg-white px-2 py-1 text-xs text-red-800 hover:bg-red-50">Not theirs</button>
-                </span>}
+                </span>
               </div>
             )}
             {l.website && websiteIsVerified(l) && l.websiteVerified && <div className="text-[11px] text-emerald-700">Website verified: {l.websiteVerified}</div>}
@@ -849,7 +872,7 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjec
               <span className="text-sm font-semibold">Search visibility</span>
               <button onClick={onSeo} disabled={l.checking} className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {l.seo ? "Search again" : "Check search"}</button>
             </div>
-            {!l.seo && <p className="mt-2 text-xs text-zinc-500">Runs on its own once the website is confirmed. Searches their trade + town, the search customers make, and records where their site comes. Company-name searches are not run.</p>}
+            {!l.seo && <p className="mt-2 text-xs text-zinc-500">Runs during the scan for Medium and High leads once the website is verified. Searches their trade + town, the search customers make, and records where their site comes.</p>}
             {l.seo && (
               <ul className="mt-2 space-y-1 text-sm">
                 {l.seo.searches.filter((x) => x.kind === "trade").map((x, i) => (
@@ -904,7 +927,7 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjec
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold">Outreach email</span>
               <span className="ml-auto flex flex-wrap items-center gap-2">
-                {l.optedOut ? <span className="text-xs text-red-700">Opted out: not to be emailed</span> : !websiteIsVerified(l) ? <span className="text-xs text-amber-800">Confirm the website above before sending</span> : <>
+                {l.optedOut ? <span className="text-xs text-red-700">Opted out: not to be emailed</span> : !websiteIsVerified(l) && !isFrozen(l) ? <span className="text-xs text-amber-800">Confirm the website above before sending</span> : <>
                   <a href={outlook} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100"><MailIcon className="h-3.5 w-3.5" /> Open in Outlook</a>
                   <button onClick={copy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy email</>}</button>
                 </>}
@@ -927,8 +950,7 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjec
             <div className="mt-2">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Issue raised</div>
               {issues.length ? (
-                <select value={l.issueId || ""} onChange={(e) => chooseIssue(e.target.value)} className="mt-0.5 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm">
-                  {!current && <option value="">Choose an issue…</option>}
+                <select value={shownIssue?.id || ""} onChange={(e) => chooseIssue(e.target.value)} className="mt-0.5 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm">
                   {issues.map((i) => <option key={i.id} value={i.id}>{i.label}{person && i.audience.includes(roleGroup(person)) ? "" : person ? " (less relevant to this role)" : ""}</option>)}
                 </select>
               ) : <p className="mt-0.5 text-xs text-zinc-500">No issue found on the site yet. The licence and search checks run on their own; Rescan this lead to look again now.</p>}

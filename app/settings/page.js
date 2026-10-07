@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { TeamEditor, loadTeam, saveTeam, normaliseTeam } from "@/app/team";
 import { ClientsEditor, loadClients, saveClients } from "@/app/clients";
@@ -283,23 +283,41 @@ function LinksEditor() {
   const [clients, setClients] = useState(CLIENT_DEFAULTS);
   const [subjects, setSubjects] = useState(SUBJECT_DEFAULTS);
   const [followUp, setFollowUp] = useState({ chaseDays: 7, coldDays: 21, lostDays: 60 });
-  const [saved, setSaved] = useState(false);
+  const [saveState, setSaveState] = useState(""); // "", "saving", "saved", "failed"
+  // Saves happen on their own, a moment after the last change. The last saved (or loaded) payload is
+  // remembered so loading the settings does not count as a change.
+  const lastSavedRef = useRef(null);
+  const payloadOf = (li, sn, cl, su, fu) => ({ ...li, sender: sn, clients: parseClients(cl), subjects: su, followUp: { chaseDays: Number(fu.chaseDays) || 7, coldDays: Number(fu.coldDays) || 21, lostDays: Number(fu.lostDays) || 60 } });
+  const defaultsJson = () => JSON.stringify(payloadOf(LINK_DEFAULTS, SENDER_DEFAULTS, CLIENT_DEFAULTS, SUBJECT_DEFAULTS, { chaseDays: 7, coldDays: 21, lostDays: 60 }));
   useEffect(() => {
     fetch("/api/settings?key=lead-links").then((r) => r.json()).then((j) => {
-      if (!(j.shared && j.value)) return;
+      if (!(j.shared && j.value)) { lastSavedRef.current = defaultsJson(); return; }
       const { sender: sn, clients: cl, volumes: vo, subjects: su, followUp: fu, ...rest } = j.value;
       void vo; // manual volumes are no longer edited here; Keyword Planner supplies them automatically
-      if (fu && typeof fu === "object") setFollowUp({ chaseDays: 7, coldDays: 21, lostDays: 60, ...fu });
-      if (su && typeof su === "object") setSubjects({ ...SUBJECT_DEFAULTS, ...su });
-      setLinks({ ...LINK_DEFAULTS, ...rest });
-      if (sn) setSender({ ...SENDER_DEFAULTS, ...sn });
-      if (Array.isArray(cl) && cl.length) setClients(cl.map((c) => [c.name, c.url, c.town, [...(c.near || []), ...(c.flagship ? ["flagship"] : [])].join(", ")].join(" | ")).join("\n"));
-    }).catch(() => {});
+      const nextFollowUp = fu && typeof fu === "object" ? { chaseDays: 7, coldDays: 21, lostDays: 60, ...fu } : { chaseDays: 7, coldDays: 21, lostDays: 60 };
+      const nextSubjects = su && typeof su === "object" ? { ...SUBJECT_DEFAULTS, ...su } : SUBJECT_DEFAULTS;
+      const nextLinks = { ...LINK_DEFAULTS, ...rest };
+      const nextSender = sn ? { ...SENDER_DEFAULTS, ...sn } : SENDER_DEFAULTS;
+      const nextClients = Array.isArray(cl) && cl.length ? cl.map((c) => [c.name, c.url, c.town, [...(c.near || []), ...(c.flagship ? ["flagship"] : [])].join(", ")].join(" | ")).join("\n") : CLIENT_DEFAULTS;
+      lastSavedRef.current = JSON.stringify(payloadOf(nextLinks, nextSender, nextClients, nextSubjects, nextFollowUp));
+      setFollowUp(nextFollowUp); setSubjects(nextSubjects); setLinks(nextLinks); setSender(nextSender); setClients(nextClients);
+    }).catch(() => { lastSavedRef.current = defaultsJson(); });
   }, []);
-  async function save() {
-    await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "lead-links", value: { ...links, sender, clients: parseClients(clients), subjects, followUp: { chaseDays: Number(followUp.chaseDays) || 7, coldDays: Number(followUp.coldDays) || 21, lostDays: Number(followUp.lostDays) || 60 } } }) }).catch(() => {});
-    setSaved(true); setTimeout(() => setSaved(false), 1500);
-  }
+  useEffect(() => {
+    if (lastSavedRef.current === null) return; // not loaded yet
+    const value = payloadOf(links, sender, clients, subjects, followUp);
+    const json = JSON.stringify(value);
+    if (json === lastSavedRef.current) return;
+    setSaveState("saving");
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "lead-links", value }) });
+        if (!r.ok) throw new Error();
+        lastSavedRef.current = json; setSaveState("saved"); setTimeout(() => setSaveState((v) => (v === "saved" ? "" : v)), 2000);
+      } catch { setSaveState("failed"); }
+    }, 800);
+    return () => clearTimeout(t);
+  }, [links, sender, clients, subjects, followUp]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="space-y-3">
       <div className="grid gap-2 sm:grid-cols-2">
@@ -336,7 +354,7 @@ function LinksEditor() {
           ))}
         </div>
       </div>
-      <button onClick={save} className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{saved ? "Saved" : "Save"}</button>
+      <p className={`text-xs ${saveState === "failed" ? "text-red-700" : "text-zinc-500"}`}>{saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "failed" ? "Could not save. Check the shared storage connection and try again." : "Changes save automatically."}</p>
     </div>
   );
 }

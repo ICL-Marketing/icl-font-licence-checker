@@ -28,7 +28,7 @@ export async function POST(request) {
       const l = b.lead || {};
       if (!l.companyNumber && !l.website) return Response.json({ error: "Needs a company number or a website." }, { status: 400 });
       if (l.companyNumber && !leadsConfigured()) return Response.json({ error: "Companies House is not set up (Settings → Connections), so only the website can be searched." }, { status: 400 });
-      const ct = await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business, employees: l.employees, websiteVerified: websiteIsVerified(l), useHunter: !!b.useHunter, forceHunter: !!b.forceHunter });
+      const ct = await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business, employees: l.employees, websiteVerified: websiteIsVerified(l), useHunter: !!b.useHunter, forceHunter: !!b.forceHunter, rejectedSites: l.rejectedSites || [] });
       const patch = { postcode: l.postcode, area: l.area, caveats: l.caveats || "" };
       applyTradingAddress(patch, ct.tradingAddress, null);
       return Response.json({ ...ct, tradingPostcode: patch.tradingPostcode || "", tradingAddressText: patch.tradingAddress || "", tradesElsewhere: !!patch.tradesElsewhere, caveats: patch.caveats });
@@ -93,7 +93,7 @@ export async function POST(request) {
       // Free: does the site carry this company's number, registered postcode or a director's name?
       const l = b.lead || {};
       if (!l.website) return Response.json({ error: "No website on this lead." }, { status: 400 });
-      const v = await verifyWebsite({ website: l.website, companyNumber: l.companyNumber, postcode: l.postcode });
+      const v = await verifyWebsite({ website: l.website, companyNumber: l.companyNumber, postcode: l.postcode, addressLine: String(l.address || "").split(", ")[0], legalName: l.business });
       return Response.json(v);
     }
     if (b.step === "recheck") {
