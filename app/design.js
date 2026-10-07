@@ -245,12 +245,13 @@ function groupFindings(findings) {
     if (!groups.has(k)) groups.set(k, { level: f.level, id: f.id, rule, items: [] });
     const g = groups.get(k);
     const node = f.node || "";
-    if (!g.items.some((x) => x.href === f.href && x.node === node)) g.items.push({ node: node || "Layer", detail: f.detail, href: f.href, key: findingKey(f) });
+    const key = findingKey(f);
+    if (!g.items.some((x) => x.key === key)) g.items.push({ node: node || "Layer", detail: f.detail, href: f.href, key, inInstance: String(f.nodeId || "").startsWith("I") });
   }
   return [...groups.values()];
 }
 // A finding's identity survives rescans: the check plus the Figma layer id in its link.
-const findingKey = (f) => { let n = (String(f.href || "").match(/node-id=([^&]+)/) || [])[1] || f.node; try { n = decodeURIComponent(n); } catch {} return `${f.id}|${n}`; };
+const findingKey = (f) => { if (f.nodeId) return `${f.id}|${String(f.nodeId).replace(/:/g, "-")}`; let n = (String(f.href || "").match(/node-id=([^&]+)/) || [])[1] || f.node; try { n = decodeURIComponent(n); } catch {} return `${f.id}|${n}`; };
 const score = (s, dismissed = {}) => (s.findings || []).reduce((n, f) => n + (dismissed[findingKey(f)] ? 0 : f.level === "fail" ? 100 : f.level === "warn" ? 10 : 1), 0);
 
 function ScreenRow({ s, dismissed = {}, onDismiss }) {
@@ -312,7 +313,7 @@ function ScreenRow({ s, dismissed = {}, onDismiss }) {
               <ul className="mt-1 flex flex-wrap gap-1">
                 {g.items.map((f, j) => (
                   <li key={j} className="inline-flex max-w-sm items-stretch rounded border border-zinc-200 bg-white text-xs">
-                    <a href={f.href} target="_blank" rel="noreferrer" title="Open in Figma" className="inline-flex min-w-0 items-center gap-1 px-1.5 py-0.5 text-blue-700 hover:bg-blue-50"><span className="truncate">{f.node}</span>{f.detail ? <span className="shrink-0 text-zinc-500">· {f.detail}</span> : null}<span className="shrink-0"><ExternalIcon /></span></a>
+                    <a href={f.href} target="_blank" rel="noreferrer" title={f.inInstance ? "Inside a component instance: Figma can only select the instance, so the link opens that and this layer is inside it" : "Open in Figma"} className="inline-flex min-w-0 items-center gap-1 px-1.5 py-0.5 text-blue-700 hover:bg-blue-50"><span className="truncate">{f.node}</span>{f.detail ? <span className="shrink-0 text-zinc-500">· {f.detail}</span> : null}<span className="shrink-0"><ExternalIcon /></span></a>
                     <button onClick={() => act([f.key], "done", "1 marked done")} title="Done (fixed)" className="border-l border-zinc-200 px-1.5 text-green-700 hover:bg-green-50">✓</button>
                     <button onClick={() => act([f.key], "ignore", "1 ignored")} title="Ignore this one" className="border-l border-zinc-200 px-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">✕</button>
                   </li>
