@@ -9,6 +9,9 @@ import SEED from "@/data/leads.json";
 // Website leads: local businesses whose site is letting them down, found
 // through Companies House and worked through a pipeline board.
 const KEY = "flc-leads-v1";
+const SCAN_KEY = "flc-leads-scan-v1"; // an interrupted scan, so it can be continued after a reload
+const loadScan = () => { try { return JSON.parse(localStorage.getItem(SCAN_KEY) || "null"); } catch { return null; } };
+const saveScan = (v) => { try { if (v) localStorage.setItem(SCAN_KEY, JSON.stringify(v)); else localStorage.removeItem(SCAN_KEY); } catch {} };
 const load = () => { try { const v = JSON.parse(localStorage.getItem(KEY) || "null"); return v && typeof v === "object" ? v : null; } catch { return null; } };
 const save = (v) => { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch {} };
 
@@ -25,6 +28,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const [sectors, setSectors] = useState(["retail", "hospitality", "trades"]);
   const [minAssets, setMinAssets] = useState(20000);
   const [run, setRun] = useState(null); // {phase, done, total, found, errors}
+  const [pending, setPending] = useState(null); // interrupted scan found on load
   const [open, setOpen] = useState(null);
   const [filter, setFilter] = useState("");
   const [showProblem, setShowProblem] = useState("");
@@ -59,6 +63,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       }).catch(() => {});
     }, 0);
     fetch("/api/leads").then((r) => r.json()).then(setCfg).catch(() => setCfg({ configured: false, areas: {}, sectors: {} }));
+    setTimeout(() => { const sc = loadScan(); if (sc && (sc.queue?.length || sc.ids?.length)) setPending(sc); }, 0);
     return () => clearTimeout(t);
   }, []);
 
@@ -111,45 +116,55 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   }
 
   // Find new leads: every place in the chosen areas × chosen sectors, then enrich each new candidate.
-  async function findLeads() {
+  async function findLeads(resume = null) {
     stopRef.current = false;
     onRunning?.(true);
+    setPending(null);
     const places = place.trim() ? [place.trim()] : areas.flatMap((k) => PLACES[k] || []);
     const known = new Set(Object.keys(leads));
     const knownSites = clients.flatMap((c) => c.websites || []).map((w) => String(w).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""));
-    const st = { phase: "Searching Companies House…", done: 0, total: 0, found: 0, errors: [] };
+    const st = resume ? { phase: "Continuing…", done: resume.done || 0, total: resume.total || 0, found: resume.found || 0, errors: [] } : { phase: "Searching Companies House…", done: 0, total: 0, found: 0, errors: [] };
+    const floor = resume ? resume.minAssets : minAssets;
     setRun({ ...st });
     try {
-      const candidates = [];
-      for (const pl of places) {
-        if (stopRef.current) break;
-        let start = 0;
-        for (let page = 0; page < 5; page++) {
-          const j = await post({ step: "search", place: pl, sectors, startIndex: start });
-          for (const c of j.candidates) if (!known.has(c.companyNumber)) { known.add(c.companyNumber); candidates.push(c); }
-          start += 100;
-          st.phase = `Searching ${pl}… ${candidates.length} candidates`; setRun({ ...st });
-          if (start >= j.total || j.scanned < 100) break;
+      let candidates = resume ? resume.queue : [];
+      if (!resume) {
+        for (const pl of places) {
+          if (stopRef.current) break;
+          let start = 0;
+          for (let page = 0; page < 5; page++) {
+            const j = await post({ step: "search", place: pl, sectors, startIndex: start, areas: place.trim() ? [] : areas });
+            for (const c of j.candidates) if (!known.has(c.companyNumber)) { known.add(c.companyNumber); candidates.push(c); }
+            start += 100;
+            st.phase = `Searching ${pl}… ${candidates.length} candidates`; setRun({ ...st });
+            if (start >= j.total || j.scanned < 100) break;
+          }
         }
+        st.total = candidates.length;
       }
-      st.total = candidates.length;
-      for (const c of candidates) {
+      while (candidates.length) {
         if (stopRef.current) break;
+        const c = candidates[0];
+        saveScan({ kind: "find", queue: candidates, done: st.done, total: st.total, found: st.found, minAssets: floor });
         st.phase = `Checking ${c.name}…`; setRun({ ...st });
         try {
           let { lead } = await post({ step: "enrich", company: c, knownSites });
           if (lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
           st.done++;
-          if (lead.problem && (lead.netAssets === null || lead.netAssets >= minAssets)) { st.found++; update(lead.id, lead); }
-          else if (lead.problem) { update(lead.id, { ...lead, status: "not-pursuing", caveats: [lead.caveats, `Net assets under £${minAssets.toLocaleString("en-GB")}`].filter(Boolean).join("; ") }); }
+          if (lead.problem && (lead.netAssets === null || lead.netAssets >= floor)) { st.found++; update(lead.id, lead); }
+          else if (lead.problem) { update(lead.id, { ...lead, status: "not-pursuing", caveats: [lead.caveats, `Net assets under £${floor.toLocaleString("en-GB")}`].filter(Boolean).join("; ") }); }
           // Current sites with no licence problems are not kept: nothing to pitch.
         } catch (e) { st.done++; st.errors.push(`${c.name}: ${e.message}`); }
+        candidates = candidates.slice(1);
         setRun({ ...st });
       }
-      st.phase = stopRef.current ? "Stopped." : `Done: ${st.found} new lead${st.found === 1 ? "" : "s"} from ${st.done} companies checked.`;
+      if (candidates.length) saveScan({ kind: "find", queue: candidates, done: st.done, total: st.total, found: st.found, minAssets: floor }); else saveScan(null);
+      st.phase = stopRef.current ? `Stopped with ${candidates.length} companies still to check.` : `Done: ${st.found} new lead${st.found === 1 ? "" : "s"} from ${st.done} companies checked.`;
       setRun({ ...st });
+      if (candidates.length) setPending(loadScan());
     } catch (e) {
       st.phase = `Stopped: ${e.message}`; setRun({ ...st });
+      setPending(loadScan());
     } finally { onRunning?.(false); }
   }
 
@@ -172,8 +187,12 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     const knownSites = clients.flatMap((c) => c.websites || []).map((w) => String(w).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""));
     const st = { phase: "Refreshing leads…", done: 0, total: ids.length, found: 0, errors: [] };
     setRun({ ...st });
+    setPending(null);
+    let left = [...ids];
     for (const id of ids) {
       if (stopRef.current) break;
+      saveScan({ kind: "refresh", ids: left, done: st.done, total: st.total, found: st.found });
+      left = left.slice(1);
       const l = leadsRef.current[id];
       if (!l) { st.done++; continue; }
       st.phase = `Refreshing ${l.business}…`; setRun({ ...st });
@@ -185,9 +204,16 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       catch (e) { st.errors.push(`${l.business}: ${e.message}`); }
       st.done++; setRun({ ...st });
     }
-    st.phase = stopRef.current ? "Stopped." : `Done: ${st.found} lead${st.found === 1 ? "" : "s"} refreshed with the latest checks.`;
+    if (stopRef.current && left.length) { saveScan({ kind: "refresh", ids: left, done: st.done, total: st.total, found: st.found }); setPending(loadScan()); } else saveScan(null);
+    st.phase = stopRef.current ? `Stopped with ${left.length} leads still to rescan.` : `Done: ${st.found} lead${st.found === 1 ? "" : "s"} refreshed with the latest checks.`;
     setRun({ ...st });
     onRunning?.(false);
+  }
+  function continueScan() {
+    const sc = pending || loadScan();
+    if (!sc) return;
+    if (sc.kind === "refresh") { const st = sc; setRun({ phase: "Continuing…", done: st.done || 0, total: st.total || 0, found: st.found || 0, errors: [] }); refreshLeads(sc.ids || []); }
+    else findLeads(sc);
   }
   // Leads that have never had a contact lookup get one automatically, one at a time in the background.
   const contactsRunRef = useRef(false);
@@ -251,9 +277,17 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `website-leads-${new Date().toISOString().slice(0, 10)}.xlsx`; a.click(); URL.revokeObjectURL(a.href);
   }
 
+  // Leaving mid-scan loses nothing (it can be continued), but warn anyway.
+  const running = !!run && !/^(Done|Stopped)/.test(run.phase);
+  useEffect(() => {
+    if (!running) return;
+    const h = (e) => { e.preventDefault(); e.returnValue = "A lead scan is still running. Leave anyway? You can continue it from where it stopped."; };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [running]);
+
   const q = filter.trim().toLowerCase();
   const visible = list.filter((l) => (!q || `${l.business} ${l.area} ${l.website} ${l.problem} ${l.notes || ""}`.toLowerCase().includes(q)) && (!showProblem || l.problem === showProblem));
-  const running = !!run && !/^(Done|Stopped)/.test(run.phase);
   const current = open ? leads[open] : null;
 
   return (
@@ -283,9 +317,12 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
             </label>
           </fieldset>
           <div className="flex flex-col justify-end gap-2">
+            {!running && pending && (
+              <button onClick={continueScan} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white"><PlayIcon className="h-4 w-4" /> Continue {pending.kind === "refresh" ? "rescan" : "scan"} ({(pending.queue || pending.ids || []).length} left)</button>
+            )}
             {running
               ? <button onClick={() => { stopRef.current = true; }} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
-              : <button onClick={findLeads} disabled={cfg?.configured === false || (!areas.length && !place.trim()) || !sectors.length} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find leads</button>}
+              : <button onClick={() => findLeads()} disabled={cfg?.configured === false || (!areas.length && !place.trim()) || !sectors.length} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find leads</button>}
             <button onClick={() => refreshLeads(list.filter((l) => !["won", "lost", "not-pursuing"].includes(l.status)).map((l) => l.id))} disabled={running || !list.length} title="Re-run the website, search, accounts and contact checks on every open lead with the latest rules (Won, Lost and Not pursuing are skipped). Statuses and notes are kept." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Rescan all leads</button>
             <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
           </div>

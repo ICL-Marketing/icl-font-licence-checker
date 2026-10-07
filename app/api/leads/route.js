@@ -1,4 +1,4 @@
-import { leadsConfigured, leadsSearch, worthEnriching, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
+import { leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 50;
@@ -76,7 +76,9 @@ export async function POST(request) {
       if (!place || !sics.length) return Response.json({ error: "place and sectors required" }, { status: 400 });
       const { items, total } = await leadsSearch({ place, sics, startIndex: Number(b.startIndex) || 0, size: 100 });
       const minAge = Number(b.minAgeYears) || 2;
-      return Response.json({ total, candidates: items.filter((c) => worthEnriching(c, { minAgeYears: minAge })), scanned: items.length });
+      const postcodes = [...new Set((Array.isArray(b.areas) ? b.areas : []).flatMap((k) => AREA_PRESETS[k]?.postcodes || []))];
+      const town = postcodes.length ? "" : place;
+      return Response.json({ total, candidates: items.filter((c) => worthEnriching(c, { minAgeYears: minAge }) && inArea(c, { postcodes, town })), scanned: items.length });
     }
     if (b.step === "enrich") {
       if (!b.company?.companyNumber) return Response.json({ error: "company required" }, { status: 400 });
