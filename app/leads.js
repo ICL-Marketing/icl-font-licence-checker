@@ -455,7 +455,6 @@ function Contacts({ l, onChange, onContacts }) {
     <div className="rounded-lg border border-zinc-200 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold">Who to contact</span>
-        <span className="text-xs text-zinc-500">decision makers first</span>
         <button onClick={onContacts} disabled={l.checking} className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {people.length ? "Look again" : "Find contacts"}</button>
       </div>
       {!people.length && !channels.length && <p className="mt-2 text-xs text-zinc-500">Nothing found yet. Find contacts reads the directors and owners from Companies House and any named people on the website.</p>}
@@ -590,7 +589,6 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onS
           <div className="rounded-lg border border-zinc-200 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold">Search visibility</span>
-              <span className="text-xs text-zinc-500">where they come up when a customer searches</span>
               <button onClick={onSeo} disabled={l.checking} className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {l.seo ? "Search again" : "Check search"}</button>
             </div>
             {!l.seo && <p className="mt-2 text-xs text-zinc-500">Runs automatically as the last step for Qualified leads. Searches their name + town and their trade + town, records where their site ranks and who is ahead, and can turn up a website the name-guess missed.</p>}
@@ -616,14 +614,22 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onS
             <div className="rounded-lg border border-zinc-200 p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-semibold">Licence risks</span>
-                <span className="text-xs text-zinc-500">only what we are certain of: watermarked previews and demo fonts</span>
                 <button onClick={onLicence} disabled={l.checking} className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {l.licence ? "Check again" : "Check licences"}</button>
               </div>
               {l.licence && (
                 <div className="mt-2 text-sm">
-                  {!l.licence.images.length && !l.licence.fonts.length && <p className="text-xs text-zinc-500">{l.licence.error ? l.licence.error : `Nothing certain found on ${l.licence.pagesChecked} page${l.licence.pagesChecked === 1 ? "" : "s"}.`}</p>}
+                  {!l.licence.images.length && !l.licence.fonts.length && !l.licence.possibleImages?.length && !l.licence.possibleFonts?.length && <p className="text-xs text-zinc-500">{l.licence.error ? l.licence.error : `Nothing found on ${l.licence.pagesChecked} page${l.licence.pagesChecked === 1 ? "" : "s"}.`}</p>}
                   {l.licence.images.length > 0 && <ul className="space-y-0.5">{l.licence.images.map((i, n) => <li key={n} className="text-xs"><span className="rounded bg-purple-100 px-1.5 py-0.5 font-semibold text-purple-800">{i.library} preview</span> <a href={i.url} target="_blank" rel="noreferrer" className="text-blue-700 underline">{i.url.split("/").pop()}</a>{i.page && <span className="text-zinc-500"> on {i.page.replace(/^https?:\/\/[^/]+/, "") || "/"}</span>}</li>)}</ul>}
                   {l.licence.fonts.length > 0 && <ul className="mt-1 space-y-0.5">{l.licence.fonts.map((f, n) => <li key={n} className="text-xs"><span className="rounded bg-purple-100 px-1.5 py-0.5 font-semibold text-purple-800">{f.label}</span> {f.family} <span className="text-zinc-500">· {f.detail}</span></li>)}</ul>}
+                  {(l.licence.possibleImages?.length > 0 || l.licence.possibleFonts?.length > 0) && (
+                    <div className="mt-2 border-t border-zinc-100 pt-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Worth a look (not certain, not in the email)</div>
+                      <ul className="mt-1 space-y-0.5">
+                        {(l.licence.possibleImages || []).map((i, n) => <li key={`i${n}`} className="text-xs"><span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">{i.library}</span> <a href={i.url} target="_blank" rel="noreferrer" className="text-blue-700 underline">{i.url.split("/").pop()}</a> <span className="text-zinc-500">· {i.detail}</span></li>)}
+                        {(l.licence.possibleFonts || []).map((f, n) => <li key={`f${n}`} className="text-xs"><span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">{f.label}</span> {f.family}{f.detail && <span className="text-zinc-500"> · {f.detail}</span>}</li>)}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
