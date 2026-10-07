@@ -570,7 +570,7 @@ function Contacts({ l, onChange, onContacts, cfgHunter = false }) {
             <li key={i} className="flex flex-wrap items-start gap-x-3 gap-y-1 py-2 text-sm">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className={`font-medium ${p.email ? "" : "text-red-700"}`} title={p.email ? "" : "No verified email address found for this person"}>{p.name}</span>
+                  <span className="font-medium">{p.name}</span>
                   <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">{p.role}</span>
                   <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600">{p.source}</span>
                 </div>
@@ -582,7 +582,9 @@ function Contacts({ l, onChange, onContacts, cfgHunter = false }) {
                   <a href={p.googleSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Google</a>
                 </div>
               </div>
-              {p.email && <button onClick={() => pickPerson(l, p, onChange)} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100" title="Put this person in To and the greeting">Email this person</button>}
+              {p.email
+                ? <button onClick={() => pickPerson(l, p, onChange)} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100" title="Put this person in To and the greeting">Email this person</button>
+                : <span className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700" title="No verified email address found for this person">No email found</span>}
             </li>
           ))}
         </ul>
