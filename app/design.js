@@ -7,6 +7,16 @@ import { CHECK_NAMES } from "@/lib/figma";
 // Accessibility checks on Figma designs, before anything is coded.
 // One run per Figma link; each run keeps a result per screen (top-level frame).
 const RUNS_KEY = "flc-design-v1";
+const normKey = (k) => String(k || "").toLowerCase().replace(/[^a-z0-9.:-]/g, "-");
+// Older runs were keyed case-sensitively, so one design could appear twice; fold them together, newest wins.
+function dedupe(runs) {
+  const out = {};
+  for (const [k, r] of Object.entries(runs || {})) {
+    const nk = normKey(k);
+    if (!out[nk] || String(r.scannedAt || "") >= String(out[nk].scannedAt || "")) out[nk] = { ...r, key: nk, dismissed: { ...(out[nk]?.dismissed || {}), ...(r.dismissed || {}) } };
+  }
+  return out;
+}
 const BATCH = 4;
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || "null") ?? d; } catch { return d; } };
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
@@ -30,15 +40,16 @@ export default function DesignArea({ onRunning, onCount }) {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      const saved = load(RUNS_KEY, {});
+      const saved = dedupe(load(RUNS_KEY, {}));
       for (const r of Object.values(saved)) if (r.status === "RUNNING") Object.assign(r, { status: "PAUSED" });
+      save(RUNS_KEY, saved);
       setRuns(saved);
       fetch("/api/results?kind=design").then((r) => r.json()).then((j) => {
         if (!j.shared) return;
         sharedRef.current = true;
         setRuns((prev) => {
           const next = { ...prev };
-          for (const [key, run] of Object.entries(j.results || {})) {
+          for (const [key, run] of Object.entries(dedupe(j.results || {}))) {
             if (!prev[key] || prev[key].status === "RUNNING" || String(run.scannedAt || "") >= String(prev[key].scannedAt || "")) { next[key] = { ...run, dismissed: { ...(prev[key]?.dismissed || {}), ...(run.dismissed || {}) } }; syncedRef.current[key] = `${run.scannedAt}|${run.dismissedAt || ""}`; }
           }
           save(RUNS_KEY, next);
@@ -74,8 +85,10 @@ export default function DesignArea({ onRunning, onCount }) {
   }
 
   // Key a run by file + node so a page/frame link and the whole file are separate runs.
+  // Keys must survive the shared store, which lower-cases them and strips "#", so the
+  // key is lower-case with "-" (the real, case-sensitive link is stored on the run).
   function keyFor(input) {
-    try { const u = new URL(input.trim()); const m = u.pathname.match(/\/(?:design|file|proto|board)\/([A-Za-z0-9]+)/); if (!m) return ""; const n = u.searchParams.get("node-id"); return n ? `${m[1]}#${n}` : m[1]; } catch { return ""; }
+    try { const u = new URL(input.trim()); const m = u.pathname.match(/\/(?:design|file|proto|board)\/([A-Za-z0-9]+)/); if (!m) return ""; const n = u.searchParams.get("node-id"); return normKey(n ? `${m[1]}#${n}` : m[1]); } catch { return ""; }
   }
 
   async function runCheck(input, { resume = false } = {}) {
