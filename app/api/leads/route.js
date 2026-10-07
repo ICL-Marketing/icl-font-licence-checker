@@ -1,4 +1,4 @@
-import { verifyWebsite, websiteIsVerified, searchUsage, hunterUsage, applyTradingAddress, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
+import { townFromAddress, verifyWebsite, websiteIsVerified, searchUsage, hunterUsage, applyTradingAddress, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 50;
@@ -54,7 +54,9 @@ export async function POST(request) {
     if (b.step === "seo") {
       const l = b.lead || {};
       if (!l.business) return Response.json({ error: "Needs a business name." }, { status: 400 });
-      const seo = await seoCheck({ business: l.business, website: l.website, area: l.area, sics: l.sics, companyNumber: l.companyNumber, rejectedSites: l.rejectedSites || [], siteText: `${l.title || ""} ${l.siteDescription || ""}` });
+      // Search where they actually trade: the town from their site's address beats the registered office (often an accountant's).
+      const town = l.tradingTown || (l.tradingAddress ? townFromAddress(l.tradingAddress, l.tradingPostcode) : "") || l.area;
+      const seo = await seoCheck({ business: l.business, website: l.website, area: town, sics: l.sics, companyNumber: l.companyNumber, rejectedSites: l.rejectedSites || [], siteText: `${l.title || ""} ${l.siteDescription || ""}` });
       const lead = { ...l, seo };
       // A current site that is not found for its own trade is a lead in itself: that is business going elsewhere.
       const trade = seo.searches.find((x) => x.kind === "trade" && !x.error);
