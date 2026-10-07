@@ -41,6 +41,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       let local = load();
       if (!local) { local = Object.fromEntries(SEED.map((l) => [l.id, l])); save(local); }
       for (const l of Object.values(local)) if (l.email && !l.email.includes("\n\n")) l.email = l.email.trim().replace(/\n+/g, "\n\n"); // paragraph spacing for older drafts
+      // A lead with nothing to pitch (site current, no licence risk) does not belong in an open column.
+      for (const l of Object.values(local)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); }
       // Open leads with no verified email address are parked, whatever column they were in.
       for (const l of Object.values(local)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried || l.status === "no-contact") && ["new", "qualified", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); }
       // One-off: every lead imported from the Client Matrix sheet was closed as Lost (7 Oct 2026).
@@ -53,6 +55,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         const next = { ...local };
         for (const [id, l] of Object.entries(j.results || {})) { if (!next[id] || String(l.updatedAt || "") >= String(next[id].updatedAt || "")) next[id] = l; }
         for (const l of Object.values(next)) if (l.email && !l.email.includes("\n\n")) l.email = l.email.trim().replace(/\n+/g, "\n\n");
+        for (const l of Object.values(next)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried || l.status === "no-contact") && ["new", "qualified", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         save(next);
@@ -152,16 +155,18 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           const tooSmall = lead.netAssets !== null && lead.netAssets !== undefined && lead.netAssets < floor;
           // Licence sweep only for sites we might pitch (not parked/dead, not too small).
           if (!tooSmall && lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
+          // Last step, qualified leads only: web search for rank and competitors (spends search credit).
+          if (!tooSmall && lead.problem && lead.status === "qualified") { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = r.lead; } catch {} }
           st.done++;
-          if (lead.problem && !tooSmall) { st.found++; update(lead.id, lead); }
-          else if (lead.problem) { update(lead.id, { ...lead, status: "not-pursuing" }); }
+          if (lead.problem && !tooSmall) { if (["new", "qualified"].includes(lead.status)) st.found++; else st.parked = (st.parked || 0) + 1; update(lead.id, lead); }
+          else if (lead.problem) { st.parked = (st.parked || 0) + 1; update(lead.id, { ...lead, status: "not-pursuing" }); }
           // Current sites with no licence problems are not kept: nothing to pitch.
         } catch (e) { st.done++; st.errors.push(`${c.name}: ${e.message}`); }
         candidates = candidates.slice(1);
         setRun({ ...st });
       }
       if (candidates.length) saveScan({ kind: "find", queue: candidates, done: st.done, total: st.total, found: st.found, minAssets: floor }); else saveScan(null);
-      st.phase = stopRef.current ? `Stopped with ${candidates.length} companies still to check.` : `Done: ${st.found} new lead${st.found === 1 ? "" : "s"} from ${st.done} companies checked.`;
+      st.phase = stopRef.current ? `Stopped with ${candidates.length} companies still to check.` : `Done: ${st.found} new lead${st.found === 1 ? "" : "s"} from ${st.done} companies checked${st.parked ? `, ${st.parked} parked in Not pursuing (no verified contact, too small or already a client)` : ""}.`;
       setRun({ ...st });
       if (candidates.length) setPending(loadScan());
       fetch("/api/leads").then((r) => r.json()).then(setCfg).catch(() => {});
@@ -202,6 +207,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       try {
         let { lead } = await post({ step: "refresh", lead: l, knownSites });
         if (lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
+        if (lead.problem && ["qualified", "contacted", "replied", "meeting"].includes(lead.status)) { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = { ...r.lead, status: lead.status }; } catch {} }
         update(id, lead); st.found++;
       }
       catch (e) { st.errors.push(`${l.business}: ${e.message}`); }
@@ -265,7 +271,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   }
   async function checkSeo(l) {
     update(l.id, { checking: true, error: "" });
-    try { const { seo } = await post({ step: "seo", lead: l }); update(l.id, { seo, checking: false, error: seo.searches.every((x) => x.error) ? seo.searches[0]?.error || "Search failed" : "" }); }
+    try { const r = await post({ step: "seo", lead: l }); update(l.id, { ...(r.lead || {}), seo: r.seo, status: l.status, checking: false, error: r.seo.searches.every((x) => x.error) ? r.seo.searches[0]?.error || "Search failed" : "" }); }
     catch (e) { update(l.id, { checking: false, error: e.message }); }
   }
   async function recheck(l, redraft = false) {
@@ -335,7 +341,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         )}
         {run && (
           <div className="mt-3 text-sm">
-            <div className="flex items-center gap-2">{running && <SpinnerIcon className="h-4 w-4 text-blue-600" />}<span className={running ? "text-blue-700" : "text-zinc-700"}>{run.phase}</span>{run.total > 0 && <span className="text-xs text-zinc-500">{run.done} of {run.total} checked · {run.found} leads</span>}</div>
+            <div className="flex items-center gap-2">{running && <SpinnerIcon className="h-4 w-4 text-blue-600" />}<span className={running ? "text-blue-700" : "text-zinc-700"}>{run.phase}</span>{run.total > 0 && <span className="text-xs text-zinc-500">{run.done} of {run.total} checked · {run.found} lead{run.found === 1 ? "" : "s"}{run.parked ? ` · ${run.parked} parked` : ""}</span>}</div>
             {run.total > 0 && <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-zinc-100"><div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.round((run.done / run.total) * 100)}%` }} /></div>}
             {run.errors.length > 0 && <details className="mt-1 text-xs text-zinc-500"><summary className="cursor-pointer">{run.errors.length} could not be checked</summary><ul className="list-disc pl-5">{run.errors.slice(0, 20).map((e, i) => <li key={i}>{e}</li>)}</ul></details>}
           </div>
@@ -588,7 +594,7 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onS
               <span className="text-xs text-zinc-500">where they come up when a customer searches</span>
               <button onClick={onSeo} disabled={l.checking} className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {l.seo ? "Search again" : "Check search"}</button>
             </div>
-            {!l.seo && <p className="mt-2 text-xs text-zinc-500">Searches their name + town and their trade + town, and records where their site ranks and who is ahead.</p>}
+            {!l.seo && <p className="mt-2 text-xs text-zinc-500">Runs automatically as the last step for Qualified leads. Searches their name + town and their trade + town, records where their site ranks and who is ahead, and can turn up a website the name-guess missed.</p>}
             {l.seo && (
               <ul className="mt-2 space-y-1 text-sm">
                 {l.seo.searches.map((x, i) => (

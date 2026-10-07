@@ -36,7 +36,6 @@ export async function POST(request) {
       const any = lead.licence.images.length || lead.licence.fonts.length;
       if (!lead.problem && any) {
         lead.problem = "Licence risk";
-        try { if (!lead.seo) lead.seo = await seoCheck({ business: lead.business, website: lead.website, area: lead.area, sics: lead.sics }); } catch {}
         try { if (!lead.contactsTried) { const ct = await findContacts({ companyNumber: lead.companyNumber, website: lead.website, business: lead.business }); lead.contacts = ct.people; lead.channels = ct.channels; lead.contactsAt = ct.contactsAt; lead.contactsTried = true; const best = ct.people.find((p) => p.email); if (best && !lead.emailAddress) { lead.emailAddress = best.email; lead.contactName = lead.contactName || best.name.split(" ")[0]; } } } catch {}
         if (!lead.emailAddress) { lead.contactUnverified = true; lead.status = "not-pursuing"; } lead.problemDetail = [lead.licence.images.length ? `${lead.licence.images.length} watermarked preview image${lead.licence.images.length === 1 ? "" : "s"}` : "", lead.licence.fonts.length ? `${lead.licence.fonts.length} unlicensed font${lead.licence.fonts.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(", "); if (lead.status === "not-pursuing" && /current/i.test(lead.likelihoodWhy || "")) lead.status = "qualified"; }
       if (lead.problem) { Object.assign(lead, scoreLead(lead)); if (!lead.emailEdited) { const d = draftOutreach({ ...lead, links }); Object.assign(lead, { subject: d.subject, pitch: d.pitch, email: d.email, draftVersion: d.draftVersion }); } }
@@ -46,7 +45,14 @@ export async function POST(request) {
       const l = b.lead || {};
       if (!l.business) return Response.json({ error: "Needs a business name." }, { status: 400 });
       const seo = await seoCheck({ business: l.business, website: l.website, area: l.area, sics: l.sics });
-      return Response.json({ seo });
+      const lead = { ...l, seo };
+      if (!l.website && seo.foundWebsite) {
+        const w = await checkWebsite(seo.foundWebsite);
+        Object.assign(lead, { website: seo.foundWebsite, problem: w.problem, problemDetail: w.detail, platform: w.platform || "", year: w.year || 0, title: w.title || "", siteUrl: w.siteUrl || "", caveats: [l.caveats, "Website found by web search, not by name; double-check it is theirs"].filter(Boolean).join("; ") });
+        if (!lead.emailAddress) lead.emailAddress = await findEmail(seo.foundWebsite, "").catch(() => "");
+      }
+      if (lead.problem) { Object.assign(lead, scoreLead(lead)); if (!lead.emailEdited) { const d = draftOutreach({ ...lead, links }); Object.assign(lead, { subject: d.subject, pitch: d.pitch, email: d.email, draftVersion: d.draftVersion }); } }
+      return Response.json({ seo, lead });
     }
     if (b.step === "redraft-many") {
       // Fresh drafts for several leads at once (no network, so cheap). Hand-edited emails are left alone.
