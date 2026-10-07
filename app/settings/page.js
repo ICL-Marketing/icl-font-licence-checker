@@ -174,6 +174,22 @@ export default function Settings() {
                 </>}
           </section>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+            <h2 className="font-semibold">Search volumes (Google Ads Keyword Planner)</h2>
+            <p className="mb-3 text-sm text-zinc-500">Puts &quot;around 140 people a month make that exact search&quot; in lead emails automatically. Free, but Google makes you apply for API access once.</p>
+            {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.keywords
+              ? <><StatusRow ok label="Keyword Planner connected" detail="volumes are looked up during the search step and cached for 90 days" /><KeywordTest /></>
+              : <>
+                  <StatusRow ok={false} label="Not connected" detail="emails use the manual volumes below, or no figure" />
+                  <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-700">
+                    <li><b>Developer token:</b> in Google Ads, switch to (or create) a <b>Manager account</b> → Admin → <b>API Center</b> → copy the developer token, then click <b>Apply for Basic access</b>. Google usually approves an agency in 1–3 working days; test-account access is not enough.</li>
+                    <li><b>OAuth client:</b> at console.cloud.google.com create a project → APIs &amp; Services → <b>Credentials</b> → Create credentials → <b>OAuth client ID</b> → type <b>Desktop app</b>. Copy the client ID and secret. Under OAuth consent screen add your Google account as a test user.</li>
+                    <li><b>Refresh token:</b> open <a href="https://developers.google.com/oauthplayground/" target="_blank" rel="noreferrer" className="text-blue-700 underline">developers.google.com/oauthplayground</a> → cog → tick &quot;Use your own OAuth credentials&quot; and paste the ID and secret → in the scope box enter <code>https://www.googleapis.com/auth/adwords</code> → Authorize APIs (sign in with the Ads account) → Exchange authorization code for tokens → copy the <b>refresh token</b>.</li>
+                    <li><b>Customer ID:</b> the 10-digit number at the top of Google Ads for the account that will run the queries (any active account; it is not charged). If it sits under a manager account, note the manager&apos;s ID too.</li>
+                    <li>In Vercel add <code>GOOGLE_ADS_DEVELOPER_TOKEN</code>, <code>GOOGLE_ADS_CLIENT_ID</code>, <code>GOOGLE_ADS_CLIENT_SECRET</code>, <code>GOOGLE_ADS_REFRESH_TOKEN</code>, <code>GOOGLE_ADS_CUSTOMER_ID</code> (and <code>GOOGLE_ADS_LOGIN_CUSTOMER_ID</code> for the manager, if used), then Redeploy.</li>
+                  </ol>
+                </>}
+          </section>
+          <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
             <h2 className="font-semibold">Figma</h2>
             <p className="mb-3 text-sm text-zinc-500">Lets Design Checks read Figma files for accessibility problems before they are coded.</p>
             {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.figma
@@ -322,6 +338,22 @@ function FigmaTest() {
           ) : <p className="text-red-700">✗ {res.error}</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+function KeywordTest() {
+  const [q, setQ] = useState("plumber teddington");
+  const [res, setRes] = useState(null);
+  async function run() { setRes({ busy: true }); try { setRes(await (await fetch(`/api/leads?volume=${encodeURIComponent(q)}`)).json()); } catch (e) { setRes({ ok: false, error: e.message }); } }
+  return (
+    <div className="mt-3 rounded-md border border-zinc-200 p-3">
+      <p className="text-xs font-semibold">Test a search</p>
+      <div className="mt-1 flex gap-2">
+        <input value={q} onChange={(e) => setQ(e.target.value)} className="min-w-0 flex-1 rounded-md border border-zinc-300 px-2 py-1 text-xs" />
+        <button onClick={run} disabled={!q.trim() || res?.busy} className="rounded-md border border-zinc-300 bg-white px-3 py-1 text-xs hover:bg-zinc-100 disabled:opacity-50">{res?.busy ? "Asking Google…" : "Test"}</button>
+      </div>
+      {res && !res.busy && <p className={`mt-2 text-xs ${res.ok ? "text-green-700" : "text-red-700"}`}>{res.ok ? `✓ "${q}": ${res.volume.toLocaleString("en-GB")} searches a month (UK).` : `✗ ${res.error}`}</p>}
     </div>
   );
 }

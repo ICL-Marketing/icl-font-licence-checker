@@ -601,6 +601,7 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onS
                     <span className="text-zinc-600">“{x.query}”</span>
                     {x.error ? <span className="text-red-700">{x.error}</span> : <>
                       <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${x.position === 1 ? "bg-green-100 text-green-800" : x.position && x.position <= 3 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>{x.position ? `#${x.position}` : "Not on page 1"}</span>
+                      {x.volume > 0 && <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-700">{x.volume.toLocaleString("en-GB")} searches/month</span>}
                       {x.ahead?.length > 0 && <span className="text-xs text-zinc-500">behind {x.ahead.join(", ")}</span>}
                       {x.directoriesOnly && <span className="text-xs text-zinc-500">directories hold the top spots</span>}
                     </>}

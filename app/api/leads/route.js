@@ -3,7 +3,13 @@ import { searchUsage, leadsConfigured, leadsSearch, worthEnriching, inArea, lead
 export const dynamic = "force-dynamic";
 export const maxDuration = 50;
 
-export async function GET() {
+export async function GET(request) {
+  // ?volume=<search> tests the Keyword Planner connection.
+  const vq = new URL(request.url).searchParams.get("volume");
+  if (vq) {
+    try { const { searchVolumes, keywordsConfigured } = await import("@/lib/keywords"); if (!keywordsConfigured()) return Response.json({ ok: false, error: "Google Ads variables are not all set." }); const v = await searchVolumes([vq]); return Response.json({ ok: true, volume: v[vq.toLowerCase()] || 0 }); }
+    catch (e) { return Response.json({ ok: false, error: String(e?.message || e) }); }
+  }
   let usage = { used: 0, cap: 0 };
   try { usage = await searchUsage(); } catch {}
   return Response.json({ configured: leadsConfigured(), brave: Boolean(process.env.BRAVE_SEARCH_KEY || process.env.BRAVE_API_KEY), usage, areas: Object.fromEntries(Object.entries(AREA_PRESETS).map(([k, v]) => [k, v.label])), sectors: Object.fromEntries(Object.entries(SECTOR_PRESETS).map(([k, v]) => [k, v.label])) });
