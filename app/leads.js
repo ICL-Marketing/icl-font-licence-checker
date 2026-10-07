@@ -149,7 +149,14 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
 
   async function findContacts(l) {
     update(l.id, { checking: true, error: "" });
-    try { const r = await post({ step: "contacts", lead: l }); update(l.id, { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, checking: false, error: r.people.length ? "" : "No named people found; the Companies House directors need the API key, and the site has no team page." }); }
+    try {
+      const r = await post({ step: "contacts", lead: l });
+      const best = r.people.find((p) => p.email) || null; const generic = r.channels.find((c) => c.kind === "email");
+      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, checking: false, error: r.people.length ? "" : "No named people found; the Companies House directors need the API key, and the site has no team page." };
+      if (!l.emailAddress && (best || generic)) { f.emailAddress = best ? best.email : generic.value; if (best && !l.contactName) f.contactName = best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; }
+      if (["qualified", "no-contact"].includes(l.status)) f.status = (f.emailAddress || l.emailAddress) ? "qualified" : "no-contact";
+      update(l.id, f);
+    }
     catch (e) { update(l.id, { checking: false, error: e.message }); }
   }
   // Re-run the finder's checks on existing leads with the latest rules (statuses and notes are kept).
@@ -176,6 +183,31 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     setRun({ ...st });
     onRunning?.(false);
   }
+  // Leads that have never had a contact lookup get one automatically, one at a time in the background.
+  const contactsRunRef = useRef(false);
+  useEffect(() => {
+    if (contactsRunRef.current) return;
+    const todo = Object.values(leads).filter((l) => !l.contactsAt && !l.contactsTried && (l.companyNumber || l.website) && !["won", "lost", "not-pursuing"].includes(l.status));
+    if (!todo.length) return;
+    contactsRunRef.current = true;
+    (async () => {
+      for (const l of todo) {
+        try {
+          const r = await post({ step: "contacts", lead: l });
+          const cur = leadsRef.current[l.id]; if (!cur) continue;
+          const best = r.people.find((p) => p.email) || null;
+          const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true };
+          const generic = r.channels.find((c) => c.kind === "email");
+          if (!cur.emailAddress && (best || generic)) { f.emailAddress = best ? best.email : generic.value; if (best && !cur.contactName) f.contactName = best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; }
+          const email = f.emailAddress || cur.emailAddress;
+          if (["qualified", "no-contact"].includes(cur.status)) f.status = email ? "qualified" : "no-contact";
+          update(l.id, f);
+        } catch { update(l.id, { contactsTried: true }); }
+      }
+      contactsRunRef.current = false;
+    })();
+  }, [leads]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Emails written before the current wording get redrafted automatically on load.
   const redraftingRef = useRef(false);
   useEffect(() => {
@@ -319,10 +351,14 @@ function Board({ leads, selected, onToggle, onSelectColumn, onOpen, onMove }) {
             {c.items.map((l) => (
               <div key={l.id} draggable onDragStart={(e) => { e.dataTransfer.setData("text/lead", l.id); e.dataTransfer.effectAllowed = "move"; }} onClick={() => onOpen(l.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") onOpen(l.id); }}
                 className={`cursor-grab rounded-lg border bg-white p-2.5 text-left shadow-sm hover:border-zinc-400 active:cursor-grabbing ${selected.has(l.id) ? "border-blue-500 ring-1 ring-blue-300" : "border-zinc-200"}`}>
+                {l.likelihood && (
+                  <div className={`mb-1.5 -mx-2.5 -mt-2.5 rounded-t-lg px-2.5 py-1 text-[11px] leading-snug ${LIKELY[l.likelihood]}`}>
+                    <span className="font-semibold">{l.likelihood}</span>{l.likelihoodWhy ? <span>: {l.likelihoodWhy}</span> : null}
+                  </div>
+                )}
                 <div className="flex items-start gap-1.5">
                   <input type="checkbox" checked={selected.has(l.id)} onChange={() => onToggle(l.id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${l.business}`} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span className="flex-1 text-sm font-medium leading-tight">{l.business}</span>
-                  {l.likelihood && <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${LIKELY[l.likelihood]}`}>{l.likelihood}</span>}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
                   {l.problem && <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
@@ -357,7 +393,7 @@ function pickPerson(l, p, onChange) {
   const first = p.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0];
   const email = p.email || p.emailGuess || l.emailAddress || "";
   const body = String(l.email || "").replace(/^Hi( there| [A-Z][a-z'’-]+)?,/, `Hi ${first},`);
-  onChange({ emailAddress: email, contactName: first, email: body });
+  onChange({ emailAddress: email, contactName: first, email: body, ...(l.status === "no-contact" && email ? { status: "qualified" } : {}) });
 }
 
 function Contacts({ l, onChange, onContacts }) {
@@ -546,7 +582,7 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onS
             </div>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">To</div>
-                <input value={l.emailAddress || ""} onChange={(e) => onChange({ emailAddress: e.target.value })} placeholder={l.emailNote || "email address"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
+                <input value={l.emailAddress || ""} onChange={(e) => onChange({ emailAddress: e.target.value, ...(l.status === "no-contact" && e.target.value.trim() ? { status: "qualified" } : {}) })} placeholder={l.emailNote || "email address"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
               <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact first name</div>
                 <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value })} placeholder="Used for “Hi Steve,”" className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
             </div>
