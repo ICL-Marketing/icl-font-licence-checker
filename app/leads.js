@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 
 // Website leads: local businesses whose site is letting them down, found
@@ -199,7 +199,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     try {
       const r = await post({ step: "contacts", lead: l });
       const best = r.people.find((p) => p.email) || null; const generic = r.channels.find((c) => c.kind === "email");
-      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, checking: false, error: r.people.length ? "" : "No named people found; the Companies House directors need the API key, and the site has no team page." };
+      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, contactsStamp: contactsStamp(cfg), checking: false, error: r.people.length ? "" : "No named people found; the Companies House directors need the API key, and the site has no team page." };
       if (!l.emailAddress && (best || generic)) { f.emailAddress = best ? best.email : generic.value; if (best && !l.contactName) f.contactName = best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; }
       if (["new", "qualified", "no-contact"].includes(l.status) || (l.status === "not-pursuing" && l.contactUnverified)) { if (f.emailAddress || l.emailAddress) { f.status = l.status === "new" ? "new" : (l.likelihood === "Low" ? "new" : "qualified"); f.contactUnverified = false; } else { f.status = "not-pursuing"; f.contactUnverified = true; } }
       update(l.id, f);
@@ -248,7 +248,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       try {
         const r = await post({ step: "contacts", lead: l });
         const best = r.people.find((p) => p.email) || null; const generic = r.channels.find((c) => c.kind === "email");
-        const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true };
+        const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, contactsStamp: contactsStamp(cfg) };
         if (best || generic) { f.emailAddress = best ? best.email : generic.value; if (best) f.contactName = l.contactName || best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; f.contactUnverified = false; f.status = l.likelihood === "Low" ? "new" : "qualified"; st.found++; }
         update(id, f);
       } catch (e) { if (stopRef.current) break; st.errors.push(`${l.business}: ${e.message}`); }
@@ -276,7 +276,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           const r = await post({ step: "contacts", lead: l });
           const cur = leadsRef.current[l.id]; if (!cur) continue;
           const best = r.people.find((p) => p.email) || null;
-          const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true };
+          const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, contactsStamp: contactsStamp(cfg) };
           const generic = r.channels.find((c) => c.kind === "email");
           if (!cur.emailAddress && (best || generic)) { f.emailAddress = best ? best.email : generic.value; if (best && !cur.contactName) f.contactName = best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; }
           const email = f.emailAddress || cur.emailAddress;
@@ -372,9 +372,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
               ? <button onClick={stopNow} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
               : <button onClick={() => findLeads()} disabled={cfg?.configured === false || (!areas.length && !place.trim()) || !sectors.length} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find leads</button>}
             <button onClick={() => refreshLeads(list.filter((l) => !["won", "lost", "not-pursuing"].includes(l.status)).map((l) => l.id))} disabled={running || !list.length} title="Re-run the website, search, accounts and contact checks on every open lead with the latest rules (Won, Lost and Not pursuing are skipped). Statuses and notes are kept." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Rescan all leads</button>
-            {list.some((l) => l.status === "not-pursuing" && l.contactUnverified) && (
-              <button onClick={() => retryContacts(list.filter((l) => l.status === "not-pursuing" && l.contactUnverified).map((l) => l.id))} disabled={running} title="Look again for contacts on every lead parked as 'contact not verified'. Any that now have an address come back to the board." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-900 hover:bg-red-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Retry contacts ({list.filter((l) => l.status === "not-pursuing" && l.contactUnverified).length})</button>
-            )}
+            {(() => { const due = list.filter((l) => l.status === "not-pursuing" && l.contactUnverified && l.contactsStamp !== contactsStamp(cfg)); return due.length > 0 && (
+              <button onClick={() => retryContacts(due.map((l) => l.id))} disabled={running} title="The contact finder has improved since these were parked (or Hunter.io was connected). Look again; any that now have an address come back to the board." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-900 hover:bg-red-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Retry contacts ({due.length})</button>
+            ); })()}
             <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
           </div>
         </div>
@@ -421,6 +421,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
 }
 
 const FOLLOW_UP_DEFAULTS = { chaseDays: 7, coldDays: 21, lostDays: 60 };
+// What a contact lookup "knows": the logic version plus whether Hunter was available. A parked lead
+// is only worth retrying when this has changed since its last lookup.
+const contactsStamp = (cfg) => `${CONTACTS_VERSION}${cfg?.hunter ? "h" : ""}`;
 const daysSince = (l) => (Date.now() - new Date(l.statusAt || l.updatedAt || l.addedAt || Date.now()).getTime()) / 86400000;
 const needsChase = (l, f) => l.status === "contacted" && daysSince(l) >= f.chaseDays && !l.chasedAt;
 const PLACES = {
@@ -549,9 +552,9 @@ function Contacts({ l, onChange, onContacts }) {
 // Two-line nudge for a lead that has gone quiet after the first email.
 function FollowUp({ l, onChange }) {
   const [copied, setCopied] = useState(false);
-  const first = l.contactName ? l.contactName.split(" ")[0] : "";
-  const subject = `Re: ${l.subject || "your website"}`;
-  const body = `${first ? `Hi ${first},` : "Hi there,"}\n\nJust nudging this to the top of your inbox in case it got buried. Happy to put a couple of ideas together for the site whenever suits, no pressure either way.`;
+  const draft = draftFollowUp(l);
+  const subject = l.followUpSubject || draft.subject;
+  const body = l.followUpEmail || draft.body;
   const outlook = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(l.emailAddress || "")}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   async function copy() { try { await navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {} }
   return (
@@ -564,7 +567,9 @@ function FollowUp({ l, onChange }) {
           {!l.chasedAt && <button onClick={() => onChange({ chasedAt: new Date().toISOString(), notesLog: [...(l.notesLog || []), { at: new Date().toISOString(), text: "Follow-up email sent" }] })} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white"><CheckIcon className="h-3.5 w-3.5" /> Mark as chased</button>}
         </span>
       </div>
-      <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-zinc-800">{body}</pre>
+      <input value={subject} onChange={(e) => onChange({ followUpSubject: e.target.value })} className="mt-2 w-full rounded-md border border-amber-200 bg-white px-2 py-1 text-sm" />
+      <textarea value={body} onChange={(e) => onChange({ followUpEmail: e.target.value })} rows={6} className="mt-1 w-full rounded-md border border-amber-200 bg-white px-2 py-1 text-sm" />
+      {(l.followUpEmail || l.followUpSubject) && <button onClick={() => onChange({ followUpEmail: "", followUpSubject: "" })} className="mt-1 text-[11px] text-zinc-500 underline">Back to the suggested wording</button>}
     </div>
   );
 }

@@ -12,7 +12,7 @@ export async function GET(request) {
   }
   let usage = { used: 0, cap: 0 };
   try { usage = await searchUsage(); } catch {}
-  return Response.json({ configured: leadsConfigured(), brave: Boolean(process.env.BRAVE_SEARCH_KEY || process.env.BRAVE_API_KEY), usage, areas: Object.fromEntries(Object.entries(AREA_PRESETS).map(([k, v]) => [k, v.label])), sectors: Object.fromEntries(Object.entries(SECTOR_PRESETS).map(([k, v]) => [k, v.label])) });
+  return Response.json({ configured: leadsConfigured(), brave: Boolean(process.env.BRAVE_SEARCH_KEY || process.env.BRAVE_API_KEY), hunter: Boolean(process.env.HUNTER_API_KEY), usage, areas: Object.fromEntries(Object.entries(AREA_PRESETS).map(([k, v]) => [k, v.label])), sectors: Object.fromEntries(Object.entries(SECTOR_PRESETS).map(([k, v]) => [k, v.label])) });
 }
 
 // Steps, each one short request:
