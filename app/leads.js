@@ -343,7 +343,6 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           <div className="mt-3 text-sm">
             <div className="flex items-center gap-2">{running && <SpinnerIcon className="h-4 w-4 text-blue-600" />}<span className={running ? "text-blue-700" : "text-zinc-700"}>{run.phase}</span>{run.total > 0 && <span className="text-xs text-zinc-500">{run.done} of {run.total} checked · {run.found} lead{run.found === 1 ? "" : "s"}{run.parked ? ` · ${run.parked} parked` : ""}</span>}</div>
             {run.total > 0 && <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-zinc-100"><div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.round((run.done / run.total) * 100)}%` }} /></div>}
-            {run.errors.length > 0 && <details className="mt-1 text-xs text-zinc-500"><summary className="cursor-pointer">{run.errors.length} could not be checked</summary><ul className="list-disc pl-5">{run.errors.slice(0, 20).map((e, i) => <li key={i}>{e}</li>)}</ul></details>}
           </div>
         )}
       </div>
