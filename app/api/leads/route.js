@@ -100,8 +100,9 @@ export async function POST(request) {
       if (!place) return Response.json({ error: "place required" }, { status: 400 });
       const { items, total } = await leadsSearch({ place, sics, startIndex: Number(b.startIndex) || 0, size: 100 });
       const minAge = Number(b.minAgeYears) || 2;
-      const postcodes = [...new Set((Array.isArray(b.areas) ? b.areas : []).flatMap((k) => AREA_PRESETS[k]?.postcodes || []))];
-      const town = postcodes.length ? "" : place;
+      const keys = Array.isArray(b.areas) && b.areas.length ? b.areas : Object.keys(AREA_PRESETS);
+      const postcodes = [...new Set(keys.flatMap((k) => AREA_PRESETS[k]?.postcodes || []))];
+      const town = "";
       return Response.json({ total, candidates: items.filter((c) => worthEnriching(c, { minAgeYears: minAge }) && inArea(c, { postcodes, town })), scanned: items.length });
     }
     if (b.step === "enrich") {

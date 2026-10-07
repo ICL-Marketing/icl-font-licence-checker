@@ -29,8 +29,6 @@ const signed = (n) => (n === null || n === undefined || n === "" ? "—" : `${n 
 export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const [leads, setLeads] = useState({});
   const [cfg, setCfg] = useState(null); // {configured, areas, sectors}
-  const [areas, setAreas] = useState(["richmond"]);
-  const [place, setPlace] = useState("");
   const [minAssets, setMinAssetsState] = useState(() => { try { return Number(localStorage.getItem("flc-leads-floor") || 20000) || 20000; } catch { return 20000; } });
   const floorTimer = useRef(null);
   // Changing the floor re-sorts the board: parked-as-too-small leads above the new floor come back,
@@ -190,12 +188,12 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     return j;
   }
 
-  // Find new leads: every place in the chosen areas × chosen sectors, then enrich each new candidate.
+  // Find new leads: every town around Richmond, every trade, then enrich each new candidate.
   async function findLeads(resume = null) {
     stopRef.current = false;
     onRunning?.(true);
     setPending(null);
-    const places = place.trim() ? [place.trim()] : areas.flatMap((k) => PLACES[k] || []);
+    const places = [...new Set(Object.values(PLACES).flat())];
     const known = new Set(Object.keys(leadsRef.current));
     let skipped = 0;
     const knownSites = clients.flatMap((c) => c.websites || []).map((w) => String(w).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""));
@@ -209,7 +207,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           if (stopRef.current) break;
           let start = 0;
           for (let page = 0; page < 5; page++) {
-            let j; try { j = await post({ step: "search", place: pl, startIndex: start, areas: place.trim() ? [] : areas }); } catch (e) { if (stopRef.current) break; throw e; }
+            let j; try { j = await post({ step: "search", place: pl, startIndex: start, areas: [] }); } catch (e) { if (stopRef.current) break; throw e; }
             for (const c of j.candidates) { if (known.has(c.companyNumber)) continue; known.add(c.companyNumber); if (seenRecently(c.companyNumber)) { skipped++; continue; } candidates.push(c); }
             start += 100;
             st.phase = `Searching ${pl}… ${candidates.length} new companies${skipped ? `, ${skipped} already checked` : ""}`; setRun({ ...st });
@@ -429,13 +427,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         {cfg && !cfg.configured && <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Companies House is not connected yet. Add the free API key in <Link href="/settings?section=connections" className="underline">Settings → Connections</Link>. The board below still works.</p>}
         <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
           <fieldset className="rounded-lg border border-zinc-200 p-3">
-            <legend className="px-1 text-xs font-semibold text-zinc-600">Area</legend>
-            <div className="flex flex-wrap gap-1.5">
-              {Object.entries(cfg?.areas || {}).map(([k, label]) => (
-                <button key={k} type="button" onClick={() => setAreas((a) => (a.includes(k) ? a.filter((x) => x !== k) : [...a, k]))} className={`rounded-full border px-2.5 py-1 text-xs ${areas.includes(k) && !place.trim() ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{label}</button>
-              ))}
-            </div>
-            <input value={place} onChange={(e) => setPlace(e.target.value)} placeholder="…or one town, e.g. Teddington" className="mt-2 w-full rounded-md border border-zinc-300 px-2 py-1 text-xs" />
+            <legend className="px-1 text-xs font-semibold text-zinc-600">Where</legend>
+            <p className="text-xs text-zinc-600">Every active trading company within about 20 minutes of Richmond: Twickenham, Teddington, Kingston, Sheen, Kew, Chiswick, Hounslow, Putney, Wimbledon, Sunbury, Staines, Walton and the towns between. Anything registered further out is dropped.</p>
           </fieldset>
           <fieldset className="rounded-lg border border-zinc-200 p-3">
             <legend className="px-1 text-xs font-semibold text-zinc-600">Size</legend>
@@ -450,7 +443,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
             )}
             {running
               ? <button onClick={stopNow} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
-              : <button onClick={() => findLeads()} disabled={cfg?.configured === false || (!areas.length && !place.trim())} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find leads</button>}
+              : <button onClick={() => findLeads()} disabled={cfg?.configured === false} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find leads</button>}
             <button onClick={() => refreshLeads(list.filter((l) => !["won", "lost", "not-pursuing"].includes(l.status)).map((l) => l.id))} disabled={running || !list.length} title="Re-run the website, search, accounts and contact checks on every open lead with the latest rules (Won, Lost and Not pursuing are skipped). Statuses and notes are kept." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Rescan all leads</button>
             {(() => { const due = list.filter((l) => (l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && l.contactsStamp !== contactsStamp(cfg)); return due.length > 0 && (
               <button onClick={() => retryContacts(due.map((l) => l.id))} disabled={running} title="The contact finder has improved since these were parked (or Hunter.io was connected). Look again; any that now have an address come back to the board." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-900 hover:bg-red-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Retry contacts ({due.length}{(() => { const h = cfg?.hunter ? due.filter((l) => l.likelihood === "High" && !l.hunterTried && l.website).length : 0; return h ? `, ${h} High via Hunter` : ""; })()})</button>
@@ -532,6 +525,7 @@ const PLACES = {
   kingston: ["Kingston upon Thames", "Surbiton", "New Malden", "Chessington", "Tolworth"],
   hounslow: ["Hounslow", "Chiswick", "Isleworth", "Brentford", "Feltham"],
   wandsworth: ["Putney", "Wandsworth", "Wimbledon", "Southfields", "Earlsfield"],
+  spelthorne: ["Sunbury-on-Thames", "Sunbury", "Shepperton", "Staines-upon-Thames", "Staines", "Ashford", "Walton-on-Thames", "Hersham", "East Molesey", "West Molesey", "Weybridge", "Hanworth"],
 };
 
 const sorted = (list) => list.slice().sort((a, b) => ({ High: 0, Medium: 1, Low: 2 }[a.likelihood] ?? 3) - ({ High: 0, Medium: 1, Low: 2 }[b.likelihood] ?? 3) || (b.netAssets || 0) - (a.netAssets || 0));
