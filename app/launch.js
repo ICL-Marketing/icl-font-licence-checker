@@ -451,7 +451,7 @@ function LaunchCard({ k, r, mode, client, signed, log, shared, team, open, toggl
 
   const pct = r.pct ?? (r.total ? Math.min(100, (r.done / r.total) * 100) : 0);
   // Grouped by who does them. Within a group: things to do first, launch-day actions marked.
-  const owners = ["Designer", "Developer", "Senior Developer", "Account Manager"];
+  const owners = ["Designer", "Developer", "Senior Developer", "Account Manager", "Content"];
   return (
     <div className="rounded-xl bg-white shadow-sm ring-1 ring-zinc-200">
       {/* Header and toolbar stay visible while scrolling through the checks. */}

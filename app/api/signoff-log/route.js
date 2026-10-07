@@ -40,7 +40,7 @@ export async function POST(request) {
     try { signed = (await getSignoffs(b.site)).signoffs; } catch {}
   }
 
-  const OWNERS = ["Designer", "Developer", "Senior Developer", "Account Manager"];
+  const OWNERS = ["Designer", "Developer", "Senior Developer", "Account Manager", "Content"];
   const ordered = [...checks].sort((x, y) => OWNERS.indexOf(x.owner) - OWNERS.indexOf(y.owner));
   const rows = ordered.map((c) => {
     const s = c.state === "pass" ? { name: AUTO_SIGNER, at: b.scannedAt } : signed[c.id];
