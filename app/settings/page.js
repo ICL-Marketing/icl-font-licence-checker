@@ -302,7 +302,7 @@ function LinksEditor() {
       lastSavedRef.current = JSON.stringify(payloadOf(nextLinks, nextSender, nextClients, nextSubjects, nextFollowUp));
       setFollowUp(nextFollowUp); setSubjects(nextSubjects); setLinks(nextLinks); setSender(nextSender); setClients(nextClients);
     }).catch(() => { lastSavedRef.current = defaultsJson(); });
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (lastSavedRef.current === null) return; // not loaded yet
     const value = payloadOf(links, sender, clients, subjects, followUp);
@@ -317,7 +317,7 @@ function LinksEditor() {
       } catch { setSaveState("failed"); }
     }, 800);
     return () => clearTimeout(t);
-  }, [links, sender, clients, subjects, followUp]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [links, sender, clients, subjects, followUp]);
   return (
     <div className="space-y-3">
       <div className="grid gap-2 sm:grid-cols-2">
