@@ -68,97 +68,97 @@ export default function Settings() {
     } catch {}
     loadArchived();
   }
-  const [mk, setMk] = useState(null);
-  const [testLink, setTestLink] = useState("");
-  const [test, setTest] = useState(null);
-  async function runTest() {
-    setTest({ busy: true });
-    try { setTest(await (await fetch("/api/marker-monitor", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: testLink }) })).json()); }
-    catch (e) { setTest({ ok: false, error: e.message }); }
-  }
   const [status, setStatus] = useState(null);
   useEffect(() => { fetch("/api/status").then((r) => r.json()).then(setStatus).catch(() => setStatus({ login: false, store: { configured: false, ok: false } })); }, []);
-  useEffect(() => { fetch("/api/marker").then((r) => r.json()).then(setMk).catch(() => setMk({ configured: true, ok: false, error: "Could not reach the app" })); }, []);
+  const [section, setSection] = useState("team");
+  useEffect(() => {
+    try { const q = new URLSearchParams(window.location.search).get("section"); if (SECTIONS.some(([id]) => id === q)) setTimeout(() => setSection(q), 0); } catch {}
+  }, []);
+  const pick = (id) => { setSection(id); try { const u = new URL(window.location.href); u.searchParams.set("section", id); window.history.replaceState(null, "", u.search); } catch {} };
+  const st = status?.store || {};
+  const allGood = status && status.login && st.configured && st.ok;
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6">
       <Link href="/" className="text-sm text-zinc-500 hover:text-zinc-900">← Back to Website Checker</Link>
       <h1 className="mt-3 text-2xl font-semibold">Settings</h1>
-      <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
-        <h2 className="font-semibold">Shared saving &amp; login</h2>
-        <p className="mb-3 text-sm text-zinc-500">One team password, and every scan, sign-off, client and setting saved for everyone who signs in.</p>
-        <StatusPanel status={status} />
-      </section>
-      <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
-        <h2 className="font-semibold">Team names</h2>
-        <p className="mb-3 text-sm text-zinc-500">Names and roles offered in the &quot;Checked by&quot; dropdowns on launch checks.</p>
-        <TeamEditor team={team} onChange={change} shared={shared} />
-      </section>
-      <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
-        <h2 className="font-semibold">Clients</h2>
-        <p className="mb-3 text-sm text-zinc-500">From the Web Clients spreadsheet. The account manager is offered first on launch sign-offs for that client&apos;s site, and the email addresses are shown on client emails.</p>
-        <ClientsEditor clients={clients} team={team} onChange={changeClients} shared={clientsShared} />
-      </section>
-      <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
-        <h2 className="font-semibold">Archived checks</h2>
-        <p className="mb-3 text-sm text-zinc-500">Launch and post-launch checks archived from their tabs. Restore puts one back; Delete removes it and its sign-offs for good.</p>
-        {!archived.length && <p className="text-sm text-zinc-500">Nothing archived.</p>}
-        {archived.length > 0 && (
-          <table className="w-full text-sm">
-            <thead><tr className="text-left text-xs text-zinc-500"><th className="py-1 pr-3">Site</th><th className="py-1 pr-3">Tab</th><th className="py-1 pr-3">Scanned</th><th className="py-1 pr-3">Archived</th><th /></tr></thead>
-            <tbody>
-              {archived.map(({ mode, key, r }) => (
-                <tr key={`${mode}:${key}`} className="border-t border-zinc-100">
-                  <td className="py-1.5 pr-3 font-medium">{key}</td>
-                  <td className="py-1.5 pr-3">{mode === "post" ? "Post Launch Checks" : "Launch Checks"}</td>
-                  <td className="py-1.5 pr-3 text-zinc-600">{r.scannedAt ? new Date(r.scannedAt).toLocaleDateString("en-GB") : "—"}</td>
-                  <td className="py-1.5 pr-3 text-zinc-600">{r.archivedAt ? new Date(r.archivedAt).toLocaleDateString("en-GB") : "—"}</td>
-                  <td className="py-1.5 text-right whitespace-nowrap">
-                    <button onClick={() => archivedAction(mode, key, "restore")} className="mr-2 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100">Restore</button>
-                    <button onClick={() => { if (confirm(`Delete the ${mode === "post" ? "post-launch" : "launch"} check for ${key} and its sign-offs?`)) archivedAction(mode, key, "delete"); }} className="rounded-md border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50">Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-      <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
-        <h2 className="font-semibold">Marker.io</h2>
-        <p className="mb-3 text-sm text-zinc-500">Lets launch checks create snags directly in Marker.io. Set up with two Vercel environment variables: <code>MARKER_MCP_URL</code> (from Marker.io → MCP → Others) and <code>MARKER_MCP_TOKEN</code> (Marker.io → MCP → Access token; tokens last 90 days).</p>
-        {!mk && <p className="text-sm text-zinc-500">Checking…</p>}
-        {mk && !mk.configured && <p className="text-sm"><span className="font-semibold text-amber-700">Not set up.</span> Add the two variables in Vercel and redeploy.</p>}
-        {mk?.configured && !mk.ok && <p className="text-sm"><span className="font-semibold text-red-700">✗ Not working:</span> {mk.error}</p>}
-        {mk?.ok && (
-          <div className="text-sm">
-            <p className="font-semibold text-green-700">✓ Connected.</p>
-            <p className="mt-1">{mk.createTool ? <>Snags will be created with <code>{mk.createTool}</code>.</> : <span className="text-amber-700">Marker.io does not let apps create snags (its MCP can only read issues and comment on them), so findings use &quot;Copy snag&quot;, which copies the text and opens the project for you to paste into a new issue.</span>}</p>
-            <div className="mt-3 rounded-md border border-zinc-200 p-3">
-              <p className="text-xs font-semibold">Test accessibility monitoring for a project</p>
-              <div className="mt-1 flex gap-2">
-                <input value={testLink} onChange={(e) => setTestLink(e.target.value)} placeholder="Marker.io project link" className="min-w-0 flex-1 rounded-md border border-zinc-300 px-2 py-1 text-xs" />
-                <button onClick={runTest} disabled={!testLink.trim() || test?.busy} className="rounded-md border border-zinc-300 bg-white px-3 py-1 text-xs hover:bg-zinc-100 disabled:opacity-50">{test?.busy ? "Checking…" : "Test"}</button>
-              </div>
-              {test && !test.busy && (
-                <div className="mt-2 text-xs">
-                  {test.ok ? (
-                    <>
-                      <p className="text-green-700">✓ Read monitoring for project {test.projectId}: score {test.score ?? "?"}, {test.failing ?? "?"} failing checks, {test.pagesMonitored ?? "?"} of {test.pagesTotal ?? "?"} pages, {test.checks?.length ?? 0} checks listed.</p>
-                      <ul className="mt-1 list-disc pl-5">{(test.checks || []).slice(0, 10).map((c, i) => <li key={i}>{c.name}{c.impact ? ` (${c.impact})` : ""}{c.elements != null ? ` – ${c.elements} elements` : ""}</li>)}</ul>
-                    </>
-                  ) : <p className="text-red-700">✗ {test.error}</p>}
-                  {test.raw && <details className="mt-1"><summary className="cursor-pointer text-zinc-500">Raw response (for troubleshooting)</summary><pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-zinc-50 p-2 text-[10px]">{test.raw.summary}{"\n\n---\n\n"}{test.raw.checks}{"\n\n--- elements (sample) ---\n\n"}{test.raw.elements || "(none)"}</pre></details>}
-                </div>
-              )}
-            </div>
-            <details className="mt-2 text-xs text-zinc-600"><summary className="cursor-pointer">What Marker.io allows ({mk.tools.length})</summary>
-              <ul className="mt-1 space-y-1">{mk.tools.map((t) => <li key={t.name}><code>{t.name}</code> – {t.description} {t.fields.length > 0 && <span className="text-zinc-400">({t.fields.join(", ")})</span>}</li>)}</ul>
-            </details>
-          </div>
-        )}
-      </section>
+      <nav className="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-zinc-200/70 p-1 sm:inline-grid sm:w-auto sm:grid-cols-4" aria-label="Settings sections">
+        {SECTIONS.map(([id, label]) => (
+          <button key={id} onClick={() => pick(id)} aria-current={section === id ? "page" : undefined}
+            className={`rounded-lg px-4 py-2 text-sm font-semibold ${section === id ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"}`}>
+            {label}{id === "archived" && archived.length > 0 && <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] text-zinc-700">{archived.length}</span>}
+          </button>
+        ))}
+      </nav>
+      {section === "team" && (
+        <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+          <h2 className="font-semibold">Team names</h2>
+          <p className="mb-3 text-sm text-zinc-500">Names and roles offered in the sign-off dropdowns on launch checks.</p>
+          <TeamEditor team={team} onChange={change} shared={shared} />
+        </section>
+      )}
+      {section === "clients" && (
+        <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+          <h2 className="font-semibold">Clients</h2>
+          <p className="mb-3 text-sm text-zinc-500">The account manager is offered first on launch sign-offs for that client&apos;s site, and the email addresses are used on client emails.</p>
+          <ClientsEditor clients={clients} team={team} onChange={changeClients} shared={clientsShared} />
+        </section>
+      )}
+      {section === "archived" && (
+        <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+          <h2 className="font-semibold">Archived checks</h2>
+          <p className="mb-3 text-sm text-zinc-500">Launch and post-launch checks archived from their tabs.</p>
+          {!archived.length && <p className="text-sm text-zinc-500">Nothing archived.</p>}
+          {archived.length > 0 && (
+            <table className="w-full text-sm">
+              <thead><tr className="text-left text-xs text-zinc-500"><th className="py-1 pr-3">Site</th><th className="py-1 pr-3">Tab</th><th className="py-1 pr-3">Scanned</th><th className="py-1 pr-3">Archived</th><th /></tr></thead>
+              <tbody>
+                {archived.map(({ mode, key, r }) => (
+                  <tr key={`${mode}:${key}`} className="border-t border-zinc-100">
+                    <td className="py-1.5 pr-3 font-medium">{key}</td>
+                    <td className="py-1.5 pr-3">{mode === "post" ? "Post Launch Checks" : "Launch Checks"}</td>
+                    <td className="py-1.5 pr-3 text-zinc-600">{r.scannedAt ? new Date(r.scannedAt).toLocaleDateString("en-GB") : "—"}</td>
+                    <td className="py-1.5 pr-3 text-zinc-600">{r.archivedAt ? new Date(r.archivedAt).toLocaleDateString("en-GB") : "—"}</td>
+                    <td className="py-1.5 text-right whitespace-nowrap">
+                      <button onClick={() => archivedAction(mode, key, "restore")} className="mr-2 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100">Restore</button>
+                      <button onClick={() => { if (confirm(`Delete the ${mode === "post" ? "post-launch" : "launch"} check for ${key} and its sign-offs?`)) archivedAction(mode, key, "delete"); }} className="rounded-md border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50">Delete</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+      )}
+      {section === "connections" && (
+        <>
+          {status && !allGood && (
+            <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+              <h2 className="font-semibold">Shared saving &amp; login</h2>
+              <p className="mb-3 text-sm text-zinc-500">One team password, and every scan, sign-off, client and setting saved for everyone who signs in.</p>
+              <StatusPanel status={status} />
+            </section>
+          )}
+          <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+            <h2 className="font-semibold">Figma</h2>
+            <p className="mb-3 text-sm text-zinc-500">Lets Design Checks read Figma files for accessibility problems before they are coded.</p>
+            {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.figma
+              ? <StatusRow ok label="Figma token set" detail="paste a Figma file, page or frame link on the Design Checks tab" />
+              : <>
+                  <StatusRow ok={false} label="Figma token not set" detail="Design Checks can't read files yet" />
+                  <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-700">
+                    <li>In Figma: profile menu → <b>Settings</b> → <b>Security</b> → <b>Personal access tokens</b> → Generate new token, with <b>File content: read</b>.</li>
+                    <li>In Vercel: project → Settings → Environment Variables → add <code>FIGMA_TOKEN</code> with that value.</li>
+                    <li>Deployments → <b>Redeploy</b>, then reload this page.</li>
+                  </ol>
+                </>}
+          </section>
+        </>
+      )}
     </main>
   );
 }
+
+const SECTIONS = [["team", "Team"], ["clients", "Clients"], ["archived", "Archived checks"], ["connections", "Connections"]];
 
 function StatusRow({ ok, label, detail }) {
   return (

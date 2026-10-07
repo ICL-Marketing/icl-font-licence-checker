@@ -1,5 +1,6 @@
 import { pingStore, storeVarsSeen } from "@/lib/store";
 import { isConfigured } from "@/lib/auth";
+import { figmaConfigured } from "@/lib/figma";
 
 export const dynamic = "force-dynamic";
 
@@ -7,5 +8,5 @@ export const dynamic = "force-dynamic";
 // login (CHECKER_PASSWORD) and the shared store (Upstash Redis via Vercel).
 export async function GET() {
   const store = await pingStore();
-  return Response.json({ login: isConfigured(), store: { ...store, vars: storeVarsSeen() } });
+  return Response.json({ login: isConfigured(), store: { ...store, vars: storeVarsSeen() }, figma: figmaConfigured() });
 }
