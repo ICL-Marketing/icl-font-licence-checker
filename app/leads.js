@@ -149,7 +149,6 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     <div>
       <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
         <h2 className="font-semibold">Website Leads</h2>
-        <p className="mt-1 text-sm text-zinc-600">Local companies whose website is letting them down. Finds active companies on Companies House, checks each website for the problems that make a good lead, reads net assets from their accounts and drafts the first email.</p>
         {cfg && !cfg.configured && <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Companies House is not connected yet. Add the free API key in <Link href="/settings?section=connections" className="underline">Settings → Connections</Link>. The board below still works.</p>}
         <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
           <fieldset className="rounded-lg border border-zinc-200 p-3">
