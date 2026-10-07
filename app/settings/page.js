@@ -270,7 +270,8 @@ function StatusPanel({ status }) {
   );
 }
 
-const SUBJECT_DEFAULTS = { "No website": "Couldn't find you online", "Parked domain": "Your domain isn't showing a website", "Dead/broken site": "Your website is down", "Broken SSL": "Your website is showing a security warning", "Stale copyright": "A few thoughts on your website", "Dated template": "Your website could be doing more for you", "Licence risk": "Something on your website that could cost you money", other: "A few thoughts on your website" };
+const SUBJECT_DEFAULTS = { "licence-font": "Font licence on your website", "licence-image": "A stock image on your website", "Broken SSL": "Your website is showing a security warning", "Dead/broken site": "Your website is down", "Parked domain": "Your domain isn't showing a website", "Stale copyright": "A few thoughts on your website", "Dated template": "Your website could be doing more for you", "No website": "Couldn't find you online", seo: "Your website in search", other: "A few thoughts on your website" };
+const SUBJECT_LABELS = { "licence-font": "Font licence", "licence-image": "Stock image", seo: "Search ranking", other: "Anything else" };
 const LINK_DEFAULTS = { site: "https://icldigital.com/", websites: "https://icldigital.com/services/websites/", videography: "https://icldigital.com/services/videography/", contact: "https://icldigital.com/get-in-touch/" };
 const LINK_LABELS = { site: "Homepage", websites: "Websites service page", videography: "Videography service page", contact: "Contact page" };
 const SENDER_DEFAULTS = { name: "Chris", role: "Lead Designer", agency: "ICL Digital", where: "Richmond" };
@@ -330,7 +331,7 @@ function LinksEditor() {
         <div className="text-xs font-semibold text-zinc-600">Email subjects</div>
         <div className="mt-1 grid gap-1.5 sm:grid-cols-2">
           {Object.keys(SUBJECT_DEFAULTS).map((k) => (
-            <label key={k} className="flex items-center gap-2 text-sm"><span className="w-32 shrink-0 text-xs text-zinc-500">{k === "other" ? "Anything else" : k}</span>
+            <label key={k} className="flex items-center gap-2 text-sm"><span className="w-32 shrink-0 text-xs text-zinc-500">{SUBJECT_LABELS[k] || k}</span>
               <input value={subjects[k] || ""} onChange={(e) => setSubjects({ ...subjects, [k]: e.target.value })} className="min-w-0 flex-1 rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
           ))}
         </div>

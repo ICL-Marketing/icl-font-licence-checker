@@ -69,7 +69,7 @@ export async function POST(request) {
       const leads = (Array.isArray(b.leads) ? b.leads : []).slice(0, 200).map((l) => {
         if (!l.problem || l.emailEdited) return l;
         const d = draftOutreach({ ...l, links });
-        return { ...l, emailPrevious: l.email && l.email !== d.email ? l.email : l.emailPrevious, subject: d.subject, pitch: l.source === "Client Matrix v4.1" && l.pitch ? l.pitch : d.pitch, email: d.email, draftVersion: d.draftVersion };
+        return { ...l, emailPrevious: l.email && l.email !== d.email ? l.email : l.emailPrevious, subject: d.subject, pitch: l.source === "Client Matrix v4.1" && l.pitch ? l.pitch : d.pitch, email: d.email, issueId: d.issueId, draftVersion: d.draftVersion };
       });
       return Response.json({ leads });
     }
@@ -77,8 +77,8 @@ export async function POST(request) {
       // Fresh subject, pitch and email from the lead as it stands (works without a website).
       const lead = { ...b.lead };
       if (!lead.problem) return Response.json({ error: "Nothing to pitch: the site is marked as current." }, { status: 400 });
-      const d = draftOutreach({ ...lead, links });
-      return Response.json({ lead: { ...lead, subject: d.subject, pitch: d.pitch, email: d.email, draftVersion: d.draftVersion } });
+      const d = draftOutreach({ ...lead, links }, b.person || null);
+      return Response.json({ lead: { ...lead, subject: d.subject, pitch: d.pitch, email: d.email, issueId: d.issueId, draftVersion: d.draftVersion } });
     }
     if (b.step === "recheck") {
       const lead = { ...b.lead };

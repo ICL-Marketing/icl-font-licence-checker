@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 
 // Website leads: local businesses whose site is letting them down, found
@@ -253,10 +253,13 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     try {
       const r = await post({ step: "contacts", lead: l, useHunter: true, forceHunter: true });
       const best = r.people.find((p) => p.email) || null;
-      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: true, checking: false, error: r.hunterNote || (best ? "" : "Hunter had nothing for this domain.") };
+      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: true, checking: false, error: r.hunterNote || (best || r.hunterDomain ? "" : l.website ? "Hunter had nothing for this domain." : "Hunter did not recognise the company name.") };
+      if (!l.website && r.hunterDomain) { f.website = r.hunterDomain; f.websiteConfirmed = false; f.caveats = [l.caveats, `Website ${r.hunterDomain} came from Hunter's company lookup; double-check it is theirs`].filter(Boolean).join("; "); }
       if (best && !l.emailAddress) { f.emailAddress = best.email; f.contactName = l.contactName || best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; if (["no-contact", "not-pursuing"].includes(l.status) && l.contactUnverified) { f.status = l.likelihood === "Low" ? "new" : "qualified"; f.contactUnverified = false; } }
       update(l.id, f);
       fetch("/api/leads").then((x) => x.json()).then(setCfg).catch(() => {});
+      // A website found by name is checked straight away so the problem and the email are right.
+      if (!l.website && r.hunterDomain) { try { const { lead } = await post({ step: "recheck", lead: { ...leadsRef.current[l.id], website: r.hunterDomain, emailEdited: false }, redraft: true }); update(l.id, { ...lead, checking: false }); } catch {} }
     } catch (e) { update(l.id, { checking: false, error: e.message }); }
   }
   async function findContacts(l) {
@@ -387,7 +390,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   }
   async function recheck(l, redraft = false) {
     update(l.id, { checking: true, error: "" });
-    try { const { lead } = await post({ step: redraft ? "redraft" : "recheck", lead: { ...l, emailEdited: false } }); update(l.id, { ...lead, emailEdited: false, emailPrevious: l.email && l.email !== lead.email ? l.email : l.emailPrevious, checking: false, error: "" }); }
+    const person = redraft ? ((l.contacts || []).find((p) => p.email && p.email === l.emailAddress) || null) : null;
+    try { const { lead } = await post({ step: redraft ? "redraft" : "recheck", lead: { ...l, emailEdited: false }, person }); update(l.id, { ...lead, emailEdited: false, emailPrevious: l.email && l.email !== lead.email ? l.email : l.emailPrevious, checking: false, error: "" }); }
     catch (e) { update(l.id, { checking: false, error: e.message }); }
   }
 
@@ -490,7 +494,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       <Board leads={visible} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status }); }} />
 
-      {current && <LeadDrawer l={current} followUp={followUp} hunterOn={!!cfg?.hunter} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onSeo={() => checkSeo(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
+      {current && <LeadDrawer l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onSeo={() => checkSeo(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
   );
 }
@@ -589,12 +593,22 @@ function TextField({ label, value, onChange, rows = 2, mono = false }) {
 }
 
 // Pick a person: their address goes in To and the greeting uses their first name.
-function pickPerson(l, p, onChange) {
+function pickPerson(l, p, onChange, subjects = {}) {
   const first = p.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0];
   const email = p.email || l.emailAddress || "";
-  const body = String(l.email || "").replace(/^Hi( there| [A-Z][a-z'’-]+)?,/, `Hi ${first},`);
   const verified = !!p.email;
-  onChange({ emailAddress: email, contactName: first, email: body, ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && verified ? { status: l.likelihood === "Low" ? "new" : "qualified", contactUnverified: false } : {}) });
+  // Remember the draft for the person we are leaving, bring back the one for this person if there is one,
+  // otherwise write a fresh one on the issue their role would care about (not one already given to a colleague).
+  const drafts = { ...(l.drafts || {}) };
+  if (l.emailAddress && l.email) drafts[l.emailAddress] = { subject: l.subject || "", email: l.email, issueId: l.issueId || "", edited: !!l.emailEdited };
+  let next = drafts[email];
+  if (!next) {
+    const taken = Object.entries(drafts).filter(([k]) => k !== email).map(([, d]) => d.issueId).filter(Boolean);
+    const issue = pickIssue(l, p, taken);
+    const d = draftFor(l, p, issue, subjects);
+    next = { subject: d.subject, email: d.body, issueId: d.issueId, edited: false };
+  }
+  onChange({ emailAddress: email, contactName: first, subject: next.subject, email: next.email, issueId: next.issueId, emailEdited: next.edited, drafts, ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && verified ? { status: l.likelihood === "Low" ? "new" : "qualified", contactUnverified: false } : {}) });
 }
 
 // Who decides on a website: owners, directors, founders, general/managing/practice/office managers,
@@ -603,7 +617,7 @@ const DECIDES_RE = /\b(owner|founder|co-?founder|proprietor|partner|principal|di
 const NOT_DECIDES_RE = /\b(finance director|financial|hr|human resources|food safety|health and safety|safety|compliance|chef|cashier|accounts?|accountant|bookkeeper|payroll|warehouse|driver|engineer|technician|nurse|receptionist|support|helpdesk|customer service|assistant|intern|apprentice|cleaner|security|it manager|it support|quality)\b/i;
 const decides = (p) => { const r = `${p.role || ""} ${p.why || ""}`; if (/marketing|brand|digital|business development|owner|founder|managing director|ceo|chief executive/i.test(r)) return true; if (NOT_DECIDES_RE.test(r)) return false; return DECIDES_RE.test(r); };
 
-function Contacts({ l, onChange, onContacts, onHunter, cfgHunter = false }) {
+function Contacts({ l, onChange, onContacts, onHunter, cfgHunter = false, subjects = {} }) {
   const all = l.contacts || [];
   const [showOthers, setShowOthers] = useState(false);
   const deciders = all.filter(decides);
@@ -615,9 +629,9 @@ function Contacts({ l, onChange, onContacts, onHunter, cfgHunter = false }) {
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold">Who to contact</span>
         <span className="ml-auto flex flex-wrap gap-2">
-          {cfgHunter && l.website && (l.hunterTried
+          {cfgHunter && (l.hunterTried
             ? <span className="inline-flex items-center rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs text-zinc-500" title="Hunter has already been asked about this domain">Hunter used</span>
-            : <button onClick={onHunter} disabled={l.checking} title="Ask Hunter.io for named people at this domain with their roles and addresses. Spends one credit." className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs text-amber-900 hover:bg-amber-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> Use a Hunter credit</button>)}
+            : <button onClick={onHunter} disabled={l.checking} title={l.website ? "Ask Hunter.io for named people at this domain with their roles and addresses. Spends one credit." : "No website on file: Hunter looks the company up by name, which can also turn up the domain. Spends one credit."} className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs text-amber-900 hover:bg-amber-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> Use a Hunter credit{l.website ? "" : " (by company name)"}</button>)}
           <button onClick={onContacts} disabled={l.checking} title="Companies House and the website, free" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {people.length ? "Look again" : "Find contacts"}</button>
         </span>
       </div>
@@ -642,7 +656,7 @@ function Contacts({ l, onChange, onContacts, onHunter, cfgHunter = false }) {
                 </div>
               </div>
               {p.email
-                ? <button onClick={() => pickPerson(l, p, onChange)} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100" title="Put this person in To and the greeting">Email this person</button>
+                ? <button onClick={() => pickPerson(l, p, onChange, subjects)} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100" title="Put this person in To and the greeting">Email this person</button>
                 : <span className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700" title="No verified email address found for this person">No email found</span>}
             </li>
           ))}
@@ -693,12 +707,25 @@ function FollowUp({ l, onChange }) {
   );
 }
 
-function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, onClose, onChange, onRemove, onRecheck, onContacts, onHunter, onSeo, onLicence, onRefresh }) {
+function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjects = {}, onClose, onChange, onRemove, onRecheck, onContacts, onHunter, onSeo, onLicence, onRefresh }) {
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
-  const full = `Subject: ${l.subject || ""}\n\n${l.email || ""}`;
-  const outlook = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(l.emailAddress || "")}&subject=${encodeURIComponent(l.subject || "")}&body=${encodeURIComponent(l.email || "")}`;
+  // Older drafts carry the greeting inside the text; new ones get it written on the day.
+  const emailText = /^Hi\b/.test(l.email || "") ? (l.email || "") : fullEmail(l, l.email || "");
+  const greetingPreview = /^Hi\b/.test(l.email || "") ? "" : `${l.contactName ? `Hi ${l.contactName.split(" ")[0]},` : "Hi there,"}\n\n${dayGreeting()}`;
+  const full = `Subject: ${l.subject || ""}\n\n${emailText}`;
+  const outlook = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(l.emailAddress || "")}&subject=${encodeURIComponent(l.subject || "")}&body=${encodeURIComponent(emailText)}`;
+  const issues = issuesFor(l);
+  const current = issues.find((i) => i.id === l.issueId) || null;
+  const person = (l.contacts || []).find((p) => p.email && p.email === l.emailAddress) || null;
+  function chooseIssue(id) {
+    const issue = issues.find((i) => i.id === id) || null;
+    if (l.emailEdited && !confirm("This email was edited by hand. Replace it with the draft for the chosen issue?")) return;
+    const d = draftFor(l, person, issue, subjects);
+    onChange({ subject: d.subject, email: d.body, issueId: d.issueId, emailEdited: false, emailPrevious: l.email && l.email !== d.body ? l.email : l.emailPrevious });
+  }
+  const writeTo = (l.contacts || []).filter((p) => p.email);
   async function copy() { try { await navigator.clipboard.writeText(full); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {} }
   const site = l.siteUrl || (l.website ? (/^https?:/.test(l.website) ? l.website : `${l.problem === "Broken SSL" ? "http" : "https"}://${l.website}`) : "");
   return (
@@ -804,7 +831,7 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, onClos
           {!l.optedOut && l.status === "contacted" && daysSince(l) >= followUp.chaseDays && <FollowUp l={l} onChange={onChange} />}
           {l.autoMoved && <p className="text-xs text-zinc-500">Moved automatically: {l.autoMoved}.</p>}
 
-          <Contacts l={l} onChange={onChange} onContacts={onContacts} onHunter={onHunter} cfgHunter={hunterOn} />
+          <Contacts l={l} onChange={onChange} onContacts={onContacts} onHunter={onHunter} cfgHunter={hunterOn} subjects={subjects} />
 
           <div className="rounded-lg border border-zinc-200 p-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -816,6 +843,29 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, onClos
                 </>}
               </span>
             </div>
+            {writeTo.length > 0 && (
+              <div className="mt-2">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Write to</div>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {writeTo.map((p) => (
+                    <button key={p.email} onClick={() => pickPerson(l, p, onChange, subjects)} title={`${p.role} · ${p.email}${l.drafts?.[p.email] ? " · draft saved" : ""}`}
+                      className={`rounded-full border px-2.5 py-1 text-xs ${p.email === l.emailAddress ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>
+                      {p.name} <span className={p.email === l.emailAddress ? "text-zinc-300" : "text-zinc-400"}>· {p.role}</span>{l.drafts?.[p.email] && p.email !== l.emailAddress ? " ✎" : ""}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-[11px] text-zinc-500">Each person gets the issue their role would care about{writeTo.length > 1 ? ", and colleagues get different issues where there is a choice" : ""}. Drafts are kept per person.</p>
+              </div>
+            )}
+            <div className="mt-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Issue raised</div>
+              {issues.length ? (
+                <select value={l.issueId || ""} onChange={(e) => chooseIssue(e.target.value)} className="mt-0.5 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm">
+                  {!current && <option value="">Choose an issue…</option>}
+                  {issues.map((i) => <option key={i.id} value={i.id}>{i.label}{person && i.audience.includes(roleGroup(person)) ? "" : person ? " (less relevant to this role)" : ""}</option>)}
+                </select>
+              ) : <p className="mt-0.5 text-xs text-zinc-500">No issue found on the site yet. Run Check licences, Check search or Rescan this lead.</p>}
+            </div>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">To</div>
                 <input value={l.emailAddress || ""} onChange={(e) => onChange({ emailAddress: e.target.value, ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && e.target.value.trim() ? { status: l.likelihood === "Low" ? "new" : "qualified", contactUnverified: false } : {}) })} placeholder={l.emailNote || "email address"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
@@ -824,7 +874,8 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, onClos
             </div>
             <label className="mt-2 block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Subject</div>
               <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
-            <textarea value={l.email || ""} onChange={(e) => onChange({ email: e.target.value, emailEdited: true })} rows={11} className="mt-2 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" />
+            {greetingPreview && <pre className="mt-2 whitespace-pre-wrap rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1.5 font-sans text-sm text-zinc-600" title="Written automatically on the day you send: changes with the day of the week">{greetingPreview}</pre>}
+            <textarea value={l.email || ""} onChange={(e) => onChange({ email: e.target.value, emailEdited: true })} rows={6} className={`w-full border border-zinc-300 px-2 py-1 text-sm ${greetingPreview ? "rounded-b-md" : "mt-2 rounded-md"}`} />
             <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-zinc-500">
               {l.emailEdited ? <span>Edited by hand, so automatic redrafts leave it alone. <button onClick={() => onChange({ emailEdited: false, draftVersion: 0 })} className="underline">Let the app redraft it</button></span> : <span>Drafted by the app; redrafts automatically when the wording improves.</span>}
               {l.emailPrevious && <button onClick={() => onChange({ email: l.emailPrevious, emailPrevious: "", emailEdited: true })} className="underline">Restore the previous draft</button>}
@@ -838,7 +889,6 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, onClos
               : <button onClick={() => onChange({ optedOut: false })} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-zinc-600 hover:bg-zinc-100">Undo opt-out</button>}
             {l.website && <button onClick={() => onRecheck(false)} disabled={l.checking} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-3.5 w-3.5" /> Re-check website</button>}
             {l.problem && <button onClick={() => onRecheck(true)} disabled={l.checking} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 hover:bg-zinc-100 disabled:opacity-40"><PlayIcon className="h-3.5 w-3.5" /> Redraft email</button>}
-            {l.problem && <label className="inline-flex items-center gap-1 text-zinc-600"><input type="checkbox" checked={!l.noVideoPitch} onChange={(e) => onChange({ noVideoPitch: !e.target.checked })} className="h-3.5 w-3.5" /> Mention hero video (applies on redraft)</label>}
             {l.checking && <span className="inline-flex items-center gap-1 text-blue-700"><SpinnerIcon className="h-3.5 w-3.5" /> Working…</span>}
             {l.error && <span className="text-red-700">{l.error}</span>}
             {l.checkedAt && !l.checking && <span className="text-zinc-500">Checked {new Date(l.checkedAt).toLocaleDateString("en-GB")}</span>}
