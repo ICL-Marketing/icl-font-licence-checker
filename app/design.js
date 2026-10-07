@@ -74,6 +74,19 @@ export default function DesignArea({ onRunning, onCount }) {
   });
 
   const outstanding = Object.values(runs).filter((r) => r.status === "DONE").reduce((n, r) => n + (r.screens || []).reduce((m, s) => m + (s.findings || []).filter((f) => f.level === "fail" && !r.dismissed?.[findingKey(f)]).length, 0), 0);
+  // Re-check one screen only (after fixing its issues) instead of the whole file.
+  const [busyScreen, setBusyScreen] = useState(null);
+  async function recheckScreen(key, screenId) {
+    const r = runs[key]; if (!r?.fileKey || running) return;
+    setBusyScreen(`${key}|${screenId}`);
+    try {
+      const j = await post({ step: "frames", fileKey: r.fileKey, ids: [screenId] });
+      const fresh = j.results?.[0];
+      if (fresh) { const old = (r.screens || []).find((x) => x.id === screenId); const screens = (r.screens || []).map((x) => (x.id === screenId ? { ...fresh, page: old?.page || "", checkedAt: new Date().toISOString() } : x)); patch(key, { screens, dismissedAt: new Date().toISOString() }); }
+      else patch(key, { error: "Figma did not return that screen; it may have been deleted or renamed." });
+    } catch (e) { patch(key, { error: String(e?.message || e) }); }
+    finally { setBusyScreen(null); }
+  }
   const dismiss = (key, keys, reason) => patch(key, { dismissed: { ...(runs[key]?.dismissed || {}), ...Object.fromEntries(keys.map((k) => [k, reason ? { reason, at: new Date().toISOString() } : undefined])) }, dismissedAt: new Date().toISOString() });
   useEffect(() => { onCount?.(outstanding); }, [outstanding, onCount]);
 
@@ -153,7 +166,7 @@ export default function DesignArea({ onRunning, onCount }) {
         {list.map((r) => (
           <DesignCard key={r.key} r={r} open={openKey === r.key} toggle={() => setOpenKey(openKey === r.key ? null : r.key)}
             running={running === r.key} busy={!!running}
-            onRescan={() => runCheck(r.link)} onResume={() => runCheck(r.link, { resume: true })} onRemove={() => remove(r.key)} onDismiss={(keys, reason) => dismiss(r.key, keys, reason)} />
+            onRescan={() => runCheck(r.link)} onResume={() => runCheck(r.link, { resume: true })} onRemove={() => remove(r.key)} onDismiss={(keys, reason) => dismiss(r.key, keys, reason)} onRecheckScreen={(id) => recheckScreen(r.key, id)} busyScreen={busyScreen} />
         ))}
         {!list.length && <p className="text-sm text-zinc-500">No designs checked yet.</p>}
       </div>
@@ -161,7 +174,7 @@ export default function DesignArea({ onRunning, onCount }) {
   );
 }
 
-function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemove, onDismiss }) {
+function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemove, onDismiss, onRecheckScreen, busyScreen }) {
   const [asking, setAsking] = useState(false);
   const screens = r.screens || [];
   const dismissed = r.dismissed || {};
@@ -229,7 +242,7 @@ function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemo
             </div>
           )}
           <div className="space-y-2">
-            {screens.slice().sort((a, b) => score(b, dismissed) - score(a, dismissed)).map((s) => <ScreenRow key={s.id} s={s} dismissed={dismissed} onDismiss={onDismiss} />)}
+            {screens.slice().sort((a, b) => score(b, dismissed) - score(a, dismissed)).map((s) => <ScreenRow key={s.id} s={s} dismissed={dismissed} onDismiss={onDismiss} onRecheck={() => onRecheckScreen(s.id)} busy={busyScreen === `${r.key}|${s.id}` || busy} />)}
           </div>
         </div>
       )}
@@ -254,7 +267,7 @@ function groupFindings(findings) {
 const findingKey = (f) => { if (f.nodeId) return `${f.id}|${String(f.nodeId).replace(/:/g, "-")}`; let n = (String(f.href || "").match(/node-id=([^&]+)/) || [])[1] || f.node; try { n = decodeURIComponent(n); } catch {} return `${f.id}|${n}`; };
 const score = (s, dismissed = {}) => (s.findings || []).reduce((n, f) => n + (dismissed[findingKey(f)] ? 0 : f.level === "fail" ? 100 : f.level === "warn" ? 10 : 1), 0);
 
-function ScreenRow({ s, dismissed = {}, onDismiss }) {
+function ScreenRow({ s, dismissed = {}, onDismiss, onRecheck, busy }) {
   const [show, setShow] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showDone, setShowDone] = useState(false);
@@ -278,6 +291,8 @@ function ScreenRow({ s, dismissed = {}, onDismiss }) {
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className={`inline-flex items-center ${tone.text}`}><InfoIcon /></span>
         <a href={s.href} target="_blank" rel="noreferrer" className="font-medium hover:underline">{s.name}</a>
+        <button onClick={onRecheck} disabled={busy} title="Re-check just this screen against Figma now" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-1.5 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100 disabled:opacity-40">{busy ? <SpinnerIcon className="h-3 w-3" /> : <RefreshIcon className="h-3 w-3" />} Re-check screen</button>
+        {s.checkedAt && <span className="text-[11px] text-zinc-400" title="This screen was re-checked on its own">re-checked {new Date(s.checkedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>}
         {s.page && <span className="text-xs text-zinc-500">{s.page}</span>}
         <span className="text-xs text-zinc-500">{s.width}×{s.height}</span>
         <span className="ml-auto text-xs">
