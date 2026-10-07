@@ -643,7 +643,7 @@ function CheckRow({ c, s, team, client, onSign, site }) {
                   <a href={i.img} target="_blank" rel="noreferrer" className="mr-2 inline-block align-middle">
                     {/* Thumbnail of the client's image; plain <img> on purpose (external, unoptimised). */}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={i.img} alt="" loading="lazy" className="h-10 w-14 rounded border border-zinc-200 bg-white object-cover" />
+                    <img src={`/api/thumb?u=${encodeURIComponent(i.img)}`} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }} className="h-10 w-14 rounded border border-zinc-200 bg-white object-cover" />
                   </a>
                 )}
                 {i.href ? <a href={i.href} target="_blank" rel="noreferrer" className="hover:underline">{i.text}</a> : i.text}
