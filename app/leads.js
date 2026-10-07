@@ -438,6 +438,16 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
 
 // The real reason a lead sits in Not pursuing, if there is one beyond a missing contact.
 const parkReason = (l) => { const m = `${l.caveats || ""}; ${l.likelihoodWhy || ""}`.split(/;\s*/).find((x) => /under £|already a client|site is current|dormant/i.test(x)); return m ? m.trim().replace(/\.$/, "") : ""; };
+// The same reason spelled out with the numbers, for the top of the lead page.
+function parkExplain(l) {
+  const r = parkReason(l);
+  if (!r) return "";
+  if (/dormant/i.test(r)) return `Filed as dormant at Companies House (accounts to ${l.accountsDate || "the last filing"}). The company isn't trading, so whatever the site looks like there is nobody to sell to.`;
+  if (/under £/i.test(r)) { const floor = (r.match(/£([\d,]+)/) || [])[1]; return `Net assets are ${l.netAssets != null ? `£${Math.round(l.netAssets).toLocaleString("en-GB")}` : "unknown"}${l.reChange != null && l.reChange < 0 ? ` and fell by £${Math.abs(Math.round(l.reChange)).toLocaleString("en-GB")} last year` : ""}, under the £${floor || "20,000"} floor set for the scan. Too small to have a budget for this.`; }
+  if (/already a client/i.test(r)) return `${l.website || "This site"} is already one of ours.`;
+  if (/site is current/i.test(r)) return "The site is current and no licence problems were found, so there is nothing to pitch.";
+  return r;
+}
 const FOLLOW_UP_DEFAULTS = { chaseDays: 7, coldDays: 21, lostDays: 60 };
 // What a contact lookup "knows": the logic version plus whether Hunter was available. A parked lead
 // is only worth retrying when this has changed since its last lookup.
@@ -664,7 +674,7 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, onClose, onChange, onRem
         </div>
         <div className="space-y-4 px-5 py-4">
           {l.status === "not-pursuing" && parkReason(l) ? (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">Not worth pursuing:</span> {parkReason(l)}. {/dormant/i.test(parkReason(l)) ? "The company isn't trading, so whatever the site looks like there is nobody to sell to." : /under £/i.test(parkReason(l)) ? "Too small to have a budget for this." : /already a client/i.test(parkReason(l)) ? "They're already ours." : "Nothing on the site to pitch."} Change the status above if you still want to go for it.</div>
+            <div className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">Not worth pursuing.</span> {parkExplain(l)} <span className="text-red-700">Change the status above if you still want to go for it.</span></div>
           ) : l.likelihood && (
             <div className={`rounded-lg px-3 py-2 text-sm ${LIKELY[l.likelihood]}`}>
               <span className="font-semibold">{l.likelihood} likelihood</span>{l.likelihoodWhy ? <span>: {l.likelihoodWhy}</span> : null}
