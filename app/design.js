@@ -73,7 +73,7 @@ export default function DesignArea({ onRunning, onCount }) {
     return next;
   });
 
-  const outstanding = Object.values(runs).filter((r) => r.status === "DONE").reduce((n, r) => n + (r.screens || []).reduce((m, s) => m + (s.findings || []).filter((f) => f.level === "fail" && !r.dismissed?.[findingKey(f)]).length, 0), 0);
+  const outstanding = Object.values(runs).filter((r) => r.status === "DONE").reduce((n, r) => n + (r.screens || []).reduce((m, s) => m + (s.findings || []).filter((f) => f.id !== "target" && f.level === "fail" && !r.dismissed?.[findingKey(f)]).length, 0), 0);
   // Re-check the fonts: re-reads every screen (fonts come from the layers), then runs the licence check again.
   const [fontsBusy, setFontsBusy] = useState(null);
   async function recheckFonts(key) {
@@ -170,7 +170,7 @@ export default function DesignArea({ onRunning, onCount }) {
     <div>
       <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
         <h2 className="font-semibold">Design Checks</h2>
-        <p className="mt-1 text-sm text-zinc-600">Paste a Figma file, page or frame link. Every screen is checked for colour contrast, text size, line height, tap target size and link wording, and every font used is checked against Google Fonts and Adobe Fonts so licences are sorted before build.</p>
+        <p className="mt-1 text-sm text-zinc-600">Paste a Figma file, page or frame link. Every screen is checked for colour contrast, text size, line height and link wording, and every font used is checked against Google Fonts and Adobe Fonts so licences are sorted before build.</p>
         {figma === false && <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Figma is not connected yet. Add the token in Settings → Figma.</p>}
         <form onSubmit={(e) => { e.preventDefault(); if (!running && link.trim()) runCheck(link); }} className="mt-3 flex flex-col gap-2 sm:flex-row">
           <input value={link} onChange={(e) => setLink(e.target.value)} disabled={!!running} placeholder="https://www.figma.com/design/…" className="min-w-0 flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm" />
@@ -198,7 +198,7 @@ function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemo
   const dismissed = r.dismissed || {};
   const counts = { fail: 0, warn: 0, check: 0 };
   let doneN = 0, ignoredN = 0;
-  for (const s of screens) for (const f of s.findings || []) { const d = dismissed[findingKey(f)]; if (d) { if (d.reason === "done") doneN++; else ignoredN++; } else counts[f.level] = (counts[f.level] || 0) + 1; }
+  for (const s of screens) for (const f of (s.findings || []).filter((x) => x.id !== "target")) { const d = dismissed[findingKey(f)]; if (d) { if (d.reason === "done") doneN++; else ignoredN++; } else counts[f.level] = (counts[f.level] || 0) + 1; }
   const hidden = doneN + ignoredN;
   const done = r.status === "DONE";
   const pct = r.total ? Math.round((screens.length / r.total) * 100) : 0;
@@ -296,7 +296,7 @@ function ScreenRow({ s, dismissed = {}, onDismiss, onRecheck, busy }) {
   const [showDone, setShowDone] = useState(false);
   const [lastAction, setLastAction] = useState(null); // {keys, label} for a one-click undo
   const act = (keys, reason, label) => { onDismiss(keys, reason); setLastAction({ keys, label }); };
-  const all = (s.findings || []).slice().sort((a, b) => ORDER[a.level] - ORDER[b.level]);
+  const all = (s.findings || []).filter((f) => f.id !== "target").slice().sort((a, b) => ORDER[a.level] - ORDER[b.level]);
   const findings = all.filter((f) => !dismissed[findingKey(f)]);
   const doneList = all.filter((f) => dismissed[findingKey(f)]);
   const groups = groupFindings(findings);
