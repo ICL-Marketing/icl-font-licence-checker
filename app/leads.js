@@ -41,6 +41,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       let local = load();
       if (!local) { local = Object.fromEntries(SEED.map((l) => [l.id, l])); save(local); }
       for (const l of Object.values(local)) if (l.email && !l.email.includes("\n\n")) l.email = l.email.trim().replace(/\n+/g, "\n\n"); // paragraph spacing for older drafts
+      // Dormant companies scored before the rule existed: Low, parked, with the reason.
+      for (const l of Object.values(local)) if (/dormant/i.test(l.caveats || "") && (l.likelihood !== "Low" || !/dormant/i.test(l.likelihoodWhy || ""))) { l.likelihood = "Low"; l.likelihoodWhy = "Filed as dormant at Companies House, so not trading through this company; nothing to sell to"; if (["new", "qualified", "no-contact"].includes(l.status)) l.status = "not-pursuing"; l.updatedAt = new Date().toISOString(); }
       // A lead with nothing to pitch (site current, no licence risk) does not belong in an open column.
       for (const l of Object.values(local)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); }
       // Open leads with no verified email address are parked, whatever column they were in.
@@ -57,6 +59,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         const next = { ...local };
         for (const [id, l] of Object.entries(j.results || {})) { if (!next[id] || String(l.updatedAt || "") >= String(next[id].updatedAt || "")) next[id] = l; }
         for (const l of Object.values(next)) if (l.email && !l.email.includes("\n\n")) l.email = l.email.trim().replace(/\n+/g, "\n\n");
+        for (const l of Object.values(next)) if (/dormant/i.test(l.caveats || "") && (l.likelihood !== "Low" || !/dormant/i.test(l.likelihoodWhy || ""))) { l.likelihood = "Low"; l.likelihoodWhy = "Filed as dormant at Companies House, so not trading through this company; nothing to sell to"; if (["new", "qualified", "no-contact"].includes(l.status)) l.status = "not-pursuing"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried) && ["new", "qualified"].includes(l.status)) { l.contactUnverified = true; l.status = parkStatus(l); l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "not-pursuing" && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
@@ -463,7 +466,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                 <div className="flex items-start gap-1.5">
                   <input type="checkbox" checked={selected.has(l.id)} onChange={() => onToggle(l.id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${l.business}`} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span className="flex-1 text-sm font-medium leading-tight">{l.business}</span>
-                  {l.likelihood && <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${LIKELY[l.likelihood]}`} title={l.likelihoodWhy || ""}>{l.likelihood}</span>}
+                  {l.likelihood && !(c.id === "not-pursuing" && parkReason(l)) && <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${LIKELY[l.likelihood]}`} title={l.likelihoodWhy || ""}>{l.likelihood}</span>}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
                   {l.problem && <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
@@ -473,7 +476,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                   <span>{l.area}</span>
                   {l.netAssets != null && l.netAssets !== "" && <span>· {money(l.netAssets)}</span>}
                 </div>
-                {c.id === "not-pursuing" && (l.caveats || l.contactUnverified) && <div className="mt-1 truncate text-[11px] text-zinc-500" title={l.caveats}>{parkReason(l) || (l.contactUnverified ? "No verified email address" : l.caveats)}</div>}
+                {c.id === "not-pursuing" && (l.caveats || l.contactUnverified) && <div className={`mt-1 truncate text-[11px] ${parkReason(l) ? "font-medium text-red-700" : "text-zinc-500"}`} title={l.caveats}>{parkReason(l) || (l.contactUnverified ? "No verified email address" : l.caveats)}</div>}
                 {l.checking && <div className="mt-1 text-[11px] text-blue-600">Checking…</div>}
               </div>
             ))}
@@ -650,12 +653,13 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, onClose, onChange, onRem
           <button onClick={onClose} aria-label="Close" className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900"><CloseIcon /></button>
         </div>
         <div className="space-y-4 px-5 py-4">
-          {l.likelihood && (
+          {l.status === "not-pursuing" && parkReason(l) ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">Not worth pursuing:</span> {parkReason(l)}. {/dormant/i.test(parkReason(l)) ? "The company isn't trading, so whatever the site looks like there is nobody to sell to." : /under £/i.test(parkReason(l)) ? "Too small to have a budget for this." : /already a client/i.test(parkReason(l)) ? "They're already ours." : "Nothing on the site to pitch."} Change the status above if you still want to go for it.</div>
+          ) : l.likelihood && (
             <div className={`rounded-lg px-3 py-2 text-sm ${LIKELY[l.likelihood]}`}>
               <span className="font-semibold">{l.likelihood} likelihood</span>{l.likelihoodWhy ? <span>: {l.likelihoodWhy}</span> : null}
             </div>
           )}
-          {l.status === "not-pursuing" && parkReason(l) && <div className="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-800"><span className="font-semibold">Parked:</span> {parkReason(l)}. Change the status above if you still want to pursue it.</div>}
           {l.contactUnverified && !(l.status === "not-pursuing" && parkReason(l)) && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"><span className="font-semibold">Contact not verified.</span> No email address was found on their site or at Companies House. Add a verified address below, or pick a person with one, and it moves back to Qualified.</div>}
           <DesignNotes l={l} onChange={onChange} />
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
