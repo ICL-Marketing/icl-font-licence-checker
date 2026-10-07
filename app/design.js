@@ -39,7 +39,7 @@ export default function DesignArea({ onRunning, onCount }) {
         setRuns((prev) => {
           const next = { ...prev };
           for (const [key, run] of Object.entries(j.results || {})) {
-            if (!prev[key] || prev[key].status === "RUNNING" || String(run.scannedAt || "") >= String(prev[key].scannedAt || "")) { next[key] = run; syncedRef.current[key] = run.scannedAt; }
+            if (!prev[key] || prev[key].status === "RUNNING" || String(run.scannedAt || "") >= String(prev[key].scannedAt || "")) { next[key] = { ...run, dismissed: { ...(prev[key]?.dismissed || {}), ...(run.dismissed || {}) } }; syncedRef.current[key] = `${run.scannedAt}|${run.dismissedAt || ""}`; }
           }
           save(RUNS_KEY, next);
           return next;
@@ -54,14 +54,16 @@ export default function DesignArea({ onRunning, onCount }) {
     const next = { ...prev, [key]: { ...(prev[key] || {}), ...fields } };
     save(RUNS_KEY, next);
     const run = next[key];
-    if (sharedRef.current && run.status === "DONE" && run.scannedAt && syncedRef.current[key] !== run.scannedAt) {
-      syncedRef.current[key] = run.scannedAt;
+    const mark = `${run.scannedAt}|${run.dismissedAt || ""}`;
+    if (sharedRef.current && run.status === "DONE" && run.scannedAt && syncedRef.current[key] !== mark) {
+      syncedRef.current[key] = mark;
       fetch("/api/results", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "design", site: key, data: run }) }).catch(() => {});
     }
     return next;
   });
 
-  const outstanding = Object.values(runs).filter((r) => r.status === "DONE").reduce((n, r) => n + (r.screens || []).reduce((m, s) => m + (s.findings || []).filter((f) => f.level === "fail").length, 0), 0);
+  const outstanding = Object.values(runs).filter((r) => r.status === "DONE").reduce((n, r) => n + (r.screens || []).reduce((m, s) => m + (s.findings || []).filter((f) => f.level === "fail" && !r.dismissed?.[findingKey(f)]).length, 0), 0);
+  const dismiss = (key, keys, reason) => patch(key, { dismissed: { ...(runs[key]?.dismissed || {}), ...Object.fromEntries(keys.map((k) => [k, reason ? { reason, at: new Date().toISOString() } : undefined])) }, dismissedAt: new Date().toISOString() });
   useEffect(() => { onCount?.(outstanding); }, [outstanding, onCount]);
 
   async function post(body) {
@@ -138,7 +140,7 @@ export default function DesignArea({ onRunning, onCount }) {
         {list.map((r) => (
           <DesignCard key={r.key} r={r} open={openKey === r.key} toggle={() => setOpenKey(openKey === r.key ? null : r.key)}
             running={running === r.key} busy={!!running}
-            onRescan={() => runCheck(r.link)} onResume={() => runCheck(r.link, { resume: true })} onRemove={() => remove(r.key)} />
+            onRescan={() => runCheck(r.link)} onResume={() => runCheck(r.link, { resume: true })} onRemove={() => remove(r.key)} onDismiss={(keys, reason) => dismiss(r.key, keys, reason)} />
         ))}
         {!list.length && <p className="text-sm text-zinc-500">No designs checked yet.</p>}
       </div>
@@ -146,11 +148,13 @@ export default function DesignArea({ onRunning, onCount }) {
   );
 }
 
-function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemove }) {
+function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemove, onDismiss }) {
   const [asking, setAsking] = useState(false);
   const screens = r.screens || [];
+  const dismissed = r.dismissed || {};
   const counts = { fail: 0, warn: 0, check: 0 };
-  for (const s of screens) for (const f of s.findings || []) counts[f.level] = (counts[f.level] || 0) + 1;
+  let hidden = 0;
+  for (const s of screens) for (const f of s.findings || []) { if (dismissed[findingKey(f)]) hidden++; else counts[f.level] = (counts[f.level] || 0) + 1; }
   const done = r.status === "DONE";
   const pct = r.total ? Math.round((screens.length / r.total) * 100) : 0;
   const fonts = new Map();
@@ -165,7 +169,7 @@ function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemo
             : <span className="rounded-full bg-zinc-500 px-2 py-0.5 text-[11px] font-semibold text-white">{r.status === "ERROR" ? "COULD NOT CHECK" : "PAUSED"}</span>}
           <span className="font-medium">{r.name || r.key}</span>
           <span className="text-xs text-zinc-500">{screens.length} screen{screens.length === 1 ? "" : "s"}{r.total && !done ? ` of ${r.total}` : ""}</span>
-          {done && <span className="text-xs text-zinc-500">{counts.fail} to fix · {counts.warn} to improve · {counts.check} to check by eye</span>}
+          {done && <span className="text-xs text-zinc-500">{counts.fail} to fix · {counts.warn} to improve · {counts.check} to check by eye{hidden ? ` · ${hidden} done or ignored` : ""}</span>}
           {r.phase && <span className="basis-full text-xs text-blue-700">{r.phase}</span>}
           {r.error && <span className="basis-full text-xs text-red-700">{r.error}</span>}
           <span className="ml-auto text-zinc-400">{open ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>
@@ -211,7 +215,7 @@ function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemo
             </div>
           )}
           <div className="space-y-2">
-            {screens.slice().sort((a, b) => score(b) - score(a)).map((s) => <ScreenRow key={s.id} s={s} />)}
+            {screens.slice().sort((a, b) => score(b, dismissed) - score(a, dismissed)).map((s) => <ScreenRow key={s.id} s={s} dismissed={dismissed} onDismiss={onDismiss} />)}
           </div>
         </div>
       )}
@@ -227,16 +231,21 @@ function groupFindings(findings) {
     if (!groups.has(k)) groups.set(k, { level: f.level, id: f.id, rule, items: [] });
     const g = groups.get(k);
     const node = f.node || "";
-    if (!g.items.some((x) => x.href === f.href && x.node === node)) g.items.push({ node: node || "Layer", detail: f.detail, href: f.href });
+    if (!g.items.some((x) => x.href === f.href && x.node === node)) g.items.push({ node: node || "Layer", detail: f.detail, href: f.href, key: findingKey(f) });
   }
   return [...groups.values()];
 }
-const score = (s) => (s.findings || []).reduce((n, f) => n + (f.level === "fail" ? 100 : f.level === "warn" ? 10 : 1), 0);
+// A finding's identity survives rescans: the check plus the Figma layer id in its link.
+const findingKey = (f) => `${f.id}|${(String(f.href || "").match(/node-id=([^&]+)/) || [])[1] || f.node}`;
+const score = (s, dismissed = {}) => (s.findings || []).reduce((n, f) => n + (dismissed[findingKey(f)] ? 0 : f.level === "fail" ? 100 : f.level === "warn" ? 10 : 1), 0);
 
-function ScreenRow({ s }) {
+function ScreenRow({ s, dismissed = {}, onDismiss }) {
   const [show, setShow] = useState(false);
   const [copied, setCopied] = useState(false);
-  const findings = (s.findings || []).slice().sort((a, b) => ORDER[a.level] - ORDER[b.level]);
+  const [showDone, setShowDone] = useState(false);
+  const all = (s.findings || []).slice().sort((a, b) => ORDER[a.level] - ORDER[b.level]);
+  const findings = all.filter((f) => !dismissed[findingKey(f)]);
+  const doneList = all.filter((f) => dismissed[findingKey(f)]);
   const fails = findings.filter((f) => f.level === "fail").length;
   const warns = findings.filter((f) => f.level === "warn").length;
   const byCheck = {};
@@ -254,7 +263,8 @@ function ScreenRow({ s }) {
         {s.page && <span className="text-xs text-zinc-500">{s.page}</span>}
         <span className="text-xs text-zinc-500">{s.width}×{s.height}</span>
         <span className="ml-auto text-xs">
-          {findings.length ? Object.entries(byCheck).map(([id, n]) => <span key={id} className="ml-1 rounded bg-white/80 px-1.5 py-0.5 ring-1 ring-zinc-200">{n} {CHECK_NAMES[id] || id}</span>) : <span className="text-green-700">Nothing found</span>}
+          {findings.length ? Object.entries(byCheck).map(([id, n]) => <span key={id} className="ml-1 rounded bg-white/80 px-1.5 py-0.5 ring-1 ring-zinc-200">{n} {CHECK_NAMES[id] || id}</span>) : <span className="text-green-700">{doneList.length ? "All done or ignored" : "Nothing found"}</span>}
+          {doneList.length > 0 && <button onClick={() => setShowDone((v) => !v)} className="ml-1 text-zinc-500 underline">{showDone ? "Hide" : "Show"} {doneList.length} done/ignored</button>}
         </span>
       </div>
       {findings.length > 0 && (
@@ -270,14 +280,32 @@ function ScreenRow({ s }) {
               <span className={`mr-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-white ${LEVEL[g.level].chip}`}>{LEVEL[g.level].label}</span>
               {g.rule}
               <span className="ml-1 text-xs text-zinc-500">{g.items.length} layer{g.items.length === 1 ? "" : "s"}</span>
+              <span className="ml-2 inline-flex gap-1 text-[11px]">
+                <button onClick={() => onDismiss(g.items.map((f) => f.key), "done")} title="Mark every layer in this line as fixed; it stays hidden on rescans" className="rounded border border-green-300 bg-white px-1.5 py-0.5 text-green-800 hover:bg-green-50">✓ All done</button>
+                <button onClick={() => onDismiss(g.items.map((f) => f.key), "ignore")} title="Not a real problem here; hidden on rescans" className="rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-zinc-600 hover:bg-zinc-100">Ignore all</button>
+              </span>
               <ul className="mt-1 flex flex-wrap gap-1">
                 {g.items.map((f, j) => (
-                  <li key={j}><a href={f.href} target="_blank" rel="noreferrer" title="Open in Figma" className="inline-flex max-w-sm items-center gap-1 rounded border border-zinc-200 bg-white px-1.5 py-0.5 text-xs text-blue-700 hover:border-blue-400"><span className="truncate">{f.node}</span>{f.detail ? <span className="shrink-0 text-zinc-500">· {f.detail}</span> : null}<span className="shrink-0"><ExternalIcon /></span></a></li>
+                  <li key={j} className="inline-flex max-w-sm items-stretch rounded border border-zinc-200 bg-white text-xs">
+                    <a href={f.href} target="_blank" rel="noreferrer" title="Open in Figma" className="inline-flex min-w-0 items-center gap-1 px-1.5 py-0.5 text-blue-700 hover:bg-blue-50"><span className="truncate">{f.node}</span>{f.detail ? <span className="shrink-0 text-zinc-500">· {f.detail}</span> : null}<span className="shrink-0"><ExternalIcon /></span></a>
+                    <button onClick={() => onDismiss([f.key], "done")} title="Done (fixed)" className="border-l border-zinc-200 px-1.5 text-green-700 hover:bg-green-50">✓</button>
+                    <button onClick={() => onDismiss([f.key], "ignore")} title="Ignore this one" className="border-l border-zinc-200 px-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">✕</button>
+                  </li>
                 ))}
               </ul>
             </li>
           ))}
         </ol>
+      )}
+      {showDone && doneList.length > 0 && (
+        <ul className="mt-2 flex flex-wrap gap-1 rounded-md bg-white/70 p-2 text-xs">
+          {doneList.map((f, i) => (
+            <li key={i} className="inline-flex max-w-sm items-stretch rounded border border-zinc-200 bg-white line-through decoration-zinc-400">
+              <span className="inline-flex min-w-0 items-center gap-1 px-1.5 py-0.5 text-zinc-500"><span className={`mr-1 rounded px-1 text-[10px] no-underline ${dismissed[findingKey(f)].reason === "done" ? "bg-green-100 text-green-800" : "bg-zinc-100 text-zinc-600"}`}>{dismissed[findingKey(f)].reason === "done" ? "Done" : "Ignored"}</span><span className="truncate">{f.node || f.text}</span></span>
+              <button onClick={() => onDismiss([findingKey(f)], null)} title="Put it back" className="border-l border-zinc-200 px-1.5 text-blue-700 hover:bg-blue-50">undo</button>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
