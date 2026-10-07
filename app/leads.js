@@ -596,8 +596,18 @@ function pickPerson(l, p, onChange) {
   onChange({ emailAddress: email, contactName: first, email: body, ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && verified ? { status: l.likelihood === "Low" ? "new" : "qualified", contactUnverified: false } : {}) });
 }
 
+// Who decides on a website: owners, directors, founders, general/managing/practice/office managers,
+// anyone in marketing, brand, digital, communications or business development.
+const DECIDES_RE = /\b(owner|founder|co-?founder|proprietor|partner|principal|director|managing|chief|ceo|coo|cmo|md|chair|head of|general manager|practice manager|office manager|business manager|operations? manager|marketing|brand|digital|communications?|comms|business development|sales manager|sales director|commercial)\b/i;
+const NOT_DECIDES_RE = /\b(finance director|financial|hr|human resources|food safety|health and safety|safety|compliance|chef|cashier|accounts?|accountant|bookkeeper|payroll|warehouse|driver|engineer|technician|nurse|receptionist|support|helpdesk|customer service|assistant|intern|apprentice|cleaner|security|it manager|it support|quality)\b/i;
+const decides = (p) => { const r = `${p.role || ""} ${p.why || ""}`; if (/marketing|brand|digital|business development|owner|founder|managing director|ceo|chief executive/i.test(r)) return true; if (NOT_DECIDES_RE.test(r)) return false; return DECIDES_RE.test(r); };
+
 function Contacts({ l, onChange, onContacts, onHunter, cfgHunter = false }) {
-  const people = l.contacts || [];
+  const all = l.contacts || [];
+  const [showOthers, setShowOthers] = useState(false);
+  const deciders = all.filter(decides);
+  const others = all.filter((p) => !decides(p));
+  const people = showOthers ? [...deciders, ...others] : deciders;
   const channels = l.channels || [];
   return (
     <div className="rounded-lg border border-zinc-200 p-3">
@@ -610,11 +620,12 @@ function Contacts({ l, onChange, onContacts, onHunter, cfgHunter = false }) {
           <button onClick={onContacts} disabled={l.checking} title="Companies House and the website, free" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {people.length ? "Look again" : "Find contacts"}</button>
         </span>
       </div>
-      {!people.length && !channels.length && <p className="mt-2 text-xs text-zinc-500">Nothing found yet. Find contacts reads the directors and owners from Companies House and any named people on the website.</p>}
+      {!all.length && !channels.length && <p className="mt-2 text-xs text-zinc-500">Nothing found yet. Find contacts reads the directors and owners from Companies House and any named people on the website.</p>}
+      {all.length > 0 && !deciders.length && !showOthers && <p className="mt-2 text-xs text-zinc-500">Nobody here looks like a website decision-maker.</p>}
       {people.length > 0 && (
         <ul className="mt-2 divide-y divide-zinc-100">
           {people.map((p, i) => (
-            <li key={i} className="flex flex-wrap items-start gap-x-3 gap-y-1 py-2 text-sm">
+            <li key={i} className={`flex flex-wrap items-start gap-x-3 gap-y-1 py-2 text-sm ${decides(p) ? "" : "opacity-60"}`}>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="font-medium">{p.name}</span>
@@ -635,6 +646,9 @@ function Contacts({ l, onChange, onContacts, onHunter, cfgHunter = false }) {
             </li>
           ))}
         </ul>
+      )}
+      {others.length > 0 && (
+        <button onClick={() => setShowOthers((v) => !v)} className="mt-1 text-xs text-zinc-500 underline">{showOthers ? "Hide" : "Show"} {others.length} other {others.length === 1 ? "person" : "people"} (not website decision-makers)</button>
       )}
       {channels.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5 border-t border-zinc-100 pt-2 text-xs">
