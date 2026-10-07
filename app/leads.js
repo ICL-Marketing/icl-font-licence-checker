@@ -78,7 +78,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const leadsRef = useRef({});
   useEffect(() => { leadsRef.current = leads; }, [leads]);
   const update = (id, fields) => {
-    const l = { ...(leadsRef.current[id] || {}), ...fields, id, updatedAt: new Date().toISOString() };
+    const prev = leadsRef.current[id] || {};
+    const l = { ...prev, ...fields, id, updatedAt: new Date().toISOString() };
+    if (fields.status && fields.status !== prev.status) l.statusAt = new Date().toISOString();
     const next = { ...leadsRef.current, [id]: l };
     leadsRef.current = next;
     save(next); push(id, l);
@@ -93,7 +95,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const moveMany = (ids, status) => {
     const at = new Date().toISOString();
     const next = { ...leadsRef.current };
-    for (const id of ids) if (next[id]) { next[id] = { ...next[id], status, updatedAt: at }; push(id, next[id]); }
+    for (const id of ids) if (next[id]) { next[id] = { ...next[id], status, updatedAt: at, ...(next[id].status !== status ? { statusAt: at } : {}) }; push(id, next[id]); }
     leadsRef.current = next; save(next); setLeads(next);
   };
   const removeMany = (ids) => {
@@ -110,7 +112,19 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
 
   // Pages on icldigital.com the emails link to (shared setting, edited in Settings → Connections).
   const linksRef = useRef({});
-  useEffect(() => { fetch("/api/settings?key=lead-links").then((r) => r.json()).then((j) => { if (j.shared && j.value) linksRef.current = j.value; }).catch(() => {}); }, []);
+  const [followUp, setFollowUp] = useState(FOLLOW_UP_DEFAULTS);
+  useEffect(() => { fetch("/api/settings?key=lead-links").then((r) => r.json()).then((j) => { if (j.shared && j.value) { linksRef.current = j.value; if (j.value.followUp) setFollowUp({ ...FOLLOW_UP_DEFAULTS, ...j.value.followUp }); } }).catch(() => {}); }, []);
+
+  // Silence moves leads along: Contacted → Cold after coldDays, Cold → Lost after lostDays.
+  // Replied or Meeting at any point resets the clock, because the status changed.
+  useEffect(() => {
+    const now = Date.now();
+    const age = (l) => (now - new Date(l.statusAt || l.updatedAt || l.addedAt || now).getTime()) / 86400000;
+    for (const l of Object.values(leadsRef.current)) {
+      if (l.status === "contacted" && age(l) >= followUp.coldDays) update(l.id, { status: "cold", autoMoved: `Cold: no reply ${followUp.coldDays} days after contact` });
+      else if (l.status === "cold" && age(l) >= followUp.lostDays) update(l.id, { status: "lost", autoMoved: `Lost: still nothing ${followUp.lostDays} days after going cold` });
+    }
+  }, [leads, followUp]); // eslint-disable-line react-hooks/exhaustive-deps
   // Stop aborts the request in flight as well, so it does not wait for the current company to finish.
   const abortRef = useRef(null);
   function stopNow() { stopRef.current = true; try { abortRef.current?.abort(); } catch {} setRun((r) => (r ? { ...r, phase: "Stopping…" } : r)); }
@@ -398,14 +412,17 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           <button onClick={() => { if (confirm(`Delete ${selected.size} lead${selected.size === 1 ? "" : "s"}?`)) removeMany([...selected]); }} className="ml-auto inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50"><TrashIcon className="h-3.5 w-3.5" /> Delete</button>
         </div>
       )}
-      <Board leads={visible} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
+      <Board leads={visible} followUp={followUp} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status }); }} />
 
-      {current && <LeadDrawer l={current} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onSeo={() => checkSeo(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
+      {current && <LeadDrawer l={current} followUp={followUp} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onSeo={() => checkSeo(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
   );
 }
 
+const FOLLOW_UP_DEFAULTS = { chaseDays: 7, coldDays: 21, lostDays: 60 };
+const daysSince = (l) => (Date.now() - new Date(l.statusAt || l.updatedAt || l.addedAt || Date.now()).getTime()) / 86400000;
+const needsChase = (l, f) => l.status === "contacted" && daysSince(l) >= f.chaseDays && !l.chasedAt;
 const PLACES = {
   richmond: ["Twickenham", "Hampton", "Hampton Hill", "Hampton Wick", "Teddington", "Richmond", "East Sheen", "Mortlake", "Barnes", "Kew", "St Margarets", "Whitton", "Strawberry Hill", "Ham", "Petersham"],
   kingston: ["Kingston upon Thames", "Surbiton", "New Malden", "Chessington", "Tolworth"],
@@ -415,7 +432,7 @@ const PLACES = {
 
 const sorted = (list) => list.slice().sort((a, b) => ({ High: 0, Medium: 1, Low: 2 }[a.likelihood] ?? 3) - ({ High: 0, Medium: 1, Low: 2 }[b.likelihood] ?? 3) || (b.netAssets || 0) - (a.netAssets || 0));
 
-function Board({ leads, selected, onToggle, onSelectColumn, onOpen, onMove }) {
+function Board({ leads, followUp, selected, onToggle, onSelectColumn, onOpen, onMove }) {
   const [over, setOver] = useState(null);
   const cols = LEAD_STATUSES.map(([id, label, hint]) => ({ id, label, hint, items: sorted(leads.filter((l) => (l.status || "new") === id)) }));
   return (
@@ -441,6 +458,8 @@ function Board({ leads, selected, onToggle, onSelectColumn, onOpen, onMove }) {
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
                   {l.problem && <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
                   {l.contactUnverified && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
+                  {needsChase(l, followUp) && <span className="rounded-full bg-amber-500 px-1.5 py-0.5 font-semibold text-white" title={`No reply ${Math.floor(daysSince(l))} days after contact: send the follow-up`}>Chase</span>}
+                  {l.status === "contacted" && l.chasedAt && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 text-zinc-700">Chased {new Date(l.chasedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>}
                   <span>{l.area}</span>
                   {l.netAssets != null && l.netAssets !== "" && <span>· {money(l.netAssets)}</span>}
                 </div>
@@ -527,6 +546,29 @@ function Contacts({ l, onChange, onContacts }) {
   );
 }
 
+// Two-line nudge for a lead that has gone quiet after the first email.
+function FollowUp({ l, onChange }) {
+  const [copied, setCopied] = useState(false);
+  const first = l.contactName ? l.contactName.split(" ")[0] : "";
+  const subject = `Re: ${l.subject || "your website"}`;
+  const body = `${first ? `Hi ${first},` : "Hi there,"}\n\nJust nudging this to the top of your inbox in case it got buried. Happy to put a couple of ideas together for the site whenever suits, no pressure either way.`;
+  const outlook = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(l.emailAddress || "")}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  async function copy() { try { await navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {} }
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold text-amber-900">{l.chasedAt ? `Chased on ${new Date(l.chasedAt).toLocaleDateString("en-GB")}` : `No reply for ${Math.floor(daysSince(l))} days: send the follow-up`}</span>
+        <span className="ml-auto flex flex-wrap gap-2">
+          <a href={outlook} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100"><MailIcon className="h-3.5 w-3.5" /> Open in Outlook</a>
+          <button onClick={copy} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy</>}</button>
+          {!l.chasedAt && <button onClick={() => onChange({ chasedAt: new Date().toISOString(), notesLog: [...(l.notesLog || []), { at: new Date().toISOString(), text: "Follow-up email sent" }] })} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white"><CheckIcon className="h-3.5 w-3.5" /> Mark as chased</button>}
+        </span>
+      </div>
+      <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-zinc-800">{body}</pre>
+    </div>
+  );
+}
+
 // Your own notes on the lead, newest last, as chat bubbles. Nothing here is generated.
 function DesignNotes({ l, onChange }) {
   const [text, setText] = useState("");
@@ -567,7 +609,7 @@ function DesignNotes({ l, onChange }) {
   );
 }
 
-function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onSeo, onLicence, onRefresh }) {
+function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, onClose, onChange, onRemove, onRecheck, onContacts, onSeo, onLicence, onRefresh }) {
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
@@ -663,6 +705,9 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onS
               )}
             </div>
           )}
+
+          {l.status === "contacted" && daysSince(l) >= followUp.chaseDays && <FollowUp l={l} onChange={onChange} />}
+          {l.autoMoved && <p className="text-xs text-zinc-500">Moved automatically: {l.autoMoved}.</p>}
 
           <Contacts l={l} onChange={onChange} onContacts={onContacts} />
 

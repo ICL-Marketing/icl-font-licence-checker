@@ -282,12 +282,14 @@ function LinksEditor() {
   const [clients, setClients] = useState(CLIENT_DEFAULTS);
   const [volumes, setVolumes] = useState("");
   const [subjects, setSubjects] = useState(SUBJECT_DEFAULTS);
+  const [followUp, setFollowUp] = useState({ chaseDays: 7, coldDays: 21, lostDays: 60 });
   const [seen, setSeen] = useState([]);
   const [saved, setSaved] = useState(false);
   useEffect(() => {
     fetch("/api/settings?key=lead-links").then((r) => r.json()).then((j) => {
       if (!(j.shared && j.value)) return;
-      const { sender: sn, clients: cl, volumes: vo, subjects: su, ...rest } = j.value;
+      const { sender: sn, clients: cl, volumes: vo, subjects: su, followUp: fu, ...rest } = j.value;
+      if (fu && typeof fu === "object") setFollowUp({ chaseDays: 7, coldDays: 21, lostDays: 60, ...fu });
       if (su && typeof su === "object") setSubjects({ ...SUBJECT_DEFAULTS, ...su });
       setLinks({ ...LINK_DEFAULTS, ...rest });
       if (vo && typeof vo === "object") setVolumes(Object.entries(vo).map(([q, n]) => `${q} | ${n}`).join("\n"));
@@ -298,7 +300,7 @@ function LinksEditor() {
   }, []);
   const parseVolumes = (t) => Object.fromEntries(t.split(/\n/).map((line) => line.split("|").map((x) => x.trim())).filter((p) => p[0] && Number(p[1]) > 0).map(([q, n]) => [q.toLowerCase(), Number(n)]));
   async function save() {
-    await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "lead-links", value: { ...links, sender, clients: parseClients(clients), volumes: parseVolumes(volumes), subjects } }) }).catch(() => {});
+    await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "lead-links", value: { ...links, sender, clients: parseClients(clients), volumes: parseVolumes(volumes), subjects, followUp: { chaseDays: Number(followUp.chaseDays) || 7, coldDays: Number(followUp.coldDays) || 21, lostDays: Number(followUp.lostDays) || 60 } } }) }).catch(() => {});
     setSaved(true); setTimeout(() => setSaved(false), 1500);
   }
   return (
@@ -318,6 +320,16 @@ function LinksEditor() {
       <label className="block text-sm"><span className="text-xs font-semibold text-zinc-600">Clients to mention</span>
         <span className="block text-[11px] text-zinc-500">One per line: name | website | town | towns where a lead would know them (comma-separated). The first match on the lead&apos;s town is introduced as &quot;just down the road from you&quot;; otherwise the one marked <code>flagship</code> is used as the credibility name.</span>
         <textarea value={clients} onChange={(e) => setClients(e.target.value)} rows={4} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" /></label>
+      <div>
+        <div className="text-xs font-semibold text-zinc-600">Follow-up timings (days)</div>
+        <div className="mt-1 flex flex-wrap gap-3 text-sm">
+          {[["chaseDays", "Flag Contacted leads to chase after"], ["coldDays", "Move Contacted to Cold after"], ["lostDays", "Move Cold to Lost after"]].map(([k, label]) => (
+            <label key={k} className="inline-flex items-center gap-2"><span className="text-xs text-zinc-500">{label}</span>
+              <input type="number" min={1} value={followUp[k]} onChange={(e) => setFollowUp({ ...followUp, [k]: e.target.value })} className="w-16 rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
+          ))}
+        </div>
+        <p className="mt-1 text-[11px] text-zinc-500">Replied or Meeting at any point stops the clock. Moves happen when someone opens the Website Leads tab.</p>
+      </div>
       <div>
         <div className="text-xs font-semibold text-zinc-600">Email subjects</div>
         <div className="mt-1 grid gap-1.5 sm:grid-cols-2">
