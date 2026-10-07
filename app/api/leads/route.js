@@ -1,4 +1,4 @@
-import { leadsConfigured, leadsSearch, worthEnriching, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
+import { leadsConfigured, leadsSearch, worthEnriching, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 50;
@@ -24,6 +24,16 @@ export async function POST(request) {
     if (b.step === "refresh") {
       if (!b.lead?.business) return Response.json({ error: "lead required" }, { status: 400 });
       const lead = await leadsRefresh({ ...b.lead, links }, { knownSites: new Set((Array.isArray(b.knownSites) ? b.knownSites : []).map((s) => String(s).toLowerCase().replace(/^www\./, ""))) });
+      return Response.json({ lead });
+    }
+    if (b.step === "licence") {
+      // Fonts and stock images we are certain are unlicensed; a current site with any becomes a "Licence risk" lead.
+      const lead = { ...(b.lead || {}) };
+      if (!lead.website) return Response.json({ error: "No website on this lead." }, { status: 400 });
+      lead.licence = await licenceRisks(lead.website);
+      const any = lead.licence.images.length || lead.licence.fonts.length;
+      if (!lead.problem && any) { lead.problem = "Licence risk"; lead.problemDetail = [lead.licence.images.length ? `${lead.licence.images.length} watermarked preview image${lead.licence.images.length === 1 ? "" : "s"}` : "", lead.licence.fonts.length ? `${lead.licence.fonts.length} unlicensed font${lead.licence.fonts.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(", "); if (lead.status === "not-pursuing" && /current/i.test(lead.likelihoodWhy || "")) lead.status = "qualified"; }
+      if (lead.problem) { Object.assign(lead, scoreLead(lead)); if (!lead.emailEdited) { const d = draftOutreach({ ...lead, links }); Object.assign(lead, { subject: d.subject, pitch: d.pitch, email: d.email, draftVersion: d.draftVersion }); } }
       return Response.json({ lead });
     }
     if (b.step === "seo") {

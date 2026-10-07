@@ -13,7 +13,7 @@ const load = () => { try { const v = JSON.parse(localStorage.getItem(KEY) || "nu
 const save = (v) => { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch {} };
 
 const LIKELY = { High: "bg-green-100 text-green-800", Medium: "bg-amber-100 text-amber-800", Low: "bg-zinc-100 text-zinc-600" };
-const PROBLEM_TONE = { "No website": "bg-red-600", "Parked domain": "bg-red-600", "Dead/broken site": "bg-red-600", "Broken SSL": "bg-orange-500", "Dated template": "bg-amber-500", "Stale copyright": "bg-zinc-500" };
+const PROBLEM_TONE = { "No website": "bg-red-600", "Parked domain": "bg-red-600", "Dead/broken site": "bg-red-600", "Broken SSL": "bg-orange-500", "Dated template": "bg-amber-500", "Stale copyright": "bg-zinc-500", "Licence risk": "bg-purple-600" };
 const money = (n) => (n === null || n === undefined || n === "" ? "—" : `£${Math.round(Number(n)).toLocaleString("en-GB")}`);
 const signed = (n) => (n === null || n === undefined || n === "" ? "—" : `${n < 0 ? "-" : "+"}£${Math.abs(Math.round(Number(n))).toLocaleString("en-GB")}`);
 
@@ -131,11 +131,12 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         if (stopRef.current) break;
         st.phase = `Checking ${c.name}…`; setRun({ ...st });
         try {
-          const { lead } = await post({ step: "enrich", company: c, knownSites });
+          let { lead } = await post({ step: "enrich", company: c, knownSites });
+          if (lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
           st.done++;
           if (lead.problem && (lead.netAssets === null || lead.netAssets >= minAssets)) { st.found++; update(lead.id, lead); }
           else if (lead.problem) { update(lead.id, { ...lead, status: "not-pursuing", caveats: [lead.caveats, `Net assets under £${minAssets.toLocaleString("en-GB")}`].filter(Boolean).join("; ") }); }
-          // Current sites are not kept: nothing to pitch.
+          // Current sites with no licence problems are not kept: nothing to pitch.
         } catch (e) { st.done++; st.errors.push(`${c.name}: ${e.message}`); }
         setRun({ ...st });
       }
@@ -163,7 +164,11 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       const l = leadsRef.current[id];
       if (!l) { st.done++; continue; }
       st.phase = `Refreshing ${l.business}…`; setRun({ ...st });
-      try { const { lead } = await post({ step: "refresh", lead: l, knownSites }); update(id, lead); st.found++; }
+      try {
+        let { lead } = await post({ step: "refresh", lead: l, knownSites });
+        if (lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
+        update(id, lead); st.found++;
+      }
       catch (e) { st.errors.push(`${l.business}: ${e.message}`); }
       st.done++; setRun({ ...st });
     }
@@ -186,6 +191,11 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       redraftingRef.current = false;
     })();
   }, [leads]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function checkLicence(l) {
+    update(l.id, { checking: true, error: "" });
+    try { const { lead } = await post({ step: "licence", lead: l }); update(l.id, { ...lead, checking: false, error: lead.licence?.error || "" }); }
+    catch (e) { update(l.id, { checking: false, error: e.message }); }
+  }
   async function checkSeo(l) {
     update(l.id, { checking: true, error: "" });
     try { const { seo } = await post({ step: "seo", lead: l }); update(l.id, { seo, checking: false, error: seo.searches.every((x) => x.error) ? seo.searches[0]?.error || "Search failed" : "" }); }
@@ -277,7 +287,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       <Board leads={visible} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status }); }} />
 
-      {current && <LeadDrawer l={current} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onSeo={() => checkSeo(current)} onRefresh={() => refreshLeads([current.id])} />}
+      {current && <LeadDrawer l={current} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onSeo={() => checkSeo(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
   );
 }
@@ -441,7 +451,7 @@ function DesignNotes({ l, onChange }) {
   );
 }
 
-function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onSeo, onRefresh }) {
+function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onSeo, onLicence, onRefresh }) {
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
@@ -506,6 +516,23 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onS
               </ul>
             )}
           </div>
+
+          {l.website && (
+            <div className="rounded-lg border border-zinc-200 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold">Licence risks</span>
+                <span className="text-xs text-zinc-500">only what we are certain of: watermarked previews and demo fonts</span>
+                <button onClick={onLicence} disabled={l.checking} className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {l.licence ? "Check again" : "Check licences"}</button>
+              </div>
+              {l.licence && (
+                <div className="mt-2 text-sm">
+                  {!l.licence.images.length && !l.licence.fonts.length && <p className="text-xs text-zinc-500">{l.licence.error ? l.licence.error : `Nothing certain found on ${l.licence.pagesChecked} page${l.licence.pagesChecked === 1 ? "" : "s"}.`}</p>}
+                  {l.licence.images.length > 0 && <ul className="space-y-0.5">{l.licence.images.map((i, n) => <li key={n} className="text-xs"><span className="rounded bg-purple-100 px-1.5 py-0.5 font-semibold text-purple-800">{i.library} preview</span> <a href={i.url} target="_blank" rel="noreferrer" className="text-blue-700 underline">{i.url.split("/").pop()}</a>{i.page && <span className="text-zinc-500"> on {i.page.replace(/^https?:\/\/[^/]+/, "") || "/"}</span>}</li>)}</ul>}
+                  {l.licence.fonts.length > 0 && <ul className="mt-1 space-y-0.5">{l.licence.fonts.map((f, n) => <li key={n} className="text-xs"><span className="rounded bg-purple-100 px-1.5 py-0.5 font-semibold text-purple-800">{f.label}</span> {f.family} <span className="text-zinc-500">· {f.detail}</span></li>)}</ul>}
+                </div>
+              )}
+            </div>
+          )}
 
           <Contacts l={l} onChange={onChange} onContacts={onContacts} />
 
