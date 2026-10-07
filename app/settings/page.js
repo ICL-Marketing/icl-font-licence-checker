@@ -159,16 +159,17 @@ export default function Settings() {
             <LinksEditor />
           </section>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
-            <h2 className="font-semibold">Google search (optional)</h2>
-            <p className="mb-3 text-sm text-zinc-500">Website Leads checks where each business ranks for its name and trade. Without a key it uses DuckDuckGo, which can block busy sessions; Google&apos;s Programmable Search gives 100 reliable searches a day free.</p>
-            {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.googleSearch
-              ? <StatusRow ok label="Google search key set" detail="search checks use Google" />
+            <h2 className="font-semibold">Web search for leads</h2>
+            <p className="mb-3 text-sm text-zinc-500">Website Leads checks where each business ranks and finds sites the name-guess misses. Without a key it uses DuckDuckGo, which blocks busy sessions. The Brave Search API gives $5 of free credit every month (about 1,000 searches, roughly 500 leads); it asks for a card but the free credit covers normal use.</p>
+            {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.braveSearch
+              ? <StatusRow ok label="Brave Search key set" detail="search checks use Brave" />
+              : status.googleSearch ? <StatusRow ok label="Google search key set" detail="only works if the engine was created with Search the entire web; Google no longer offers that to new engines" />
               : <>
-                  <StatusRow ok={false} label="Using DuckDuckGo" detail="works without a key, less reliable" />
+                  <StatusRow ok={false} label="Using DuckDuckGo" detail="works without a key, blocks after a few dozen searches" />
                   <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-700">
-                    <li>At <a href="https://programmablesearchengine.google.com/" target="_blank" rel="noreferrer" className="text-blue-700 underline">programmablesearchengine.google.com</a> add a search engine, choose <b>Search the entire web</b>, and copy its <b>Search engine ID</b> (the cx value).</li>
-                    <li>At <a href="https://developers.google.com/custom-search/v1/overview" target="_blank" rel="noreferrer" className="text-blue-700 underline">the Custom Search JSON API page</a> click <b>Get a key</b> and copy the API key.</li>
-                    <li>In Vercel add <code>GOOGLE_CSE_KEY</code> and <code>GOOGLE_CSE_CX</code>, then Redeploy.</li>
+                    <li>Go to <a href="https://api-dashboard.search.brave.com/register" target="_blank" rel="noreferrer" className="text-blue-700 underline">api-dashboard.search.brave.com</a> and create an account (card on file; the monthly free credit is applied first).</li>
+                    <li>In the dashboard open <b>API Keys</b> → <b>Add API key</b> → choose the <b>Search</b> plan → copy the key.</li>
+                    <li>In Vercel add <code>BRAVE_SEARCH_KEY</code> with that value, then Redeploy.</li>
                   </ol>
                 </>}
           </section>
