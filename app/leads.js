@@ -148,11 +148,13 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         saveScan({ kind: "find", queue: candidates, done: st.done, total: st.total, found: st.found, minAssets: floor });
         st.phase = `Checking ${c.name}…`; setRun({ ...st });
         try {
-          let { lead } = await post({ step: "enrich", company: c, knownSites });
-          if (lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
+          let { lead } = await post({ step: "enrich", company: c, knownSites, minAssets: floor });
+          const tooSmall = lead.netAssets !== null && lead.netAssets !== undefined && lead.netAssets < floor;
+          // Licence sweep only for sites we might pitch (not parked/dead, not too small).
+          if (!tooSmall && lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
           st.done++;
-          if (lead.problem && (lead.netAssets === null || lead.netAssets >= floor)) { st.found++; update(lead.id, lead); }
-          else if (lead.problem) { update(lead.id, { ...lead, status: "not-pursuing", caveats: [lead.caveats, `Net assets under £${floor.toLocaleString("en-GB")}`].filter(Boolean).join("; ") }); }
+          if (lead.problem && !tooSmall) { st.found++; update(lead.id, lead); }
+          else if (lead.problem) { update(lead.id, { ...lead, status: "not-pursuing" }); }
           // Current sites with no licence problems are not kept: nothing to pitch.
         } catch (e) { st.done++; st.errors.push(`${c.name}: ${e.message}`); }
         candidates = candidates.slice(1);
@@ -162,6 +164,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       st.phase = stopRef.current ? `Stopped with ${candidates.length} companies still to check.` : `Done: ${st.found} new lead${st.found === 1 ? "" : "s"} from ${st.done} companies checked.`;
       setRun({ ...st });
       if (candidates.length) setPending(loadScan());
+      fetch("/api/leads").then((r) => r.json()).then(setCfg).catch(() => {});
     } catch (e) {
       st.phase = `Stopped: ${e.message}`; setRun({ ...st });
       setPending(loadScan());
@@ -327,6 +330,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
             <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
           </div>
         </div>
+        {cfg?.brave && cfg.usage?.cap > 0 && (
+          <p className="mt-2 text-xs text-zinc-500">Web searches this month: <span className={cfg.usage.used >= cfg.usage.cap ? "font-semibold text-red-700" : "font-semibold"}>{cfg.usage.used}</span> of {cfg.usage.cap} (Brave free credit; the app stops at the cap so the card is never charged). Repeated searches like &quot;plumber Teddington&quot; are reused for 30 days and don&apos;t count twice.</p>
+        )}
         {run && (
           <div className="mt-3 text-sm">
             <div className="flex items-center gap-2">{running && <SpinnerIcon className="h-4 w-4 text-blue-600" />}<span className={running ? "text-blue-700" : "text-zinc-700"}>{run.phase}</span>{run.total > 0 && <span className="text-xs text-zinc-500">{run.done} of {run.total} checked · {run.found} leads</span>}</div>

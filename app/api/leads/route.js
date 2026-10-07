@@ -1,10 +1,12 @@
-import { leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
+import { searchUsage, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 50;
 
 export async function GET() {
-  return Response.json({ configured: leadsConfigured(), areas: Object.fromEntries(Object.entries(AREA_PRESETS).map(([k, v]) => [k, v.label])), sectors: Object.fromEntries(Object.entries(SECTOR_PRESETS).map(([k, v]) => [k, v.label])) });
+  let usage = { used: 0, cap: 0 };
+  try { usage = await searchUsage(); } catch {}
+  return Response.json({ configured: leadsConfigured(), brave: Boolean(process.env.BRAVE_SEARCH_KEY || process.env.BRAVE_API_KEY), usage, areas: Object.fromEntries(Object.entries(AREA_PRESETS).map(([k, v]) => [k, v.label])), sectors: Object.fromEntries(Object.entries(SECTOR_PRESETS).map(([k, v]) => [k, v.label])) });
 }
 
 // Steps, each one short request:
@@ -32,7 +34,11 @@ export async function POST(request) {
       if (!lead.website) return Response.json({ error: "No website on this lead." }, { status: 400 });
       lead.licence = await licenceRisks(lead.website);
       const any = lead.licence.images.length || lead.licence.fonts.length;
-      if (!lead.problem && any) { lead.problem = "Licence risk"; lead.problemDetail = [lead.licence.images.length ? `${lead.licence.images.length} watermarked preview image${lead.licence.images.length === 1 ? "" : "s"}` : "", lead.licence.fonts.length ? `${lead.licence.fonts.length} unlicensed font${lead.licence.fonts.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(", "); if (lead.status === "not-pursuing" && /current/i.test(lead.likelihoodWhy || "")) lead.status = "qualified"; }
+      if (!lead.problem && any) {
+        lead.problem = "Licence risk";
+        try { if (!lead.seo) lead.seo = await seoCheck({ business: lead.business, website: lead.website, area: lead.area, sics: lead.sics }); } catch {}
+        try { if (!lead.contactsTried) { const ct = await findContacts({ companyNumber: lead.companyNumber, website: lead.website, business: lead.business }); lead.contacts = ct.people; lead.channels = ct.channels; lead.contactsAt = ct.contactsAt; lead.contactsTried = true; const best = ct.people.find((p) => p.email); if (best && !lead.emailAddress) { lead.emailAddress = best.email; lead.contactName = lead.contactName || best.name.split(" ")[0]; } } } catch {}
+        if (!lead.emailAddress) { lead.contactUnverified = true; lead.status = "not-pursuing"; } lead.problemDetail = [lead.licence.images.length ? `${lead.licence.images.length} watermarked preview image${lead.licence.images.length === 1 ? "" : "s"}` : "", lead.licence.fonts.length ? `${lead.licence.fonts.length} unlicensed font${lead.licence.fonts.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(", "); if (lead.status === "not-pursuing" && /current/i.test(lead.likelihoodWhy || "")) lead.status = "qualified"; }
       if (lead.problem) { Object.assign(lead, scoreLead(lead)); if (!lead.emailEdited) { const d = draftOutreach({ ...lead, links }); Object.assign(lead, { subject: d.subject, pitch: d.pitch, email: d.email, draftVersion: d.draftVersion }); } }
       return Response.json({ lead });
     }
@@ -82,7 +88,7 @@ export async function POST(request) {
     }
     if (b.step === "enrich") {
       if (!b.company?.companyNumber) return Response.json({ error: "company required" }, { status: 400 });
-      const lead = await leadsEnrich({ ...b.company, links }, { knownSites: new Set((Array.isArray(b.knownSites) ? b.knownSites : []).map((s) => String(s).toLowerCase().replace(/^www\./, ""))) });
+      const lead = await leadsEnrich({ ...b.company, links }, { minAssets: Number(b.minAssets) || 0, knownSites: new Set((Array.isArray(b.knownSites) ? b.knownSites : []).map((s) => String(s).toLowerCase().replace(/^www\./, ""))) });
       return Response.json({ lead });
     }
     return Response.json({ error: "unknown step" }, { status: 400 });
