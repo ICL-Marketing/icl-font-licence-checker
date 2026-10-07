@@ -415,7 +415,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           <button onClick={() => { if (confirm(`Delete ${selected.size} lead${selected.size === 1 ? "" : "s"}?`)) removeMany([...selected]); }} className="ml-auto inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50"><TrashIcon className="h-3.5 w-3.5" /> Delete</button>
         </div>
       )}
-      <Board leads={visible} followUp={followUp} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
+      <Board leads={visible} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status }); }} />
 
       {current && <LeadDrawer l={current} followUp={followUp} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onSeo={() => checkSeo(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
@@ -438,11 +438,13 @@ const PLACES = {
 
 const sorted = (list) => list.slice().sort((a, b) => ({ High: 0, Medium: 1, Low: 2 }[a.likelihood] ?? 3) - ({ High: 0, Medium: 1, Low: 2 }[b.likelihood] ?? 3) || (b.netAssets || 0) - (a.netAssets || 0));
 
-function Board({ leads, followUp, selected, onToggle, onSelectColumn, onOpen, onMove }) {
+function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn, onOpen, onMove }) {
   const [over, setOver] = useState(null);
-  const cols = LEAD_STATUSES.map(([id, label, hint]) => ({ id, label, hint, items: sorted(leads.filter((l) => (l.status || "new") === id)) }));
+  // While searching or filtering, only columns with a match are shown.
+  const cols = LEAD_STATUSES.map(([id, label, hint]) => ({ id, label, hint, items: sorted(leads.filter((l) => (l.status || "new") === id)) })).filter((c) => !filtering || c.items.length);
   return (
     <div className="mt-3 flex gap-3 overflow-x-auto pb-3">
+      {!cols.length && <p className="text-sm text-zinc-500">No leads match.</p>}
       {cols.map((c) => (
         <div key={c.id} onDragOver={(e) => { e.preventDefault(); setOver(c.id); }} onDragLeave={() => setOver(null)}
           onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData("text/lead"); if (id) onMove(id, c.id); setOver(null); }}
