@@ -699,6 +699,13 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, onClose, onChange, onRem
           <button onClick={onClose} aria-label="Close" className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900"><CloseIcon /></button>
         </div>
         <div className="space-y-4 px-5 py-4">
+          {(l.whatTheyDo || l.siteDescription || l.background || l.sics?.length) && (
+            <p className="text-sm text-zinc-700">
+              <span className="font-medium">{l.whatTheyDo || (l.sics?.length ? `SIC ${l.sics[0]}` : "")}</span>
+              {l.background && <span className="text-zinc-500"> · {l.background}</span>}{l.area && <span className="text-zinc-500"> · {l.area}</span>}
+              {l.siteDescription && <span className="block text-zinc-500">“{l.siteDescription}”</span>}
+            </p>
+          )}
           {l.status === "not-pursuing" ? (
             <div className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">Not worth pursuing.</span> {parkExplain(l)} <span className="text-red-700">Change the status above if you still want to go for it.</span></div>
           ) : l.likelihood && (
