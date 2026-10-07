@@ -154,6 +154,20 @@ export default function Settings() {
                 </>}
           </section>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+            <h2 className="font-semibold">Google search (optional)</h2>
+            <p className="mb-3 text-sm text-zinc-500">Website Leads checks where each business ranks for its name and trade. Without a key it uses DuckDuckGo, which can block busy sessions; Google&apos;s Programmable Search gives 100 reliable searches a day free.</p>
+            {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.googleSearch
+              ? <StatusRow ok label="Google search key set" detail="search checks use Google" />
+              : <>
+                  <StatusRow ok={false} label="Using DuckDuckGo" detail="works without a key, less reliable" />
+                  <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-700">
+                    <li>At <a href="https://programmablesearchengine.google.com/" target="_blank" rel="noreferrer" className="text-blue-700 underline">programmablesearchengine.google.com</a> add a search engine, choose <b>Search the entire web</b>, and copy its <b>Search engine ID</b> (the cx value).</li>
+                    <li>At <a href="https://developers.google.com/custom-search/v1/overview" target="_blank" rel="noreferrer" className="text-blue-700 underline">the Custom Search JSON API page</a> click <b>Get a key</b> and copy the API key.</li>
+                    <li>In Vercel add <code>GOOGLE_CSE_KEY</code> and <code>GOOGLE_CSE_CX</code>, then Redeploy.</li>
+                  </ol>
+                </>}
+          </section>
+          <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
             <h2 className="font-semibold">Figma</h2>
             <p className="mb-3 text-sm text-zinc-500">Lets Design Checks read Figma files for accessibility problems before they are coded.</p>
             {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.figma

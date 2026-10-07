@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 
 // Website leads: local businesses whose site is letting them down, found
@@ -148,9 +148,49 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     try { const r = await post({ step: "contacts", lead: l }); update(l.id, { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, checking: false, error: r.people.length ? "" : "No named people found; the Companies House directors need the API key, and the site has no team page." }); }
     catch (e) { update(l.id, { checking: false, error: e.message }); }
   }
+  // Re-run the finder's checks on existing leads with the latest rules (statuses and notes are kept).
+  async function refreshLeads(ids) {
+    stopRef.current = false;
+    onRunning?.(true);
+    const knownSites = clients.flatMap((c) => c.websites || []).map((w) => String(w).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""));
+    const st = { phase: "Refreshing leads…", done: 0, total: ids.length, found: 0, errors: [] };
+    setRun({ ...st });
+    for (const id of ids) {
+      if (stopRef.current) break;
+      const l = leadsRef.current[id];
+      if (!l) { st.done++; continue; }
+      st.phase = `Refreshing ${l.business}…`; setRun({ ...st });
+      try { const { lead } = await post({ step: "refresh", lead: l, knownSites }); update(id, lead); st.found++; }
+      catch (e) { st.errors.push(`${l.business}: ${e.message}`); }
+      st.done++; setRun({ ...st });
+    }
+    st.phase = stopRef.current ? "Stopped." : `Done: ${st.found} lead${st.found === 1 ? "" : "s"} refreshed with the latest checks.`;
+    setRun({ ...st });
+    onRunning?.(false);
+  }
+  // Emails written before the current wording get redrafted automatically on load.
+  const redraftingRef = useRef(false);
+  useEffect(() => {
+    const stale = Object.values(leads).filter((l) => l.problem && !l.emailEdited && (l.draftVersion || 0) < DRAFT_VERSION);
+    if (!stale.length || redraftingRef.current) return;
+    redraftingRef.current = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ step: "redraft-many", leads: stale }) });
+        const j = await r.json();
+        for (const l of j.leads || []) update(l.id, { ...l, draftVersion: DRAFT_VERSION });
+      } catch {}
+      redraftingRef.current = false;
+    })();
+  }, [leads]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function checkSeo(l) {
+    update(l.id, { checking: true, error: "" });
+    try { const { seo } = await post({ step: "seo", lead: l }); update(l.id, { seo, checking: false, error: seo.searches.every((x) => x.error) ? seo.searches[0]?.error || "Search failed" : "" }); }
+    catch (e) { update(l.id, { checking: false, error: e.message }); }
+  }
   async function recheck(l, redraft = false) {
     update(l.id, { checking: true, error: "" });
-    try { const { lead } = await post({ step: redraft ? "redraft" : "recheck", lead: l }); update(l.id, { ...lead, checking: false, error: "" }); }
+    try { const { lead } = await post({ step: redraft ? "redraft" : "recheck", lead: { ...l, emailEdited: false } }); update(l.id, { ...lead, emailEdited: false, emailPrevious: l.email && l.email !== lead.email ? l.email : l.emailPrevious, checking: false, error: "" }); }
     catch (e) { update(l.id, { checking: false, error: e.message }); }
   }
 
@@ -195,6 +235,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
             {running
               ? <button onClick={() => { stopRef.current = true; }} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
               : <button onClick={findLeads} disabled={cfg?.configured === false || (!areas.length && !place.trim()) || !sectors.length} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find leads</button>}
+            <button onClick={() => refreshLeads(list.filter((l) => !["won", "lost"].includes(l.status)).map((l) => l.id))} disabled={running || !list.length} title="Re-run the website, search, accounts and contact checks on every open lead with the latest rules. Statuses and notes are kept." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Rescan all leads</button>
             <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
           </div>
         </div>
@@ -225,6 +266,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
               {LEAD_STATUSES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
             </select>
           </label>
+          <button onClick={() => { const ids = [...selected]; setSelected(new Set()); refreshLeads(ids); }} disabled={running} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-3.5 w-3.5" /> Rescan selected</button>
           <button onClick={() => setSelected(new Set())} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100">Clear selection</button>
           <button onClick={() => { if (confirm(`Delete ${selected.size} lead${selected.size === 1 ? "" : "s"}?`)) removeMany([...selected]); }} className="ml-auto inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50"><TrashIcon className="h-3.5 w-3.5" /> Delete</button>
         </div>
@@ -232,7 +274,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       <Board leads={visible} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status }); }} />
 
-      {current && <LeadDrawer l={current} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} />}
+      {current && <LeadDrawer l={current} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onSeo={() => checkSeo(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
   );
 }
@@ -356,14 +398,54 @@ function Contacts({ l, onChange, onContacts }) {
   );
 }
 
-function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts }) {
+// Your own notes on the lead, newest last, as chat bubbles. Nothing here is generated.
+function DesignNotes({ l, onChange }) {
+  const [text, setText] = useState("");
+  const notes = [...(l.notes ? [{ at: l.addedAt || "", text: l.notes, legacy: true }] : []), ...(l.notesLog || [])];
+  function add() {
+    const t = text.trim();
+    if (!t) return;
+    onChange({ notesLog: [...(l.notesLog || []), { at: new Date().toISOString(), text: t }] });
+    setText("");
+  }
+  function removeAt(i) {
+    const n = notes[i];
+    if (n.legacy) onChange({ notes: "" });
+    else onChange({ notesLog: (l.notesLog || []).filter((x) => x !== n) });
+  }
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+      <div className="text-sm font-semibold">Design notes</div>
+      <div className="text-xs text-zinc-500">Your own observations and next actions. These are never generated.</div>
+      {notes.length > 0 && (
+        <ul className="mt-2 space-y-1.5">
+          {notes.map((n, i) => (
+            <li key={i} className="group flex items-end gap-2">
+              <div className="max-w-[85%] rounded-2xl rounded-bl-sm border border-amber-200 bg-white px-3 py-1.5 text-sm shadow-sm">
+                <div className="whitespace-pre-wrap">{n.text}</div>
+                {n.at && <div className="mt-0.5 text-[10px] text-zinc-400">{new Date(n.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</div>}
+              </div>
+              <button onClick={() => removeAt(i)} aria-label="Delete note" className="mb-1 rounded p-0.5 text-zinc-300 opacity-0 hover:text-red-600 group-hover:opacity-100"><TrashIcon className="h-3.5 w-3.5" /></button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form onSubmit={(e) => { e.preventDefault(); add(); }} className="mt-2 flex gap-2">
+        <textarea value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); add(); } }} rows={1} placeholder="Add a note… (Enter to save, Shift+Enter for a new line)" className="min-w-0 flex-1 resize-none rounded-2xl border border-zinc-300 bg-white px-3 py-1.5 text-sm" />
+        <button type="submit" disabled={!text.trim()} className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">Add</button>
+      </form>
+    </div>
+  );
+}
+
+function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onSeo, onRefresh }) {
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
   const full = `Subject: ${l.subject || ""}\n\n${l.email || ""}`;
   const outlook = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(l.emailAddress || "")}&subject=${encodeURIComponent(l.subject || "")}&body=${encodeURIComponent(l.email || "")}`;
   async function copy() { try { await navigator.clipboard.writeText(full); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {} }
-  const site = l.website ? (/^https?:/.test(l.website) ? l.website : `https://${l.website}`) : "";
+  const site = l.siteUrl || (l.website ? (/^https?:/.test(l.website) ? l.website : `${l.problem === "Broken SSL" ? "http" : "https"}://${l.website}`) : "");
   return (
     <div className="fixed inset-0 z-30 flex justify-end bg-black/30" onClick={onClose}>
       <div className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -372,7 +454,10 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts }) {
             <input value={l.business || ""} onChange={(e) => onChange({ business: e.target.value })} className="w-full rounded border border-transparent text-lg font-semibold hover:border-zinc-300 focus:border-zinc-400" />
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
               {l.problem && <span className={`rounded-full px-2 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
-              {site && <a href={site} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700 underline">{l.website} <ExternalIcon /></a>}
+              <span className="inline-flex items-center gap-1">
+                <input value={l.website || ""} onChange={(e) => onChange({ website: e.target.value.trim(), websiteConfirmed: true, siteUrl: "" })} placeholder="website (type to correct)" title="Correct the website here; a corrected website is kept on rescan" className="w-44 rounded border border-transparent px-1 text-xs text-blue-700 hover:border-zinc-300 focus:border-zinc-400" />
+                {site && <a href={site} target="_blank" rel="noreferrer" aria-label="Open website" className="text-blue-700"><ExternalIcon /></a>}
+              </span>
               {l.companyNumber && <a href={`https://find-and-update.company-information.service.gov.uk/company/${l.companyNumber}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700 underline">Companies House {l.companyNumber} <ExternalIcon /></a>}
             </div>
           </div>
@@ -382,6 +467,7 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts }) {
           <button onClick={onClose} aria-label="Close" className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900"><CloseIcon /></button>
         </div>
         <div className="space-y-4 px-5 py-4">
+          <DesignNotes l={l} onChange={onChange} />
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Field label="Likelihood"><select value={l.likelihood || ""} onChange={(e) => onChange({ likelihood: e.target.value })} className={`rounded px-1.5 py-0.5 text-sm font-semibold ${LIKELY[l.likelihood] || ""}`}><option value="">—</option><option>High</option><option>Medium</option><option>Low</option></select></Field>
             <Field label="Net assets">{money(l.netAssets)}</Field>
@@ -393,18 +479,45 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts }) {
           <TextField label="Background" value={l.background} onChange={(v) => onChange({ background: v })} rows={2} />
           <TextField label="Pitch angle" value={l.pitch} onChange={(v) => onChange({ pitch: v })} rows={2} />
           <TextField label="Caveats" value={l.caveats} onChange={(v) => onChange({ caveats: v })} rows={1} />
-          <TextField label="Notes / next action" value={l.notes} onChange={(v) => onChange({ notes: v })} rows={3} />
+
+          <div className="rounded-lg border border-zinc-200 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold">Search visibility</span>
+              <span className="text-xs text-zinc-500">where they come up when a customer searches</span>
+              <button onClick={onSeo} disabled={l.checking} className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {l.seo ? "Search again" : "Check search"}</button>
+            </div>
+            {!l.seo && <p className="mt-2 text-xs text-zinc-500">Searches their name + town and their trade + town, and records where their site ranks and who is ahead.</p>}
+            {l.seo && (
+              <ul className="mt-2 space-y-1 text-sm">
+                {l.seo.searches.map((x, i) => (
+                  <li key={i} className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="text-zinc-600">“{x.query}”</span>
+                    {x.error ? <span className="text-red-700">{x.error}</span> : <>
+                      <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${x.position === 1 ? "bg-green-100 text-green-800" : x.position && x.position <= 3 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>{x.position ? `#${x.position}` : "Not on page 1"}</span>
+                      {x.ahead?.length > 0 && <span className="text-xs text-zinc-500">behind {x.ahead.join(", ")}</span>}
+                      {x.directoriesOnly && <span className="text-xs text-zinc-500">directories hold the top spots</span>}
+                    </>}
+                  </li>
+                ))}
+                <li className="text-[11px] text-zinc-400">{l.seo.engine} · {new Date(l.seo.checkedAt).toLocaleDateString("en-GB")}{l.website ? "" : " · no website, so only competitors are listed"}</li>
+              </ul>
+            )}
+          </div>
 
           <Contacts l={l} onChange={onChange} onContacts={onContacts} />
 
           <div className="rounded-lg border border-zinc-200 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold">Outreach email</span>
-              <span className="ml-auto flex flex-wrap gap-2">
+              <span className="ml-auto flex flex-wrap items-center gap-2">
+                {!l.noVideoPitch && (
+                  <a href="/brochures/ICL-Digital-Videography.pdf" download="ICL Digital - Videography.pdf" title="The email says the brochure is attached. Download it here, then drag it into the Outlook message." className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100"><DownloadIcon className="h-3.5 w-3.5" /> Attach brochure: download</a>
+                )}
                 <a href={outlook} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100"><MailIcon className="h-3.5 w-3.5" /> Open in Outlook</a>
                 <button onClick={copy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy email</>}</button>
               </span>
             </div>
+            {!l.noVideoPitch && <p className="mt-1 text-[11px] text-amber-800">The email mentions the videography brochure as attached. Outlook on the web can&apos;t attach it for you: download it with the button above and drop it into the message before sending.</p>}
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">To</div>
                 <input value={l.emailAddress || ""} onChange={(e) => onChange({ emailAddress: e.target.value })} placeholder={l.emailNote || "email address"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
@@ -412,11 +525,16 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts }) {
                 <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value })} placeholder="Used for “Hi Steve,”" className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
             </div>
             <label className="mt-2 block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Subject</div>
-              <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
-            <textarea value={l.email || ""} onChange={(e) => onChange({ email: e.target.value })} rows={9} className="mt-2 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" />
+              <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
+            <textarea value={l.email || ""} onChange={(e) => onChange({ email: e.target.value, emailEdited: true })} rows={11} className="mt-2 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" />
+            <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-zinc-500">
+              {l.emailEdited ? <span>Edited by hand, so automatic redrafts leave it alone. <button onClick={() => onChange({ emailEdited: false, draftVersion: 0 })} className="underline">Let the app redraft it</button></span> : <span>Drafted by the app; redrafts automatically when the wording improves.</span>}
+              {l.emailPrevious && <button onClick={() => onChange({ email: l.emailPrevious, emailPrevious: "", emailEdited: true })} className="underline">Restore the previous draft</button>}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3 text-xs">
+            <button onClick={() => onRefresh()} disabled={l.checking} className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2.5 py-1 font-medium text-white disabled:opacity-40"><RefreshIcon className="h-3.5 w-3.5" /> Rescan this lead</button>
             {l.website && <button onClick={() => onRecheck(false)} disabled={l.checking} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-3.5 w-3.5" /> Re-check website</button>}
             {l.problem && <button onClick={() => onRecheck(true)} disabled={l.checking} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 hover:bg-zinc-100 disabled:opacity-40"><PlayIcon className="h-3.5 w-3.5" /> Redraft email</button>}
             {l.problem && <label className="inline-flex items-center gap-1 text-zinc-600"><input type="checkbox" checked={!l.noVideoPitch} onChange={(e) => onChange({ noVideoPitch: !e.target.checked })} className="h-3.5 w-3.5" /> Mention hero video + brochure (applies on redraft)</label>}

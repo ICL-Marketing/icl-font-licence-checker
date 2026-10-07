@@ -1,4 +1,4 @@
-import { leadsConfigured, leadsSearch, worthEnriching, leadsEnrich, checkWebsite, findEmail, findContacts, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
+import { leadsConfigured, leadsSearch, worthEnriching, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 50;
@@ -20,6 +20,26 @@ export async function POST(request) {
       if (l.companyNumber && !leadsConfigured()) return Response.json({ error: "Companies House is not set up (Settings → Connections), so only the website can be searched." }, { status: 400 });
       return Response.json(await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business }));
     }
+    if (b.step === "refresh") {
+      if (!b.lead?.business) return Response.json({ error: "lead required" }, { status: 400 });
+      const lead = await leadsRefresh(b.lead, { knownSites: new Set((Array.isArray(b.knownSites) ? b.knownSites : []).map((s) => String(s).toLowerCase().replace(/^www\./, ""))) });
+      return Response.json({ lead });
+    }
+    if (b.step === "seo") {
+      const l = b.lead || {};
+      if (!l.business) return Response.json({ error: "Needs a business name." }, { status: 400 });
+      const seo = await seoCheck({ business: l.business, website: l.website, area: l.area, sics: l.sics });
+      return Response.json({ seo });
+    }
+    if (b.step === "redraft-many") {
+      // Fresh drafts for several leads at once (no network, so cheap). Hand-edited emails are left alone.
+      const leads = (Array.isArray(b.leads) ? b.leads : []).slice(0, 200).map((l) => {
+        if (!l.problem || l.emailEdited) return l;
+        const d = draftOutreach(l);
+        return { ...l, emailPrevious: l.email && l.email !== d.email ? l.email : l.emailPrevious, subject: d.subject, pitch: l.source === "Client Matrix v4.1" && l.pitch ? l.pitch : d.pitch, email: d.email, draftVersion: d.draftVersion };
+      });
+      return Response.json({ leads });
+    }
     if (b.step === "redraft") {
       // Fresh subject, pitch and email from the lead as it stands (works without a website).
       const lead = { ...b.lead };
@@ -31,7 +51,7 @@ export async function POST(request) {
       const lead = { ...b.lead };
       if (!lead.website) return Response.json({ error: "No website on this lead." }, { status: 400 });
       const w = await checkWebsite(lead.website);
-      Object.assign(lead, { problem: w.problem, problemDetail: w.detail, platform: w.platform || "", year: w.year || 0, title: w.title || "" });
+      Object.assign(lead, { problem: w.problem, problemDetail: w.detail, platform: w.platform || "", year: w.year || 0, title: w.title || "", siteUrl: w.siteUrl || "" });
       if (!lead.emailAddress) lead.emailAddress = await findEmail(lead.website, "").catch(() => "");
       if (lead.problem) { Object.assign(lead, scoreLead(lead)); if (!lead.email || b.redraft) { const d = draftOutreach(lead); Object.assign(lead, { subject: d.subject, pitch: d.pitch, email: d.email }); } }
       else { lead.likelihood = "Low"; lead.likelihoodWhy = "Site is current; no outreach planned"; }

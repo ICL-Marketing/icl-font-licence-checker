@@ -220,11 +220,11 @@ export async function POST(request) {
 
   if (kind === "leads") {
     // ---- Website leads, same columns as the Client Matrix sheet.
-    const STATUS = { new: "New", qualified: "Not contacted", contacted: "Contacted", replied: "Replied", meeting: "Meeting", won: "Won", lost: "Lost", "not-pursuing": "Not pursuing" };
+    const STATUS = { new: "New", qualified: "Not contacted", contacted: "Contacted", cold: "Cold (no reply)", replied: "Replied", meeting: "Meeting", won: "Won", lost: "Lost", "not-pursuing": "Not pursuing" };
     const rows = (results || []).map((l) => ({
       business: l.business, area: l.area, website: l.website, problem: l.problem, problemDetail: l.problemDetail, companyNumber: l.companyNumber,
       netAssets: l.netAssets ?? "", reChange: l.reChange ?? "", likelihood: l.likelihood, likelihoodWhy: l.likelihoodWhy, background: l.background, pitch: l.pitch,
-      caveats: l.caveats, status: STATUS[l.status] || l.status, notes: l.notes || "", email: l.email ? `Subject: ${l.subject || ""}\n${l.email}` : "", emailAddress: l.emailAddress || l.emailNote || "",
+      caveats: l.caveats, status: STATUS[l.status] || l.status, notes: [l.notes, ...(l.notesLog || []).map((n) => `${new Date(n.at).toLocaleDateString("en-GB")}: ${n.text}`)].filter(Boolean).join("\n"), email: l.email ? `Subject: ${l.subject || ""}\n${l.email}` : "", emailAddress: l.emailAddress || l.emailNote || "",
     }));
     sheet(wb, "Qualified Leads", [
       { header: "Business", key: "business", width: 32 }, { header: "Area", key: "area", width: 16 }, { header: "Website", key: "website", width: 28 },

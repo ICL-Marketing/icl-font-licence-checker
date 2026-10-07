@@ -9,5 +9,5 @@ export const dynamic = "force-dynamic";
 // login (CHECKER_PASSWORD) and the shared store (Upstash Redis via Vercel).
 export async function GET() {
   const store = await pingStore();
-  return Response.json({ login: isConfigured(), store: { ...store, vars: storeVarsSeen() }, figma: figmaConfigured(), companiesHouse: leadsConfigured() });
+  return Response.json({ login: isConfigured(), store: { ...store, vars: storeVarsSeen() }, figma: figmaConfigured(), companiesHouse: leadsConfigured(), googleSearch: Boolean(process.env.GOOGLE_CSE_KEY && process.env.GOOGLE_CSE_CX) });
 }
