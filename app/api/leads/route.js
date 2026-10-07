@@ -1,4 +1,4 @@
-import { searchUsage, hunterUsage, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
+import { searchUsage, hunterUsage, applyTradingAddress, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 50;
@@ -28,7 +28,10 @@ export async function POST(request) {
       const l = b.lead || {};
       if (!l.companyNumber && !l.website) return Response.json({ error: "Needs a company number or a website." }, { status: 400 });
       if (l.companyNumber && !leadsConfigured()) return Response.json({ error: "Companies House is not set up (Settings → Connections), so only the website can be searched." }, { status: 400 });
-      return Response.json(await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business, useHunter: !!b.useHunter, forceHunter: !!b.forceHunter }));
+      const ct = await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business, useHunter: !!b.useHunter, forceHunter: !!b.forceHunter });
+      const patch = { postcode: l.postcode, area: l.area, caveats: l.caveats || "" };
+      applyTradingAddress(patch, ct.tradingAddress, null);
+      return Response.json({ ...ct, tradingPostcode: patch.tradingPostcode || "", tradingAddressText: patch.tradingAddress || "", tradesElsewhere: !!patch.tradesElsewhere, caveats: patch.caveats });
     }
     if (b.step === "refresh") {
       if (!b.lead?.business) return Response.json({ error: "lead required" }, { status: 400 });

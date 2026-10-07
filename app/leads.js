@@ -253,7 +253,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     try {
       const r = await post({ step: "contacts", lead: l, useHunter: true, forceHunter: true });
       const best = r.people.find((p) => p.email) || null;
-      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: true, checking: false, error: r.hunterNote || (best ? "" : "Hunter had nothing for this domain.") };
+      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: true, checking: false, error: r.hunterNote || (best ? "" : "Hunter had nothing for this domain.") };
       if (best && !l.emailAddress) { f.emailAddress = best.email; f.contactName = l.contactName || best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; if (["no-contact", "not-pursuing"].includes(l.status) && l.contactUnverified) { f.status = l.likelihood === "Low" ? "new" : "qualified"; f.contactUnverified = false; } }
       update(l.id, f);
       fetch("/api/leads").then((x) => x.json()).then(setCfg).catch(() => {});
@@ -264,7 +264,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     try {
       const r = await post({ step: "contacts", lead: l, useHunter: false });
       const best = r.people.find((p) => p.email) || null; const generic = r.channels.find((c) => c.kind === "email");
-      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: l.hunterTried || r.hunterUsed, checking: false, error: r.people.length ? "" : "No named people found; the Companies House directors need the API key, and the site has no team page." };
+      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: l.hunterTried || r.hunterUsed, checking: false, error: r.people.length ? "" : "No named people found; the Companies House directors need the API key, and the site has no team page." };
       if (!l.emailAddress && (best || generic)) { f.emailAddress = best ? best.email : generic.value; if (best && !l.contactName) f.contactName = best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; }
       if (["new", "qualified", "no-contact"].includes(l.status) || (l.status === "not-pursuing" && l.contactUnverified)) { if (f.emailAddress || l.emailAddress) { f.status = l.status === "new" ? "new" : (l.likelihood === "Low" ? "new" : "qualified"); f.contactUnverified = false; } else { f.contactUnverified = true; f.status = parkStatus(l); } }
       update(l.id, f);
@@ -319,7 +319,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         const r = await post({ step: "contacts", lead: l, useHunter });
         if (r.hunterNote && /cap reached|out of searches/i.test(r.hunterNote)) st.phase = "Hunter credits used up for this month; carrying on with the free routes only.";
         const best = r.people.find((p) => p.email) || null; const generic = r.channels.find((c) => c.kind === "email");
-        const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: l.hunterTried || r.hunterUsed };
+        const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: l.hunterTried || r.hunterUsed };
         if (best || generic) { f.emailAddress = best ? best.email : generic.value; if (best) f.contactName = l.contactName || best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; f.contactUnverified = false; f.status = l.likelihood === "Low" ? "new" : "qualified"; st.found++; }
         update(id, f);
       } catch (e) { if (stopRef.current) break; st.errors.push(`${l.business}: ${e.message}`); }
@@ -348,7 +348,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           const r = await post({ step: "contacts", lead: l, useHunter: false });
           const cur = leadsRef.current[l.id]; if (!cur) continue;
           const best = r.people.find((p) => p.email) || null;
-          const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, contactsStamp: contactsStamp(cfg) };
+          const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), contactsTried: true, contactsStamp: contactsStamp(cfg) };
           const generic = r.channels.find((c) => c.kind === "email");
           if (!cur.emailAddress && (best || generic)) { f.emailAddress = best ? best.email : generic.value; if (best && !cur.contactName) f.contactName = best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; }
           const email = f.emailAddress || cur.emailAddress;
@@ -445,7 +445,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
               : <button onClick={() => findLeads()} disabled={cfg?.configured === false || (!areas.length && !place.trim()) || !sectors.length} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find leads</button>}
             <button onClick={() => refreshLeads(list.filter((l) => !["won", "lost", "not-pursuing"].includes(l.status)).map((l) => l.id))} disabled={running || !list.length} title="Re-run the website, search, accounts and contact checks on every open lead with the latest rules (Won, Lost and Not pursuing are skipped). Statuses and notes are kept." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Rescan all leads</button>
             {(() => { const due = list.filter((l) => (l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && l.contactsStamp !== contactsStamp(cfg)); return due.length > 0 && (
-              <button onClick={() => retryContacts(due.map((l) => l.id))} disabled={running} title="The contact finder has improved since these were parked (or Hunter.io was connected). Look again; any that now have an address come back to the board." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-900 hover:bg-red-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Retry contacts ({due.length}{cfg?.hunter ? `, ${due.filter((l) => l.likelihood === "High" && !l.hunterTried && l.website).length} High via Hunter` : ""})</button>
+              <button onClick={() => retryContacts(due.map((l) => l.id))} disabled={running} title="The contact finder has improved since these were parked (or Hunter.io was connected). Look again; any that now have an address come back to the board." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-900 hover:bg-red-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Retry contacts ({due.length}{(() => { const h = cfg?.hunter ? due.filter((l) => l.likelihood === "High" && !l.hunterTried && l.website).length : 0; return h ? `, ${h} High via Hunter` : ""; })()})</button>
             ); })()}
             <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
           </div>
@@ -512,6 +512,7 @@ function parkExplain(l) {
   if (/site is current/i.test(r)) return "The site is current and no licence problems were found, so there is nothing to pitch.";
   return r;
 }
+const addressFields = (r) => (r.tradingPostcode ? { tradingPostcode: r.tradingPostcode, tradingAddress: r.tradingAddressText, tradesElsewhere: !!r.tradesElsewhere, ...(r.caveats !== undefined ? { caveats: r.caveats } : {}) } : {});
 const FOLLOW_UP_DEFAULTS = { chaseDays: 7, coldDays: 21, lostDays: 60 };
 // What a contact lookup "knows": the logic version plus whether Hunter was available. A parked lead
 // is only worth retrying when this has changed since its last lookup.
@@ -556,6 +557,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
                   {l.problem && <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
+                  {l.tradesElsewhere && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800" title={`Website address: ${l.tradingAddress}`}>Trades elsewhere</span>}
                   {needsChase(l, followUp) && <span className="rounded-full bg-amber-500 px-1.5 py-0.5 font-semibold text-white" title={`No reply ${Math.floor(daysSince(l))} days after contact: send the follow-up`}>Chase</span>}
                   {l.status === "contacted" && l.chasedAt && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 text-zinc-700">Chased {new Date(l.chasedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>}
                   <span>{l.area}</span>
@@ -710,6 +712,7 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, onClos
               <span className="font-medium">{l.whatTheyDo || (l.sics?.length ? `SIC ${l.sics[0]}` : "")}</span>
               {l.background && <span className="text-zinc-500"> · {l.background}</span>}{l.area && <span className="text-zinc-500"> · {l.area}</span>}
               {l.siteDescription && <span className="block text-zinc-500">“{l.siteDescription}”</span>}
+              {l.tradingAddress && <span className={`block ${l.tradesElsewhere ? "font-medium text-red-700" : "text-zinc-500"}`}>Trades from {l.tradingAddress}{l.tradesElsewhere ? " — outside our area; only the registered office is local" : ""}</span>}
             </p>
           )}
           {l.status === "not-pursuing" ? (
