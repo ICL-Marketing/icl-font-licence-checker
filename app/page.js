@@ -401,7 +401,7 @@ export default function Home() {
             {selFont ? (
               <SiteReport onBack={() => selectSite("fonts", null)}
                 main={<SiteCard r={selFont} open toggle={() => selectSite("fonts", null)} rerun={() => run("fonts", [selFont.site])} running={!!running} onRemove={() => { removeSite(selFont.site); selectSite("fonts", null); }} onFixed={(fams, on) => setFontFixed(selFont.site, fams, on)} />}
-                aside={selFontEmail ? <EmailCard e={selFontEmail} result={results[selFont.site]} client={clientForSite(clients, selFont.site)} open toggle={() => {}} /> : <p className="rounded-xl border border-dashed border-zinc-300 p-4 text-sm text-zinc-500">No client email needed for this site (nothing the client has to answer).</p>} />
+                aside={selFontEmail ? <EmailCard e={selFontEmail} result={results[selFont.site]} client={clientForSite(clients, selFont.site)} open toggle={() => {}} /> : null} />
             ) : (<>
             {fontRows.length > 0 && (
               <>
@@ -464,7 +464,7 @@ export default function Home() {
             {selImg ? (
               <SiteReport onBack={() => selectSite("images", null)}
                 main={<ImageCard r={selImg.r} paid={selImg.paid} open toggle={() => selectSite("images", null)} rerun={() => run("images", [selImg.r.site])} running={!!running} onRemove={() => { removeSite(selImg.r.site); selectSite("images", null); }} onFixed={(keys, on) => setImageFixed(selImg.r.site, keys, on)} />}
-                aside={selImgEmail ? <EmailCard e={selImgEmail} result={results[selImg.r.site]} client={clientForSite(clients, selImg.r.site)} open toggle={() => {}} /> : <p className="rounded-xl border border-dashed border-zinc-300 p-4 text-sm text-zinc-500">No client email needed for this site.</p>} />
+                aside={selImgEmail ? <EmailCard e={selImgEmail} result={results[selImg.r.site]} client={clientForSite(clients, selImg.r.site)} open toggle={() => {}} /> : null} />
             ) : (<>
             {imgRows.length > 0 && (
               <>
@@ -656,10 +656,12 @@ function SiteReport({ onBack, main, aside }) {
   return (
     <div>
       <button onClick={onBack} className="mb-3 inline-flex items-center gap-1 text-sm text-zinc-600 hover:text-zinc-900">← All sites</button>
-      <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
-        <div className="min-w-0 lg:col-span-2">{main}</div>
-        <div className="min-w-0 lg:sticky lg:top-4">{aside}</div>
-      </div>
+      {aside ? (
+        <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
+          <div className="min-w-0 lg:col-span-2">{main}</div>
+          <div className="min-w-0 lg:sticky lg:top-4">{aside}</div>
+        </div>
+      ) : main}
     </div>
   );
 }
