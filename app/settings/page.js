@@ -259,7 +259,7 @@ function StatusPanel({ status }) {
 const LINK_DEFAULTS = { site: "https://icldigital.com/", websites: "https://icldigital.com/services/websites/", videography: "https://icldigital.com/services/videography/", contact: "https://icldigital.com/get-in-touch/" };
 const LINK_LABELS = { site: "Homepage", websites: "Websites service page", videography: "Videography service page", contact: "Contact page" };
 const SENDER_DEFAULTS = { name: "Chris", role: "lead designer", agency: "ICL Digital", where: "Richmond, two minutes' walk from the station" };
-const CLIENT_DEFAULTS = "Thames Laundry | https://thameslaundry.co.uk/ | Sunbury | sunbury, shepperton, hampton, hampton hill, hampton wick, twickenham, teddington, feltham, ashford, walton, kingston, staines, whitton\nSt John Eye Hospital Group | https://www.stjohneyehospital.org/ | London | flagship";
+const CLIENT_DEFAULTS = "Thames Laundry | https://thameslaundry.co.uk/ | Sunbury | sunbury, lower sunbury, upper halliford, shepperton, laleham, littleton, charlton, ashford, feltham, hanworth, kempton, hampton, hampton hill, hampton wick, molesey, east molesey, west molesey, walton, hersham, weybridge, staines, teddington\nSt John Eye Hospital Group | https://www.stjohneyehospital.org/ | London | flagship";
 const parseClients = (t) => t.split(/\n/).map((line) => line.split("|").map((x) => x.trim())).filter((p) => p[0]).map(([name, url, town, near]) => { const list = (near || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean); return { name, url: url || "", town: town || "", near: list.filter((x) => x !== "flagship"), flagship: list.includes("flagship") }; });
 function LinksEditor() {
   const [links, setLinks] = useState(LINK_DEFAULTS);
