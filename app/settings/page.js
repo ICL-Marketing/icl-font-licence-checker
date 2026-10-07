@@ -270,6 +270,7 @@ function StatusPanel({ status }) {
   );
 }
 
+const SUBJECT_DEFAULTS = { "No website": "Couldn't find you online", "Parked domain": "Your domain isn't showing a website", "Dead/broken site": "Your website is down", "Broken SSL": "Your website is showing a security warning", "Stale copyright": "A few thoughts on your website", "Dated template": "Your website could be doing more for you", "Licence risk": "Something on your website that could cost you money", other: "A few thoughts on your website" };
 const LINK_DEFAULTS = { site: "https://icldigital.com/", websites: "https://icldigital.com/services/websites/", videography: "https://icldigital.com/services/videography/", contact: "https://icldigital.com/get-in-touch/" };
 const LINK_LABELS = { site: "Homepage", websites: "Websites service page", videography: "Videography service page", contact: "Contact page" };
 const SENDER_DEFAULTS = { name: "Chris", role: "lead designer", agency: "ICL Digital", where: "Richmond, two minutes' walk from the station" };
@@ -280,12 +281,14 @@ function LinksEditor() {
   const [sender, setSender] = useState(SENDER_DEFAULTS);
   const [clients, setClients] = useState(CLIENT_DEFAULTS);
   const [volumes, setVolumes] = useState("");
+  const [subjects, setSubjects] = useState(SUBJECT_DEFAULTS);
   const [seen, setSeen] = useState([]);
   const [saved, setSaved] = useState(false);
   useEffect(() => {
     fetch("/api/settings?key=lead-links").then((r) => r.json()).then((j) => {
       if (!(j.shared && j.value)) return;
-      const { sender: sn, clients: cl, volumes: vo, ...rest } = j.value;
+      const { sender: sn, clients: cl, volumes: vo, subjects: su, ...rest } = j.value;
+      if (su && typeof su === "object") setSubjects({ ...SUBJECT_DEFAULTS, ...su });
       setLinks({ ...LINK_DEFAULTS, ...rest });
       if (vo && typeof vo === "object") setVolumes(Object.entries(vo).map(([q, n]) => `${q} | ${n}`).join("\n"));
       if (sn) setSender({ ...SENDER_DEFAULTS, ...sn });
@@ -295,7 +298,7 @@ function LinksEditor() {
   }, []);
   const parseVolumes = (t) => Object.fromEntries(t.split(/\n/).map((line) => line.split("|").map((x) => x.trim())).filter((p) => p[0] && Number(p[1]) > 0).map(([q, n]) => [q.toLowerCase(), Number(n)]));
   async function save() {
-    await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "lead-links", value: { ...links, sender, clients: parseClients(clients), volumes: parseVolumes(volumes) } }) }).catch(() => {});
+    await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "lead-links", value: { ...links, sender, clients: parseClients(clients), volumes: parseVolumes(volumes), subjects } }) }).catch(() => {});
     setSaved(true); setTimeout(() => setSaved(false), 1500);
   }
   return (
@@ -315,6 +318,15 @@ function LinksEditor() {
       <label className="block text-sm"><span className="text-xs font-semibold text-zinc-600">Clients to mention</span>
         <span className="block text-[11px] text-zinc-500">One per line: name | website | town | towns where a lead would know them (comma-separated). The first match on the lead&apos;s town is introduced as &quot;just down the road from you&quot;; otherwise the one marked <code>flagship</code> is used as the credibility name.</span>
         <textarea value={clients} onChange={(e) => setClients(e.target.value)} rows={4} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" /></label>
+      <div>
+        <div className="text-xs font-semibold text-zinc-600">Email subjects</div>
+        <div className="mt-1 grid gap-1.5 sm:grid-cols-2">
+          {Object.keys(SUBJECT_DEFAULTS).map((k) => (
+            <label key={k} className="flex items-center gap-2 text-sm"><span className="w-32 shrink-0 text-xs text-zinc-500">{k === "other" ? "Anything else" : k}</span>
+              <input value={subjects[k] || ""} onChange={(e) => setSubjects({ ...subjects, [k]: e.target.value })} className="min-w-0 flex-1 rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
+          ))}
+        </div>
+      </div>
       <label className="block text-sm"><span className="text-xs font-semibold text-zinc-600">Monthly search volumes</span>
         <span className="block text-[11px] text-zinc-500">One per line: search | people a month. Used in the email as &quot;Around 140 people a month make that exact search&quot;. Get the numbers free from Google Ads → Tools → Keyword Planner → Discover new keywords (UK, exact phrase); a figure only goes in an email when its search matches exactly.</span>
         <textarea value={volumes} onChange={(e) => setVolumes(e.target.value)} rows={5} placeholder={"plumber teddington | 140\ncafe twickenham | 320"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" /></label>
