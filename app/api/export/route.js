@@ -224,7 +224,7 @@ export async function POST(request) {
     const rows = (results || []).map((l) => ({
       business: l.business, area: l.area, website: l.website, problem: l.problem, problemDetail: l.problemDetail, companyNumber: l.companyNumber,
       netAssets: l.netAssets ?? "", reChange: l.reChange ?? "", likelihood: l.likelihood, likelihoodWhy: l.likelihoodWhy, background: l.background, pitch: l.pitch,
-      caveats: [l.contactUnverified ? "Contact not verified" : "", l.caveats].filter(Boolean).join("; "), status: STATUS[l.status] || l.status, notes: [l.notes, ...(l.notesLog || []).map((n) => `${new Date(n.at).toLocaleDateString("en-GB")}: ${n.text}`)].filter(Boolean).join("\n"), email: l.email ? `Subject: ${l.subject || ""}\n${l.email}` : "", emailAddress: l.emailAddress || l.emailNote || "",
+      caveats: [l.optedOut ? "OPTED OUT: do not contact" : "", l.contactUnverified ? "Contact not verified" : "", l.caveats].filter(Boolean).join("; "), status: STATUS[l.status] || l.status, notes: [l.notes, ...(l.notesLog || []).map((n) => `${new Date(n.at).toLocaleDateString("en-GB")}: ${n.text}`)].filter(Boolean).join("\n"), email: l.email ? `Subject: ${l.subject || ""}\n${l.email}` : "", emailAddress: l.emailAddress || l.emailNote || "",
     }));
     sheet(wb, "Qualified Leads", [
       { header: "Business", key: "business", width: 32 }, { header: "Area", key: "area", width: 16 }, { header: "Website", key: "website", width: 28 },
