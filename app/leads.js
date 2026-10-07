@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 
 // Website leads: local businesses whose site is letting them down, found
@@ -50,11 +50,15 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         if (status !== "not-pursuing") { next[id] = { ...l, caveats, status, contactUnverified: !l.emailAddress, statusAt: at, updatedAt: at }; changed++; push(id, next[id]); }
       } else if (["new", "qualified", "no-contact"].includes(l.status) && l.netAssets < floor) {
         next[id] = { ...l, caveats: [l.caveats, `Net assets under £${floor.toLocaleString("en-GB")}`].filter(Boolean).join("; "), status: "not-pursuing", statusAt: at, updatedAt: at }; changed++; push(id, next[id]);
+      } else if (parkedSmall && !(l.caveats || "").includes(`under £${floor.toLocaleString("en-GB")}`)) {
+        // Still too small: the reason should quote the floor as it is now, not as it was.
+        next[id] = { ...l, caveats: (l.caveats || "").replace(tooSmallCaveat, `Net assets under £${floor.toLocaleString("en-GB")}`), updatedAt: at }; push(id, next[id]);
       }
     }
     if (changed) { leadsRef.current = next; save(next); setLeads(next); }
     return changed;
   }
+  useEffect(() => { const t = setTimeout(() => { if (Object.keys(leadsRef.current).length) applyFloor(minAssets); }, 1500); return () => clearTimeout(t); }, [leads]); // eslint-disable-line react-hooks/exhaustive-deps
   function setMinAssets(v) {
     setMinAssetsState(v);
     try { localStorage.setItem("flc-leads-floor", String(v)); } catch {}
@@ -758,7 +762,7 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjec
         <div className="space-y-4 px-5 py-4">
           {(l.whatTheyDo || l.siteDescription || l.background || l.sics?.length) && (
             <p className="text-sm text-zinc-700">
-              <span className="font-medium">{l.whatTheyDo || (l.sics?.length ? `SIC ${l.sics[0]}` : "")}</span>
+              <span className="font-medium">{l.whatTheyDo || sicDescription(l.sics) || (l.sics?.length ? `SIC ${l.sics[0]}` : "")}</span>
               {l.background && <span className="text-zinc-500"> · {l.background}</span>}{l.area && <span className="text-zinc-500"> · {l.area}</span>}
               {l.siteDescription && <span className="block text-zinc-500">“{l.siteDescription}”</span>}
               {l.tradingAddress && <span className={`block ${l.tradesElsewhere ? "font-medium text-red-700" : "text-zinc-500"}`}>Trades from {l.tradingAddress}{l.tradesElsewhere ? " — outside our area; only the registered office is local" : ""}</span>}
