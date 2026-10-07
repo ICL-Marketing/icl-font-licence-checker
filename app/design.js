@@ -103,7 +103,7 @@ export default function DesignArea({ onRunning, onCount }) {
         patch(key, { key, link: input.trim(), status: "RUNNING", phase: "Reading the Figma file…", screens: [], error: "" });
         const s = await post({ step: "start", link: input });
         w = { fileKey: s.fileKey, nodeId: s.nodeId, name: s.name, queue: s.frames, screens: [] };
-        patch(key, { name: s.name, fileKey: s.fileKey, total: s.frames.length, work: w });
+        patch(key, { name: s.name, fileKey: s.fileKey, total: s.frames.length, lastModified: s.lastModified || "", figmaVersion: s.version || "", work: w });
       } else {
         patch(key, { status: "RUNNING", error: "" });
       }
@@ -202,6 +202,7 @@ function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemo
           <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
             <a href={r.link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700 underline">Open in Figma <ExternalIcon /></a>
             {r.scannedAt && <span className="text-zinc-500">Checked {new Date(r.scannedAt).toLocaleString("en-GB")}</span>}
+            {r.lastModified && <span className="text-zinc-500" title="When Figma says the file was last saved; if your edits are newer than this, Figma had not stored them yet when the check ran">· design last saved {new Date(r.lastModified).toLocaleString("en-GB")}</span>}
             <span className="ml-auto flex gap-2">
               {r.status === "PAUSED" && <button onClick={onResume} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2.5 py-1 font-medium text-white disabled:opacity-40"><PlayIcon className="h-3.5 w-3.5" /> Finish check</button>}
               <button onClick={onRescan} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 px-2.5 py-1 hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-3.5 w-3.5" /> Check again</button>

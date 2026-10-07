@@ -16,9 +16,9 @@ export async function POST(request) {
     if (b.step === "start") {
       const p = parseFigmaLink(b.link);
       if (!p) return Response.json({ error: "That is not a Figma file link." }, { status: 400 });
-      const { name, frames } = await listFrames(p.fileKey, p.nodeId);
+      const { name, frames, lastModified, version } = await listFrames(p.fileKey, p.nodeId);
       if (!frames.length) return Response.json({ error: "No frames found. Link a file, a page or a frame that contains screens." }, { status: 400 });
-      return Response.json({ fileKey: p.fileKey, nodeId: p.nodeId, name, frames: frames.slice(0, 300) });
+      return Response.json({ fileKey: p.fileKey, nodeId: p.nodeId, name, lastModified, version, frames: frames.slice(0, 300) });
     }
     if (b.step === "frames") {
       const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).slice(0, 6);
