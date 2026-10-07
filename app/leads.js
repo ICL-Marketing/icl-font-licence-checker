@@ -32,7 +32,35 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const [areas, setAreas] = useState(["richmond"]);
   const [place, setPlace] = useState("");
   const [sectors, setSectors] = useState(["retail", "hospitality", "trades"]);
-  const [minAssets, setMinAssets] = useState(20000);
+  const [minAssets, setMinAssetsState] = useState(() => { try { return Number(localStorage.getItem("flc-leads-floor") || 20000) || 20000; } catch { return 20000; } });
+  const floorTimer = useRef(null);
+  // Changing the floor re-sorts the board: parked-as-too-small leads above the new floor come back,
+  // open leads below it are parked. Leads already in conversation, won or lost are left alone.
+  function applyFloor(floor) {
+    const at = new Date().toISOString();
+    const next = { ...leadsRef.current };
+    let changed = 0;
+    for (const [id, l] of Object.entries(next)) {
+      if (!l.companyNumber || l.netAssets === null || l.netAssets === undefined) continue;
+      const tooSmallCaveat = /Net assets under £[\d,]+/i;
+      const parkedSmall = l.status === "not-pursuing" && tooSmallCaveat.test(l.caveats || "");
+      if (parkedSmall && l.netAssets >= floor) {
+        const caveats = (l.caveats || "").split("; ").filter((x) => !tooSmallCaveat.test(x)).join("; ");
+        const status = !l.problem ? "not-pursuing" : l.emailAddress ? (l.likelihood === "Low" ? "new" : "qualified") : "no-contact";
+        if (status !== "not-pursuing") { next[id] = { ...l, caveats, status, contactUnverified: !l.emailAddress, statusAt: at, updatedAt: at }; changed++; push(id, next[id]); }
+      } else if (["new", "qualified", "no-contact"].includes(l.status) && l.netAssets < floor) {
+        next[id] = { ...l, caveats: [l.caveats, `Net assets under £${floor.toLocaleString("en-GB")}`].filter(Boolean).join("; "), status: "not-pursuing", statusAt: at, updatedAt: at }; changed++; push(id, next[id]);
+      }
+    }
+    if (changed) { leadsRef.current = next; save(next); setLeads(next); }
+    return changed;
+  }
+  function setMinAssets(v) {
+    setMinAssetsState(v);
+    try { localStorage.setItem("flc-leads-floor", String(v)); } catch {}
+    clearTimeout(floorTimer.current);
+    floorTimer.current = setTimeout(() => { const n = applyFloor(v); if (n) setRun({ kind: "floor", phase: `Floor set to £${v.toLocaleString("en-GB")}: ${n} lead${n === 1 ? "" : "s"} moved.`, done: 0, total: 0, found: 0, errors: [] }); }, 700);
+  }
   const [run, setRun] = useState(null); // {phase, done, total, found, errors}
   const [pending, setPending] = useState(null); // interrupted scan found on load
   const [open, setOpen] = useState(null);
@@ -404,7 +432,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
                 <button key={k} type="button" onClick={() => setSectors((a) => (a.includes(k) ? a.filter((x) => x !== k) : [...a, k]))} className={`rounded-full border px-2.5 py-1 text-xs ${sectors.includes(k) ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{label}</button>
               ))}
             </div>
-            <label className="mt-2 flex items-center gap-2 text-xs text-zinc-600">Only keep companies with net assets of at least £
+            <label className="mt-2 flex items-center gap-2 text-xs text-zinc-600" title="Changing this re-sorts the board: parked leads above the new floor come back, open leads below it are parked. Leads already in conversation are left alone.">Only keep companies with net assets of at least £
               <input type="number" value={minAssets} onChange={(e) => setMinAssets(Number(e.target.value) || 0)} step={5000} min={0} className="w-24 rounded-md border border-zinc-300 px-2 py-0.5" />
             </label>
           </fieldset>
@@ -510,7 +538,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
       {cols.map((c) => (
         <div key={c.id} onDragOver={(e) => { e.preventDefault(); setOver(c.id); }} onDragLeave={() => setOver(null)}
           onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData("text/lead"); if (id) onMove(id, c.id); setOver(null); }}
-          className={`flex w-64 shrink-0 flex-col rounded-xl border p-2 ${over === c.id ? "border-blue-400 bg-blue-50" : "border-zinc-200 bg-zinc-100/60"}`}>
+          className={`flex w-64 shrink-0 flex-col rounded-xl border p-2 ${over === c.id ? "border-blue-400 bg-blue-50" : "border-zinc-200 bg-zinc-100/60"} ${c.id === "lost" ? "opacity-50 hover:opacity-100" : ""}`}>
           <div className="flex items-center gap-1.5 px-1 text-xs font-semibold text-zinc-700">
             <input type="checkbox" aria-label={`Select everything in ${c.label}`} title="Select everything in this column" checked={c.items.length > 0 && c.items.every((l) => selected.has(l.id))} onChange={(e) => onSelectColumn(c.items.map((l) => l.id), e.target.checked)} disabled={!c.items.length} className="h-3.5 w-3.5" />
             <span>{c.label}</span><span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{c.items.length}</span>
