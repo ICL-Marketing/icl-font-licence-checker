@@ -58,7 +58,7 @@ export async function POST(request) {
       const lead = { ...l };
       if (l.website && !l.tradingAddress) { try { const addr = await siteAddress(l.website); if (addr) { const patch = { postcode: l.postcode, area: l.area, caveats: l.caveats || "" }; applyTradingAddress(patch, addr, null); Object.assign(lead, { tradingPostcode: patch.tradingPostcode || "", tradingAddress: patch.tradingAddress || "", tradingTown: patch.tradingTown || "", tradesElsewhere: !!patch.tradesElsewhere }); } } catch {} }
       const town = lead.tradingTown || (lead.tradingAddress ? townFromAddress(lead.tradingAddress, lead.tradingPostcode) : "") || l.area;
-      const seo = await seoCheck({ business: l.business, website: l.website, area: town, sics: l.sics, companyNumber: l.companyNumber, rejectedSites: l.rejectedSites || [], siteText: `${l.title || ""} ${l.siteDescription || ""}`, headings: l.siteHeadings || "", trade: l.tradeOverride || "" });
+      const seo = await seoCheck({ business: l.business, website: l.website, area: town, sics: l.sics, companyNumber: l.companyNumber, rejectedSites: l.rejectedSites || [], siteText: `${l.title || ""} ${l.siteDescription || ""}`, headings: l.siteHeadings || "", body: l.siteBody || "", trade: l.tradeOverride || "" });
       lead.seo = seo;
       // A current site that is not found for its own trade is a lead in itself: that is business going elsewhere.
       const trade = seo.searches.find((x) => x.kind === "trade" && !x.error);
