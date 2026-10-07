@@ -423,6 +423,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   );
 }
 
+// The real reason a lead sits in Not pursuing, if there is one beyond a missing contact.
+const parkReason = (l) => { const m = `${l.caveats || ""}; ${l.likelihoodWhy || ""}`.split(/;\s*/).find((x) => /under £|already a client|site is current|dormant/i.test(x)); return m ? m.trim().replace(/\.$/, "") : ""; };
 const FOLLOW_UP_DEFAULTS = { chaseDays: 7, coldDays: 21, lostDays: 60 };
 // What a contact lookup "knows": the logic version plus whether Hunter was available. A parked lead
 // is only worth retrying when this has changed since its last lookup.
@@ -471,7 +473,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                   <span>{l.area}</span>
                   {l.netAssets != null && l.netAssets !== "" && <span>· {money(l.netAssets)}</span>}
                 </div>
-                {c.id === "not-pursuing" && (l.caveats || l.contactUnverified) && <div className="mt-1 truncate text-[11px] text-zinc-500" title={l.caveats}>{l.contactUnverified ? "No verified email address" : l.caveats.split("; ").find((x) => /under £|already a client|current|dormant/i.test(x)) || l.caveats}</div>}
+                {c.id === "not-pursuing" && (l.caveats || l.contactUnverified) && <div className="mt-1 truncate text-[11px] text-zinc-500" title={l.caveats}>{parkReason(l) || (l.contactUnverified ? "No verified email address" : l.caveats)}</div>}
                 {l.checking && <div className="mt-1 text-[11px] text-blue-600">Checking…</div>}
               </div>
             ))}
@@ -653,7 +655,8 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, onClose, onChange, onRem
               <span className="font-semibold">{l.likelihood} likelihood</span>{l.likelihoodWhy ? <span>: {l.likelihoodWhy}</span> : null}
             </div>
           )}
-          {l.contactUnverified && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"><span className="font-semibold">Contact not verified.</span> No email address was found on their site or at Companies House. Add a verified address below, or pick a person with one, and it moves back to Qualified.</div>}
+          {l.status === "not-pursuing" && parkReason(l) && <div className="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-800"><span className="font-semibold">Parked:</span> {parkReason(l)}. Change the status above if you still want to pursue it.</div>}
+          {l.contactUnverified && !(l.status === "not-pursuing" && parkReason(l)) && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"><span className="font-semibold">Contact not verified.</span> No email address was found on their site or at Companies House. Add a verified address below, or pick a person with one, and it moves back to Qualified.</div>}
           <DesignNotes l={l} onChange={onChange} />
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Field label="Likelihood"><select value={l.likelihood || ""} onChange={(e) => onChange({ likelihood: e.target.value })} className={`rounded px-1.5 py-0.5 text-sm font-semibold ${LIKELY[l.likelihood] || ""}`}><option value="">—</option><option>High</option><option>Medium</option><option>Low</option></select></Field>
