@@ -262,6 +262,7 @@ function ScreenRow({ s, dismissed = {}, onDismiss }) {
   const all = (s.findings || []).slice().sort((a, b) => ORDER[a.level] - ORDER[b.level]);
   const findings = all.filter((f) => !dismissed[findingKey(f)]);
   const doneList = all.filter((f) => dismissed[findingKey(f)]);
+  const groups = groupFindings(findings);
   const fails = findings.filter((f) => f.level === "fail").length;
   const warns = findings.filter((f) => f.level === "warn").length;
   const byCheck = {};
@@ -292,14 +293,14 @@ function ScreenRow({ s, dismissed = {}, onDismiss }) {
       )}
       {(findings.length > 0 || doneList.length > 0) && (
         <div className="mt-2 flex flex-wrap gap-2">
-          {findings.length > 0 && <button onClick={() => setShow((v) => !v)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100">{show ? <><ChevronUpIcon className="h-3.5 w-3.5" /> Hide {findings.length} details</> : <><ChevronDownIcon className="h-3.5 w-3.5" /> Show {findings.length} details</>}</button>}
+          {findings.length > 0 && <button onClick={() => setShow((v) => !v)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100">{show ? <><ChevronUpIcon className="h-3.5 w-3.5" /> Hide {groups.length} detail{groups.length === 1 ? "" : "s"}</> : <><ChevronDownIcon className="h-3.5 w-3.5" /> Show {groups.length} detail{groups.length === 1 ? "" : "s"}</>}</button>}
           {findings.length > 0 && <button onClick={copy} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy for the designer</>}</button>}
           {doneList.length > 0 && <button onClick={() => { onDismiss(doneList.map((f) => findingKey(f)), null); setLastAction(null); }} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100">Restore all {doneList.length} done/ignored</button>}
         </div>
       )}
       {show && findings.length > 0 && (
         <ol className="mt-2 list-decimal space-y-2 rounded-md bg-white/70 py-2 pl-7 pr-3 text-sm">
-          {groupFindings(findings).map((g, i) => (
+          {groups.map((g, i) => (
             <li key={i} className="pl-1">
               <span className={`mr-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-white ${LEVEL[g.level].chip}`}>{LEVEL[g.level].label}</span>
               {g.rule}
