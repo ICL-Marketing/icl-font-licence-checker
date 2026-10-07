@@ -78,7 +78,7 @@ export default function DesignArea({ onRunning, onCount }) {
   const [fontsBusy, setFontsBusy] = useState(null);
   async function recheckFonts(key) {
     const r = runs[key]; if (!r?.fileKey || running) return;
-    setFontsBusy(key);
+    setFontsBusy(key); onRunning?.(true);
     try {
       const ids = (r.screens || []).map((s) => s.id);
       const screens = [];
@@ -90,20 +90,20 @@ export default function DesignArea({ onRunning, onCount }) {
       const fontChecks = (await post({ step: "fonts", families: fams })).fonts || [];
       patch(key, { screens: screens.length ? screens : r.screens, fontChecks, fontsCheckedAt: new Date().toISOString(), dismissedAt: new Date().toISOString() });
     } catch (e) { patch(key, { error: String(e?.message || e) }); }
-    finally { setFontsBusy(null); }
+    finally { setFontsBusy(null); onRunning?.(false); }
   }
   // Re-check one screen only (after fixing its issues) instead of the whole file.
   const [busyScreen, setBusyScreen] = useState(null);
   async function recheckScreen(key, screenId) {
     const r = runs[key]; if (!r?.fileKey || running) return;
-    setBusyScreen(`${key}|${screenId}`);
+    setBusyScreen(`${key}|${screenId}`); onRunning?.(true);
     try {
       const j = await post({ step: "frames", fileKey: r.fileKey, ids: [screenId] });
       const fresh = j.results?.[0];
       if (fresh) { const old = (r.screens || []).find((x) => x.id === screenId); const screens = (r.screens || []).map((x) => (x.id === screenId ? { ...fresh, page: old?.page || "", checkedAt: new Date().toISOString() } : x)); patch(key, { screens, dismissedAt: new Date().toISOString() }); }
       else patch(key, { error: "Figma did not return that screen; it may have been deleted or renamed." });
     } catch (e) { patch(key, { error: String(e?.message || e) }); }
-    finally { setBusyScreen(null); }
+    finally { setBusyScreen(null); onRunning?.(false); }
   }
   const dismiss = (key, keys, reason) => patch(key, { dismissed: { ...(runs[key]?.dismissed || {}), ...Object.fromEntries(keys.map((k) => [k, reason ? { reason, at: new Date().toISOString() } : undefined])) }, dismissedAt: new Date().toISOString() });
   useEffect(() => { onCount?.(outstanding); }, [outstanding, onCount]);
