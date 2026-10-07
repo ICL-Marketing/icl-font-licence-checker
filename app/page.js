@@ -739,7 +739,7 @@ function SiteCard({ r, open, toggle, rerun, running, onRemove, onFixed }) {
                           {f.status === "PROBLEM" && f.adobe && (
                             <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
                               <Badge ok={(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || ""))} bad={f.adobe === "no" && !(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || ""))} label={(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) ? "On Adobe Fonts" : f.adobe === "no" ? "Not on Adobe Fonts" : "Adobe: not sure"} />
-                              {!(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) && <Badge ok={f.google === "yes"} bad={f.google === "no"} label={f.google === "yes" ? "On Google Fonts" : f.google === "no" ? "Not on Google Fonts" : "Google: not sure"} />}
+                              {!(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) && (f.google === "yes" ? <a href={f.googleUrl || f.googleSearch} target="_blank" rel="noreferrer" title="Open on Google Fonts"><Badge ok label="On Google Fonts ↗" /></a> : <Badge bad={f.google === "no"} label={f.google === "no" ? "Not on Google Fonts" : "Google: not sure"} />)}
                               {!(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) && f.google !== "yes" && f.freeVersion && <Badge ok={f.freeVersion.isFree} bad={!f.freeVersion.isFree} label={f.freeVersion.isFree ? "Free version exists" : "No free version"} />}
                               {f.freeRoute === "none" && !(f.adobe === "yes" || /^Adobe font installed as files/.test(f.note || "")) && (
                                 <span className="text-zinc-500">
@@ -959,7 +959,6 @@ function EmailCard({ e, open, toggle, result, client }) {
               </>
             ) : <span className="text-amber-700">No client matched to {e.site}. Add the website to the client in Settings → Clients.</span>}
           </div>
-          <p className="mb-2 text-[11px] text-zinc-500"><span className="rounded bg-orange-100 px-1 text-orange-900">Orange text</span> is specific to this site. Click it to edit; changes are saved and included when you copy or open in Outlook.</p>
           <div className="whitespace-pre-wrap rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm leading-relaxed text-zinc-800">
             {e.segments.map((seg, i) => typeof seg === "string"
               ? <span key={i}>{seg}</span>

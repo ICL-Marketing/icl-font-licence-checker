@@ -1,4 +1,4 @@
-import { pingStore } from "@/lib/store";
+import { pingStore, storeVarsSeen } from "@/lib/store";
 import { isConfigured } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -7,5 +7,5 @@ export const dynamic = "force-dynamic";
 // login (CHECKER_PASSWORD) and the shared store (Upstash Redis via Vercel).
 export async function GET() {
   const store = await pingStore();
-  return Response.json({ login: isConfigured(), store });
+  return Response.json({ login: isConfigured(), store: { ...store, vars: storeVarsSeen() } });
 }

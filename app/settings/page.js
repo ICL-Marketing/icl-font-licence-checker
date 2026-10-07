@@ -189,8 +189,15 @@ function StatusPanel({ status }) {
               <li>Connect it to this project (all environments). Vercel adds <code>KV_REST_API_URL</code> and <code>KV_REST_API_TOKEN</code> automatically.</li>
             </>)}
             {!status.login && <li>Project → <b>Settings</b> → <b>Environment Variables</b>: add <code>CHECKER_PASSWORD</code> with the password the team will share.</li>}
-            <li>Deployments → <b>Redeploy</b> the latest deployment, then reload this page.</li>
+            <li>Deployments → <b>Redeploy</b> the latest deployment (a new deployment is needed before it can see new variables), then reload this page.</li>
           </ol>
+          {!storeOk && (
+            <p className="mt-2 text-xs">
+              {st.vars?.length
+                ? <>Storage variables this deployment can see: <code>{st.vars.join(", ")}</code>. {st.configured ? "" : "None of these is a REST URL + token pair, so the store was probably created as a different type (it needs an Upstash Redis store, which gives a REST URL and token)."}</>
+                : "This deployment can't see any storage variables yet. If the store is connected in Vercel, it was connected after this deployment was built: redeploy."}
+            </p>
+          )}
           <p className="mt-2 text-xs">Scans already in this browser are uploaded to the shared store the first time the checker loads after connecting.</p>
         </div>
       )}
