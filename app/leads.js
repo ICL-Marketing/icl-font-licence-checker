@@ -37,6 +37,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       let local = load();
       if (!local) { local = Object.fromEntries(SEED.map((l) => [l.id, l])); save(local); }
       for (const l of Object.values(local)) if (l.email && !l.email.includes("\n\n")) l.email = l.email.trim().replace(/\n+/g, "\n\n"); // paragraph spacing for older drafts
+      // Open leads with no verified email address are parked, whatever column they were in.
+      for (const l of Object.values(local)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried || l.status === "no-contact") && ["new", "qualified", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); }
       // One-off: every lead imported from the Client Matrix sheet was closed as Lost (7 Oct 2026).
       for (const l of Object.values(local)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); }
       leadsRef.current = local;
@@ -47,6 +49,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         const next = { ...local };
         for (const [id, l] of Object.entries(j.results || {})) { if (!next[id] || String(l.updatedAt || "") >= String(next[id].updatedAt || "")) next[id] = l; }
         for (const l of Object.values(next)) if (l.email && !l.email.includes("\n\n")) l.email = l.email.trim().replace(/\n+/g, "\n\n");
+        for (const l of Object.values(next)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried || l.status === "no-contact") && ["new", "qualified", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         save(next);
         leadsRef.current = next;
@@ -157,7 +160,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       const best = r.people.find((p) => p.email) || null; const generic = r.channels.find((c) => c.kind === "email");
       const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, checking: false, error: r.people.length ? "" : "No named people found; the Companies House directors need the API key, and the site has no team page." };
       if (!l.emailAddress && (best || generic)) { f.emailAddress = best ? best.email : generic.value; if (best && !l.contactName) f.contactName = best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; }
-      if (["qualified", "no-contact"].includes(l.status) || (l.status === "not-pursuing" && l.contactUnverified)) { if (f.emailAddress || l.emailAddress) { f.status = "qualified"; f.contactUnverified = false; } else { f.status = "not-pursuing"; f.contactUnverified = true; } }
+      if (["new", "qualified", "no-contact"].includes(l.status) || (l.status === "not-pursuing" && l.contactUnverified)) { if (f.emailAddress || l.emailAddress) { f.status = l.status === "new" ? "new" : (l.likelihood === "Low" ? "new" : "qualified"); f.contactUnverified = false; } else { f.status = "not-pursuing"; f.contactUnverified = true; } }
       update(l.id, f);
     }
     catch (e) { update(l.id, { checking: false, error: e.message }); }
@@ -203,7 +206,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           const generic = r.channels.find((c) => c.kind === "email");
           if (!cur.emailAddress && (best || generic)) { f.emailAddress = best ? best.email : generic.value; if (best && !cur.contactName) f.contactName = best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; }
           const email = f.emailAddress || cur.emailAddress;
-          if (["qualified", "no-contact"].includes(cur.status)) { if (email) { f.status = "qualified"; f.contactUnverified = false; } else { f.status = "not-pursuing"; f.contactUnverified = true; } }
+          if (["new", "qualified", "no-contact"].includes(cur.status)) { if (email) { f.status = cur.status === "new" ? "new" : "qualified"; f.contactUnverified = false; } else { f.status = "not-pursuing"; f.contactUnverified = true; } }
           update(l.id, f);
         } catch { update(l.id, { contactsTried: true }); }
       }
@@ -394,7 +397,7 @@ function pickPerson(l, p, onChange) {
   const email = p.email || p.emailGuess || l.emailAddress || "";
   const body = String(l.email || "").replace(/^Hi( there| [A-Z][a-z'’-]+)?,/, `Hi ${first},`);
   const verified = !!p.email;
-  onChange({ emailAddress: email, contactName: first, email: body, ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && verified ? { status: "qualified", contactUnverified: false } : {}) });
+  onChange({ emailAddress: email, contactName: first, email: body, ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && verified ? { status: l.likelihood === "Low" ? "new" : "qualified", contactUnverified: false } : {}) });
 }
 
 function Contacts({ l, onChange, onContacts }) {
@@ -589,7 +592,7 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onS
             </div>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">To</div>
-                <input value={l.emailAddress || ""} onChange={(e) => onChange({ emailAddress: e.target.value, ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && e.target.value.trim() ? { status: "qualified", contactUnverified: false } : {}) })} placeholder={l.emailNote || "email address"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
+                <input value={l.emailAddress || ""} onChange={(e) => onChange({ emailAddress: e.target.value, ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && e.target.value.trim() ? { status: l.likelihood === "Low" ? "new" : "qualified", contactUnverified: false } : {}) })} placeholder={l.emailNote || "email address"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
               <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact first name</div>
                 <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value })} placeholder="Used for “Hi Steve,”" className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
             </div>
