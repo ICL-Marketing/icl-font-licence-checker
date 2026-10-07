@@ -3,7 +3,7 @@ import { storeConfigured, getResults, setResult, deleteResult, clearResults } fr
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const KINDS = ["fonts", "images", "launch", "post", "design"];
+const KINDS = ["fonts", "images", "launch", "post", "design", "leads"];
 
 // Shared scan results. GET ?kind=… returns {site: data}. POST {kind, site, data} saves one site;
 // DELETE {kind, site} removes one, DELETE {kind} clears the kind.

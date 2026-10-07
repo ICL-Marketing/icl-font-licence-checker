@@ -7,6 +7,7 @@ import { pullSetting, pushSetting } from "@/app/shared";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon } from "@/app/icons";
 import LaunchArea from "@/app/launch";
 import DesignArea from "@/app/design";
+import LeadsArea from "@/app/leads";
 import { DEFAULT_SITES } from "@/data/sites";
 import { loadClients } from "@/app/clients";
 import { scanFonts as scanFontsShared, scanImages as scanImagesShared } from "@/app/scans";
@@ -63,8 +64,10 @@ export default function Home() {
   const [postCount, setPostCount] = useState(0);
   const [designCount, setDesignCount] = useState(0);
   const [designRunning, setDesignRunning] = useState(false);
+  const [leadsCount, setLeadsCount] = useState(0);
+  const [leadsRunning, setLeadsRunning] = useState(false);
   const [area, setAreaState] = useState("launch"); // "design" | "launch" | "post" | "fonts" | "images"
-  const TAB_SLUG = { design: "design", fonts: "fonts", images: "images", launch: "launch", post: "post-launch" };
+  const TAB_SLUG = { design: "design", fonts: "fonts", images: "images", launch: "launch", post: "post-launch", leads: "leads" };
   const setArea = (id) => {
     setAreaState(id);
     try { const u = new URL(window.location.href); u.searchParams.set("tab", TAB_SLUG[id]); const sel = selected[id]; if (sel) u.searchParams.set("site", sel); else u.searchParams.delete("site"); window.history.replaceState(null, "", u.search); } catch {}
@@ -355,26 +358,28 @@ export default function Home() {
         </Link>
       </header>
 
-      <nav className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5 rounded-xl bg-zinc-200/70 p-1 sm:inline-grid sm:w-auto" aria-label="Licence area">
+      <nav className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 rounded-xl bg-zinc-200/70 p-1 sm:inline-grid sm:w-auto" aria-label="Licence area">
         {[["design", "Design Checks", designCount || null],
           ["launch", "Launch Checks", launchCount || null],
           ["post", "Post Launch Checks", postCount || null],
           ["fonts", "Font Licenses", fontRows.length ? fontCounts.PROBLEM + fontCounts.CHECK : null],
-          ["images", "Image Licenses", imgRows.length ? imgPaidSites : null]].map(([id, label, n]) => (
+          ["images", "Image Licenses", imgRows.length ? imgPaidSites : null],
+          ["leads", "Website Leads", leadsCount || null]].map(([id, label, n]) => (
           <button key={id} onClick={() => setArea(id)} aria-current={area === id ? "page" : undefined}
             className={`rounded-lg px-4 py-2 text-sm font-semibold ${area === id ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"}`}>
             {label}{n != null && <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] text-zinc-700">{n}</span>}
-            {(running === id || (id === "launch" && launchRunning) || (id === "post" && postRunning) || (id === "design" && designRunning)) && <span className="ml-2 inline-block align-middle text-blue-600" title="Scanning"><SpinnerIcon /></span>}
+            {(running === id || (id === "launch" && launchRunning) || (id === "post" && postRunning) || (id === "design" && designRunning) || (id === "leads" && leadsRunning)) && <span className="ml-2 inline-block align-middle text-blue-600" title="Scanning"><SpinnerIcon /></span>}
           </button>
         ))}
       </nav>
 
       {/* All areas stay mounted so a running scan carries on when you switch tabs. */}
       <section className={`mt-5 ${area === "design" ? "" : "hidden"}`}><DesignArea onRunning={setDesignRunning} onCount={setDesignCount} /></section>
+      <section className={`mt-5 ${area === "leads" ? "" : "hidden"}`}><LeadsArea onRunning={setLeadsRunning} onCount={setLeadsCount} clients={clients} /></section>
       <section className={`mt-5 ${area === "launch" ? "" : "hidden"}`}><LaunchArea post={post} mode="launch" onRunning={setLaunchRunning} onCount={setLaunchCount} onSiteResult={patch} siteResults={results} /></section>
       <section className={`mt-5 ${area === "post" ? "" : "hidden"}`}><LaunchArea post={post} mode="post" onRunning={setPostRunning} onCount={setPostCount} onSiteResult={patch} siteResults={results} /></section>
 
-      <div className={area !== "launch" && area !== "post" && area !== "design" ? "" : "hidden"}>
+      <div className={area !== "launch" && area !== "post" && area !== "design" && area !== "leads" ? "" : "hidden"}>
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
         <button onClick={() => setShowList((v) => !v)} className="flex w-full items-center justify-between text-left text-sm font-medium">
           <span>Sites to check ({sites.length})</span>

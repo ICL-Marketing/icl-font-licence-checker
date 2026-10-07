@@ -37,6 +37,7 @@ inside the PHP max execution time.
 | `GET/POST /api/settings?key=marker\|email-edits` | | shared Marker.io project links and edited email wording | `lib/store.js` `getSetting/setSetting` (one JSON column per key) |
 | `GET/POST /api/design` | | Figma design accessibility checks (steps start/frames) | `lib/figma.js` (REST API, FIGMA_TOKEN) |
 | `GET /api/thumb?u=` | | thumbnail proxy for image findings | sharp |
+| `GET/POST /api/leads` | | website leads: Companies House search, per-company enrichment, website recheck | `lib/leads.js` (COMPANIES_HOUSE_API_KEY; iXBRL parsing) |
 | `GET /api/status` | | is the login set and the store reachable | `lib/store.js` `pingStore`, `lib/auth.js` |
 | `GET/POST /api/clients` | | shared client list (name, websites, account manager, contacts, emails) | `lib/clients.js`, `data/clients.json` (seed from the Web Clients sheet) |
 | `POST/PUT /api/clients/file` | `.xlsx` upload / `{clients}` | client rows / `.xlsx` download | `app/api/clients/file/route.js` (ExcelJS → PhpSpreadsheet) |

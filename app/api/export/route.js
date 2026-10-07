@@ -218,6 +218,24 @@ export async function POST(request) {
     }
   }
 
+  if (kind === "leads") {
+    // ---- Website leads, same columns as the Client Matrix sheet.
+    const STATUS = { new: "New", qualified: "Not contacted", contacted: "Contacted", replied: "Replied", meeting: "Meeting", won: "Won", lost: "Lost", "not-pursuing": "Not pursuing" };
+    const rows = (results || []).map((l) => ({
+      business: l.business, area: l.area, website: l.website, problem: l.problem, problemDetail: l.problemDetail, companyNumber: l.companyNumber,
+      netAssets: l.netAssets ?? "", reChange: l.reChange ?? "", likelihood: l.likelihood, likelihoodWhy: l.likelihoodWhy, background: l.background, pitch: l.pitch,
+      caveats: l.caveats, status: STATUS[l.status] || l.status, notes: l.notes || "", email: l.email ? `Subject: ${l.subject || ""}\n${l.email}` : "", emailAddress: l.emailAddress || l.emailNote || "",
+    }));
+    sheet(wb, "Qualified Leads", [
+      { header: "Business", key: "business", width: 32 }, { header: "Area", key: "area", width: 16 }, { header: "Website", key: "website", width: 28 },
+      { header: "Web presence", key: "problem", width: 16 }, { header: "Problem detail", key: "problemDetail", width: 36 }, { header: "CH #", key: "companyNumber", width: 10 },
+      { header: "Net assets (£)", key: "netAssets", width: 14 }, { header: "RE change (£)", key: "reChange", width: 14 }, { header: "Likelihood", key: "likelihood", width: 11 },
+      { header: "Likelihood rationale", key: "likelihoodWhy", width: 44 }, { header: "Background", key: "background", width: 36 }, { header: "Pitch angle", key: "pitch", width: 40 },
+      { header: "Caveats", key: "caveats", width: 30 }, { header: "Status", key: "status", width: 14 }, { header: "Notes / next action", key: "notes", width: 36 },
+      { header: "Outreach Email Drafted", key: "email", width: 70 }, { header: "Email Address", key: "emailAddress", width: 32 },
+    ], rows);
+  }
+
   if (kind === "client-images") {
     // ---- One client's stock images, written for the client to fill in and send back.
     const r = results[0] || {};
@@ -266,7 +284,7 @@ export async function POST(request) {
   }
 
   const buf = await wb.xlsx.writeBuffer();
-  const file = kind === "client-images" ? `stock-images-${String(results[0]?.site || "site").replace(/[^a-z0-9.-]/gi, "")}-${today}.xlsx` : kind === "launch" ? `launch-checklist-${String(launch?.site || "site").replace(/[^a-z0-9.-]/gi, "")}-${today}.xlsx` : kind === "images" ? `stock-image-licence-tasks-${today}.xlsx` : `font-licence-tasks-${today}.xlsx`;
+  const file = kind === "leads" ? `website-leads-${today}.xlsx` : kind === "client-images" ? `stock-images-${String(results[0]?.site || "site").replace(/[^a-z0-9.-]/gi, "")}-${today}.xlsx` : kind === "launch" ? `launch-checklist-${String(launch?.site || "site").replace(/[^a-z0-9.-]/gi, "")}-${today}.xlsx` : kind === "images" ? `stock-image-licence-tasks-${today}.xlsx` : `font-licence-tasks-${today}.xlsx`;
   return new Response(buf, {
     headers: {
       "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

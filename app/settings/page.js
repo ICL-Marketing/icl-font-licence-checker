@@ -139,6 +139,21 @@ export default function Settings() {
             </section>
           )}
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+            <h2 className="font-semibold">Companies House</h2>
+            <p className="mb-3 text-sm text-zinc-500">Lets Website Leads find local companies and read net assets from their accounts. Free.</p>
+            {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.companiesHouse
+              ? <StatusRow ok label="API key set" detail="press Find leads on the Website Leads tab" />
+              : <>
+                  <StatusRow ok={false} label="API key not set" detail="Website Leads can't search yet" />
+                  <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-700">
+                    <li>Go to <a href="https://developer.company-information.service.gov.uk/" target="_blank" rel="noreferrer" className="text-blue-700 underline">developer.company-information.service.gov.uk</a> and sign in (or register, it is free).</li>
+                    <li><b>Your applications</b> → <b>Create an application</b> (name: ICL Website Checker, environment: Live) → <b>Create new key</b> → type <b>REST</b>. Copy the key.</li>
+                    <li>In Vercel: project → Settings → Environment Variables → add <code>COMPANIES_HOUSE_API_KEY</code>.</li>
+                    <li>Deployments → <b>Redeploy</b>, then reload this page.</li>
+                  </ol>
+                </>}
+          </section>
+          <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
             <h2 className="font-semibold">Figma</h2>
             <p className="mb-3 text-sm text-zinc-500">Lets Design Checks read Figma files for accessibility problems before they are coded.</p>
             {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.figma

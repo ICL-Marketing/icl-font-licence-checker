@@ -202,6 +202,19 @@ function DesignCard({ r, open, toggle, running, busy, onRescan, onResume, onRemo
     </div>
   );
 }
+// One line per rule with every layer it applies to, so 7 tight paragraphs read as one item.
+function groupFindings(findings) {
+  const groups = new Map();
+  for (const f of findings) {
+    const rule = f.rule || f.text; // older results have text only
+    const k = `${f.level}|${f.id}|${rule}`;
+    if (!groups.has(k)) groups.set(k, { level: f.level, id: f.id, rule, items: [] });
+    const g = groups.get(k);
+    const node = f.node || "";
+    if (!g.items.some((x) => x.href === f.href && x.node === node)) g.items.push({ node: node || "Layer", detail: f.detail, href: f.href });
+  }
+  return [...groups.values()];
+}
 const score = (s) => (s.findings || []).reduce((n, f) => n + (f.level === "fail" ? 100 : f.level === "warn" ? 10 : 1), 0);
 
 function ScreenRow({ s }) {
@@ -214,7 +227,7 @@ function ScreenRow({ s }) {
   for (const f of findings) byCheck[f.id] = (byCheck[f.id] || 0) + 1;
   const tone = fails ? LEVEL.fail : warns ? LEVEL.warn : findings.length ? LEVEL.check : { ring: "border-green-200 bg-green-50", text: "text-green-700" };
   async function copy() {
-    const text = `${s.name}\n${findings.map((f, i) => `${i + 1}. [${LEVEL[f.level].label}] ${f.text}\n   ${f.href}`).join("\n")}`;
+    const text = `${s.name}\n${groupFindings(findings).map((g, i) => `${i + 1}. [${LEVEL[g.level].label}] ${g.rule}\n${g.items.map((f) => `   - ${f.node}${f.detail ? ` (${f.detail})` : ""}: ${f.href}`).join("\n")}`).join("\n")}`;
     try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
   }
   return (
@@ -235,11 +248,17 @@ function ScreenRow({ s }) {
         </div>
       )}
       {show && (
-        <ol className="mt-2 list-decimal space-y-1 rounded-md bg-white/70 py-2 pl-7 pr-3 text-sm">
-          {findings.map((f, i) => (
+        <ol className="mt-2 list-decimal space-y-2 rounded-md bg-white/70 py-2 pl-7 pr-3 text-sm">
+          {groupFindings(findings).map((g, i) => (
             <li key={i} className="pl-1">
-              <span className={`mr-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-white ${LEVEL[f.level].chip}`}>{LEVEL[f.level].label}</span>
-              {f.text} <a href={f.href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-blue-700 underline">Open in Figma <ExternalIcon /></a>
+              <span className={`mr-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-white ${LEVEL[g.level].chip}`}>{LEVEL[g.level].label}</span>
+              {g.rule}
+              <span className="ml-1 text-xs text-zinc-500">{g.items.length} layer{g.items.length === 1 ? "" : "s"}</span>
+              <ul className="mt-1 flex flex-wrap gap-1">
+                {g.items.map((f, j) => (
+                  <li key={j}><a href={f.href} target="_blank" rel="noreferrer" title="Open in Figma" className="inline-flex max-w-sm items-center gap-1 rounded border border-zinc-200 bg-white px-1.5 py-0.5 text-xs text-blue-700 hover:border-blue-400"><span className="truncate">{f.node}</span>{f.detail ? <span className="shrink-0 text-zinc-500">· {f.detail}</span> : null}<span className="shrink-0"><ExternalIcon /></span></a></li>
+                ))}
+              </ul>
             </li>
           ))}
         </ol>
