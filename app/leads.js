@@ -687,7 +687,7 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, onClose, onChange, onRem
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
               {l.problem && <span className={`rounded-full px-2 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
               <span className="inline-flex items-center gap-1">
-                <input value={l.website || ""} onChange={(e) => onChange({ website: e.target.value.trim(), websiteConfirmed: true, siteUrl: "" })} placeholder="website (type to correct)" title="Correct the website here; a corrected website is kept on rescan" className="w-44 rounded border border-transparent px-1 text-xs text-blue-700 hover:border-zinc-300 focus:border-zinc-400" />
+                <input value={l.website || ""} onChange={(e) => onChange({ website: e.target.value.trim(), websiteConfirmed: true, siteUrl: "" })} placeholder="website (type to correct)" title="Correct the website here; a corrected website is kept on rescan" size={Math.max(8, (l.website || "").length + 1)} className="rounded border border-transparent px-1 text-xs text-blue-700 hover:border-zinc-300 focus:border-zinc-400" />
                 {site && <a href={site} target="_blank" rel="noreferrer" aria-label="Open website" className="text-blue-700"><ExternalIcon /></a>}
               </span>
               {l.companyNumber && <a href={`https://find-and-update.company-information.service.gov.uk/company/${l.companyNumber}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700 underline">Companies House {l.companyNumber} <ExternalIcon /></a>}
