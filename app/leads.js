@@ -725,7 +725,7 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, onClos
                   {l.licence.fonts.length > 0 && <ul className="mt-1 space-y-0.5">{l.licence.fonts.map((f, n) => <li key={n} className="text-xs"><span className="rounded bg-purple-100 px-1.5 py-0.5 font-semibold text-purple-800">{f.label}</span> {f.family} <span className="text-zinc-500">· {f.detail}</span></li>)}</ul>}
                   {(l.licence.possibleImages?.length > 0 || l.licence.possibleFonts?.length > 0) && (
                     <div className="mt-2 border-t border-zinc-100 pt-2">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Worth a look (not certain, not in the email)</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Worth a look (not certain; raised carefully in the email)</div>
                       <ul className="mt-1 space-y-0.5">
                         {(l.licence.possibleImages || []).map((i, n) => <li key={`i${n}`} className="text-xs"><span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">{i.library}</span> <a href={i.url} target="_blank" rel="noreferrer" className="text-blue-700 underline">{i.url.split("/").pop()}</a> <span className="text-zinc-500">· {i.detail}</span></li>)}
                         {(l.licence.possibleFonts || []).map((f, n) => <li key={`f${n}`} className="text-xs"><span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">{f.label}</span> {f.family}{f.detail && <span className="text-zinc-500"> · {f.detail}</span>}</li>)}
