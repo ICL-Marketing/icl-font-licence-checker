@@ -222,7 +222,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   async function findContacts(l) {
     update(l.id, { checking: true, error: "" });
     try {
-      const r = await post({ step: "contacts", lead: l, useHunter: true });
+      const r = await post({ step: "contacts", lead: l, useHunter: !l.hunterTried });
       const best = r.people.find((p) => p.email) || null; const generic = r.channels.find((c) => c.kind === "email");
       const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: l.hunterTried || r.hunterUsed, checking: false, error: r.people.length ? "" : "No named people found; the Companies House directors need the API key, and the site has no team page." };
       if (!l.emailAddress && (best || generic)) { f.emailAddress = best ? best.email : generic.value; if (best && !l.contactName) f.contactName = best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; }
@@ -450,7 +450,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       <Board leads={visible} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status }); }} />
 
-      {current && <LeadDrawer l={current} followUp={followUp} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onSeo={() => checkSeo(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
+      {current && <LeadDrawer l={current} followUp={followUp} hunterOn={!!cfg?.hunter} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onSeo={() => checkSeo(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
   );
 }
@@ -554,14 +554,14 @@ function pickPerson(l, p, onChange) {
   onChange({ emailAddress: email, contactName: first, email: body, ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && verified ? { status: l.likelihood === "Low" ? "new" : "qualified", contactUnverified: false } : {}) });
 }
 
-function Contacts({ l, onChange, onContacts }) {
+function Contacts({ l, onChange, onContacts, cfgHunter = false }) {
   const people = l.contacts || [];
   const channels = l.channels || [];
   return (
     <div className="rounded-lg border border-zinc-200 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold">Who to contact</span>
-        <button onClick={onContacts} disabled={l.checking} title={l.emailAddress ? "Free routes only" : "Uses one Hunter credit if the site and Companies House give nothing"} className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {people.length ? "Look again" : "Find contacts"}{!l.emailAddress && !l.hunterTried ? " (1 Hunter credit)" : ""}</button>
+        <button onClick={onContacts} disabled={l.checking} title={l.emailAddress ? "Free routes only" : "Uses one Hunter credit if the site and Companies House give nothing"} className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {people.length ? "Look again" : "Find contacts"}{!l.emailAddress && !l.hunterTried && cfgHunter ? " (1 Hunter credit)" : l.hunterTried ? " (Hunter already used)" : ""}</button>
       </div>
       {!people.length && !channels.length && <p className="mt-2 text-xs text-zinc-500">Nothing found yet. Find contacts reads the directors and owners from Companies House and any named people on the website.</p>}
       {people.length > 0 && (
@@ -629,7 +629,7 @@ function FollowUp({ l, onChange }) {
   );
 }
 
-function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, onClose, onChange, onRemove, onRecheck, onContacts, onSeo, onLicence, onRefresh }) {
+function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, onClose, onChange, onRemove, onRecheck, onContacts, onSeo, onLicence, onRefresh }) {
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
@@ -738,7 +738,7 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, onClose, onChange, onRem
           {l.status === "contacted" && daysSince(l) >= followUp.chaseDays && <FollowUp l={l} onChange={onChange} />}
           {l.autoMoved && <p className="text-xs text-zinc-500">Moved automatically: {l.autoMoved}.</p>}
 
-          <Contacts l={l} onChange={onChange} onContacts={onContacts} />
+          <Contacts l={l} onChange={onChange} onContacts={onContacts} cfgHunter={hunterOn} />
 
           <div className="rounded-lg border border-zinc-200 p-3">
             <div className="flex flex-wrap items-center gap-2">
