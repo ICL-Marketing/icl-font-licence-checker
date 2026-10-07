@@ -54,7 +54,7 @@ export async function POST(request) {
     if (b.step === "seo") {
       const l = b.lead || {};
       if (!l.business) return Response.json({ error: "Needs a business name." }, { status: 400 });
-      const seo = await seoCheck({ business: l.business, website: l.website, area: l.area, sics: l.sics, companyNumber: l.companyNumber, rejectedSites: l.rejectedSites || [] });
+      const seo = await seoCheck({ business: l.business, website: l.website, area: l.area, sics: l.sics, companyNumber: l.companyNumber, rejectedSites: l.rejectedSites || [], siteText: `${l.title || ""} ${l.siteDescription || ""}` });
       const lead = { ...l, seo };
       // A current site that is not found for its own trade is a lead in itself: that is business going elsewhere.
       const trade = seo.searches.find((x) => x.kind === "trade" && !x.error);
