@@ -331,7 +331,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           </div>
         </div>
         {cfg?.brave && cfg.usage?.cap > 0 && (
-          <p className="mt-2 text-xs text-zinc-500">Web searches this month: <span className={cfg.usage.used >= cfg.usage.cap ? "font-semibold text-red-700" : "font-semibold"}>{cfg.usage.used}</span> of {cfg.usage.cap} (Brave free credit; the app stops at the cap so the card is never charged). Repeated searches like &quot;plumber Teddington&quot; are reused for 30 days and don&apos;t count twice.</p>
+          <p className="mt-2 text-xs text-zinc-500" title="Searches check where each lead ranks for its trade and town (the SEO point in the email) and find websites the name-guess misses. Two per lead; the app stops at the cap so the card is never charged.">Search credit used this month: <span className={cfg.usage.used >= cfg.usage.cap ? "font-semibold text-red-700" : "font-semibold"}>{cfg.usage.used}</span> of {cfg.usage.cap} searches, about {Math.max(0, Math.floor((cfg.usage.cap - cfg.usage.used) / 2))} more leads.</p>
         )}
         {run && (
           <div className="mt-3 text-sm">
