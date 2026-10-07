@@ -630,46 +630,6 @@ function FollowUp({ l, onChange }) {
   );
 }
 
-// Your own notes on the lead, newest last, as chat bubbles. Nothing here is generated.
-function DesignNotes({ l, onChange }) {
-  const [text, setText] = useState("");
-  const notes = [...(l.notes ? [{ at: l.addedAt || "", text: l.notes, legacy: true }] : []), ...(l.notesLog || [])];
-  function add() {
-    const t = text.trim();
-    if (!t) return;
-    onChange({ notesLog: [...(l.notesLog || []), { at: new Date().toISOString(), text: t }] });
-    setText("");
-  }
-  function removeAt(i) {
-    const n = notes[i];
-    if (n.legacy) onChange({ notes: "" });
-    else onChange({ notesLog: (l.notesLog || []).filter((x) => x !== n) });
-  }
-  return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
-      <div className="text-sm font-semibold">Design notes</div>
-      <div className="text-xs text-zinc-500">Your own observations and next actions. These are never generated.</div>
-      {notes.length > 0 && (
-        <ul className="mt-2 space-y-1.5">
-          {notes.map((n, i) => (
-            <li key={i} className="group flex items-end gap-2">
-              <div className="max-w-[85%] rounded-2xl rounded-bl-sm border border-amber-200 bg-white px-3 py-1.5 text-sm shadow-sm">
-                <div className="whitespace-pre-wrap">{n.text}</div>
-                {n.at && <div className="mt-0.5 text-[10px] text-zinc-400">{new Date(n.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</div>}
-              </div>
-              <button onClick={() => removeAt(i)} aria-label="Delete note" className="mb-1 rounded p-0.5 text-zinc-300 opacity-0 hover:text-red-600 group-hover:opacity-100"><TrashIcon className="h-3.5 w-3.5" /></button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <form onSubmit={(e) => { e.preventDefault(); add(); }} className="mt-2 flex gap-2">
-        <textarea value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); add(); } }} rows={1} placeholder="Add a note… (Enter to save, Shift+Enter for a new line)" className="min-w-0 flex-1 resize-none rounded-2xl border border-zinc-300 bg-white px-3 py-1.5 text-sm" />
-        <button type="submit" disabled={!text.trim()} className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">Add</button>
-      </form>
-    </div>
-  );
-}
-
 function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, onClose, onChange, onRemove, onRecheck, onContacts, onSeo, onLicence, onRefresh }) {
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
@@ -714,7 +674,6 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, onClose, onChange, onRem
             </div>
           )}
           {l.contactUnverified && l.status !== "not-pursuing" && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"><span className="font-semibold">Contact not verified.</span> No email address was found on their site or at Companies House. Add a verified address below, or pick a person with one, and it moves back to Qualified.</div>}
-          <DesignNotes l={l} onChange={onChange} />
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Field label="Likelihood"><select value={l.likelihood || ""} onChange={(e) => onChange({ likelihood: e.target.value })} className={`rounded px-1.5 py-0.5 text-sm font-semibold ${LIKELY[l.likelihood] || ""}`}><option value="">—</option><option>High</option><option>Medium</option><option>Low</option></select></Field>
             <Field label="Net assets">{money(l.netAssets)}</Field>
