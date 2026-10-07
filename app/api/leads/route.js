@@ -1,4 +1,4 @@
-import { searchUsage, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
+import { searchUsage, hunterUsage, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 50;
@@ -10,9 +10,10 @@ export async function GET(request) {
     try { const { searchVolumes, keywordsConfigured } = await import("@/lib/keywords"); if (!keywordsConfigured()) return Response.json({ ok: false, error: "Google Ads variables are not all set." }); const v = await searchVolumes([vq]); return Response.json({ ok: true, volume: v[vq.toLowerCase()] || 0 }); }
     catch (e) { return Response.json({ ok: false, error: String(e?.message || e) }); }
   }
-  let usage = { used: 0, cap: 0 };
+  let usage = { used: 0, cap: 0 }, hunter = { used: 0, cap: 0, configured: false };
   try { usage = await searchUsage(); } catch {}
-  return Response.json({ configured: leadsConfigured(), brave: Boolean(process.env.BRAVE_SEARCH_KEY || process.env.BRAVE_API_KEY), hunter: Boolean(process.env.HUNTER_API_KEY), usage, areas: Object.fromEntries(Object.entries(AREA_PRESETS).map(([k, v]) => [k, v.label])), sectors: Object.fromEntries(Object.entries(SECTOR_PRESETS).map(([k, v]) => [k, v.label])) });
+  try { hunter = await hunterUsage(); } catch {}
+  return Response.json({ configured: leadsConfigured(), brave: Boolean(process.env.BRAVE_SEARCH_KEY || process.env.BRAVE_API_KEY), hunter: Boolean(process.env.HUNTER_API_KEY), hunterUsage: hunter, usage, areas: Object.fromEntries(Object.entries(AREA_PRESETS).map(([k, v]) => [k, v.label])), sectors: Object.fromEntries(Object.entries(SECTOR_PRESETS).map(([k, v]) => [k, v.label])) });
 }
 
 // Steps, each one short request:
@@ -27,7 +28,7 @@ export async function POST(request) {
       const l = b.lead || {};
       if (!l.companyNumber && !l.website) return Response.json({ error: "Needs a company number or a website." }, { status: 400 });
       if (l.companyNumber && !leadsConfigured()) return Response.json({ error: "Companies House is not set up (Settings → Connections), so only the website can be searched." }, { status: 400 });
-      return Response.json(await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business }));
+      return Response.json(await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business, useHunter: !!b.useHunter }));
     }
     if (b.step === "refresh") {
       if (!b.lead?.business) return Response.json({ error: "lead required" }, { status: 400 });

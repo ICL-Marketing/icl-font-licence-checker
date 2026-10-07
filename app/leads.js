@@ -203,9 +203,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   async function findContacts(l) {
     update(l.id, { checking: true, error: "" });
     try {
-      const r = await post({ step: "contacts", lead: l });
+      const r = await post({ step: "contacts", lead: l, useHunter: true });
       const best = r.people.find((p) => p.email) || null; const generic = r.channels.find((c) => c.kind === "email");
-      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, contactsStamp: contactsStamp(cfg), checking: false, error: r.people.length ? "" : "No named people found; the Companies House directors need the API key, and the site has no team page." };
+      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: l.hunterTried || r.hunterUsed, checking: false, error: r.people.length ? "" : "No named people found; the Companies House directors need the API key, and the site has no team page." };
       if (!l.emailAddress && (best || generic)) { f.emailAddress = best ? best.email : generic.value; if (best && !l.contactName) f.contactName = best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; }
       if (["new", "qualified", "no-contact"].includes(l.status) || (l.status === "not-pursuing" && l.contactUnverified)) { if (f.emailAddress || l.emailAddress) { f.status = l.status === "new" ? "new" : (l.likelihood === "Low" ? "new" : "qualified"); f.contactUnverified = false; } else { f.contactUnverified = true; f.status = parkStatus(l); } }
       update(l.id, f);
@@ -245,16 +245,22 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   // Parked for "contact not verified": look for contacts again (new decoding, Hunter) and bring back any that now have an address.
   async function retryContacts(ids) {
     stopRef.current = false; onRunning?.(true); setPending(null);
+    // Most valuable first, so the Hunter credits go where they count: High before Medium before Low,
+    // bigger balance sheets first. Low leads get the free routes only.
+    const rank = { High: 0, Medium: 1, Low: 2 };
+    ids = ids.slice().sort((a, b) => { const x = leadsRef.current[a] || {}, y = leadsRef.current[b] || {}; return (rank[x.likelihood] ?? 3) - (rank[y.likelihood] ?? 3) || (y.netAssets || 0) - (x.netAssets || 0); });
     const st = { phase: "Looking for contacts again…", done: 0, total: ids.length, found: 0, errors: [] };
     setRun({ ...st });
     for (const id of ids) {
       if (stopRef.current) break;
       const l = leadsRef.current[id]; if (!l) { st.done++; continue; }
-      st.phase = `Contacts for ${l.business}…`; setRun({ ...st });
+      const useHunter = !!cfg?.hunter && l.likelihood !== "Low" && !l.hunterTried;
+      st.phase = `Contacts for ${l.business}${useHunter ? " (Hunter)" : ""}…`; setRun({ ...st });
       try {
-        const r = await post({ step: "contacts", lead: l });
+        const r = await post({ step: "contacts", lead: l, useHunter });
+        if (r.hunterNote && /cap reached|out of searches/i.test(r.hunterNote)) st.phase = "Hunter credits used up for this month; carrying on with the free routes only.";
         const best = r.people.find((p) => p.email) || null; const generic = r.channels.find((c) => c.kind === "email");
-        const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, contactsStamp: contactsStamp(cfg) };
+        const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: l.hunterTried || r.hunterUsed };
         if (best || generic) { f.emailAddress = best ? best.email : generic.value; if (best) f.contactName = l.contactName || best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; f.contactUnverified = false; f.status = l.likelihood === "Low" ? "new" : "qualified"; st.found++; }
         update(id, f);
       } catch (e) { if (stopRef.current) break; st.errors.push(`${l.business}: ${e.message}`); }
@@ -262,6 +268,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     }
     st.phase = stopRef.current ? "Stopped." : `Done: ${st.found} of ${st.done} now have a verified contact and are back on the board.`;
     setRun({ ...st }); onRunning?.(false);
+    fetch("/api/leads").then((r) => r.json()).then(setCfg).catch(() => {});
   }
   function continueScan() {
     const sc = pending || loadScan();
@@ -279,7 +286,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     (async () => {
       for (const l of todo) {
         try {
-          const r = await post({ step: "contacts", lead: l });
+          const r = await post({ step: "contacts", lead: l, useHunter: false });
           const cur = leadsRef.current[l.id]; if (!cur) continue;
           const best = r.people.find((p) => p.email) || null;
           const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, contactsStamp: contactsStamp(cfg) };
@@ -379,11 +386,14 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
               : <button onClick={() => findLeads()} disabled={cfg?.configured === false || (!areas.length && !place.trim()) || !sectors.length} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find leads</button>}
             <button onClick={() => refreshLeads(list.filter((l) => !["won", "lost", "not-pursuing"].includes(l.status)).map((l) => l.id))} disabled={running || !list.length} title="Re-run the website, search, accounts and contact checks on every open lead with the latest rules (Won, Lost and Not pursuing are skipped). Statuses and notes are kept." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Rescan all leads</button>
             {(() => { const due = list.filter((l) => (l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && l.contactsStamp !== contactsStamp(cfg)); return due.length > 0 && (
-              <button onClick={() => retryContacts(due.map((l) => l.id))} disabled={running} title="The contact finder has improved since these were parked (or Hunter.io was connected). Look again; any that now have an address come back to the board." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-900 hover:bg-red-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Retry contacts ({due.length})</button>
+              <button onClick={() => retryContacts(due.map((l) => l.id))} disabled={running} title="The contact finder has improved since these were parked (or Hunter.io was connected). Look again; any that now have an address come back to the board." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-900 hover:bg-red-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Retry contacts ({due.length}{cfg?.hunter ? `, ${due.filter((l) => l.likelihood !== "Low" && !l.hunterTried).length} via Hunter` : ""})</button>
             ); })()}
             <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
           </div>
         </div>
+        {cfg?.hunter && cfg.hunterUsage?.cap > 0 && (
+          <p className="mt-2 text-xs text-zinc-500" title="One Hunter credit per lead, spent only on Medium and High leads where the site and Companies House gave no address. Low leads and background lookups never use one.">Hunter credits used this month: <span className={cfg.hunterUsage.used >= cfg.hunterUsage.cap ? "font-semibold text-red-700" : "font-semibold"}>{cfg.hunterUsage.used}</span> of {cfg.hunterUsage.cap}. Spent only on Medium and High leads the free routes couldn&apos;t find an address for.</p>
+        )}
         {cfg?.brave && cfg.usage?.cap > 0 && (
           <p className="mt-2 text-xs text-zinc-500" title="Searches check where each lead ranks for its trade and town (the SEO point in the email) and find websites the name-guess misses. Two per lead; the app stops at the cap so the card is never charged.">Search credit used this month: <span className={cfg.usage.used >= cfg.usage.cap ? "font-semibold text-red-700" : "font-semibold"}>{cfg.usage.used}</span> of {cfg.usage.cap} searches, about {Math.max(0, Math.floor((cfg.usage.cap - cfg.usage.used) / 2))} more leads.</p>
         )}
@@ -515,7 +525,7 @@ function Contacts({ l, onChange, onContacts }) {
     <div className="rounded-lg border border-zinc-200 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold">Who to contact</span>
-        <button onClick={onContacts} disabled={l.checking} className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {people.length ? "Look again" : "Find contacts"}</button>
+        <button onClick={onContacts} disabled={l.checking} title={l.emailAddress ? "Free routes only" : "Uses one Hunter credit if the site and Companies House give nothing"} className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {people.length ? "Look again" : "Find contacts"}{!l.emailAddress && !l.hunterTried ? " (1 Hunter credit)" : ""}</button>
       </div>
       {!people.length && !channels.length && <p className="mt-2 text-xs text-zinc-500">Nothing found yet. Find contacts reads the directors and owners from Companies House and any named people on the website.</p>}
       {people.length > 0 && (
