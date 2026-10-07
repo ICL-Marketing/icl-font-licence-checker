@@ -11,6 +11,7 @@ export const ChevronDownIcon = I(<path d="M6 9l6 6 6-6" />);
 export const ChevronUpIcon = I(<path d="M6 15l6-6 6 6" />);
 export const CloseIcon = I(<><path d="M6 6l12 12" /><path d="M18 6L6 18" /></>);
 export const ExternalIcon = I(<><path d="M14 4h6v6" /><path d="M20 4l-9 9" /><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" /></>, "h-3.5 w-3.5");
+export const PinIcon = I(<><path d="M12 21s-6-5.33-6-10a6 6 0 1 1 12 0c0 4.67-6 10-6 10z" /><circle cx="12" cy="11" r="2.5" /></>, "h-3.5 w-3.5");
 export const CopyIcon = I(<><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a1 1 0 0 1 1-1h10" /></>, "h-3.5 w-3.5");
 export const FileIcon = I(<><path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8z" /><path d="M14 3v5h5" /></>);
 export const FlagIcon = I(<><path d="M5 21V4" /><path d="M5 4h12l-2 4 2 4H5" /></>, "h-3.5 w-3.5");
