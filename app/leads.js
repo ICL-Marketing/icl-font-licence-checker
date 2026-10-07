@@ -154,7 +154,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       const best = r.people.find((p) => p.email) || null; const generic = r.channels.find((c) => c.kind === "email");
       const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, contactsTried: true, checking: false, error: r.people.length ? "" : "No named people found; the Companies House directors need the API key, and the site has no team page." };
       if (!l.emailAddress && (best || generic)) { f.emailAddress = best ? best.email : generic.value; if (best && !l.contactName) f.contactName = best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; }
-      if (["qualified", "no-contact"].includes(l.status)) f.status = (f.emailAddress || l.emailAddress) ? "qualified" : "no-contact";
+      if (["qualified", "no-contact"].includes(l.status) || (l.status === "not-pursuing" && l.contactUnverified)) { if (f.emailAddress || l.emailAddress) { f.status = "qualified"; f.contactUnverified = false; } else { f.status = "not-pursuing"; f.contactUnverified = true; } }
       update(l.id, f);
     }
     catch (e) { update(l.id, { checking: false, error: e.message }); }
@@ -200,7 +200,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           const generic = r.channels.find((c) => c.kind === "email");
           if (!cur.emailAddress && (best || generic)) { f.emailAddress = best ? best.email : generic.value; if (best && !cur.contactName) f.contactName = best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; }
           const email = f.emailAddress || cur.emailAddress;
-          if (["qualified", "no-contact"].includes(cur.status)) f.status = email ? "qualified" : "no-contact";
+          if (["qualified", "no-contact"].includes(cur.status)) { if (email) { f.status = "qualified"; f.contactUnverified = false; } else { f.status = "not-pursuing"; f.contactUnverified = true; } }
           update(l.id, f);
         } catch { update(l.id, { contactsTried: true }); }
       }
@@ -351,21 +351,18 @@ function Board({ leads, selected, onToggle, onSelectColumn, onOpen, onMove }) {
             {c.items.map((l) => (
               <div key={l.id} draggable onDragStart={(e) => { e.dataTransfer.setData("text/lead", l.id); e.dataTransfer.effectAllowed = "move"; }} onClick={() => onOpen(l.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") onOpen(l.id); }}
                 className={`cursor-grab rounded-lg border bg-white p-2.5 text-left shadow-sm hover:border-zinc-400 active:cursor-grabbing ${selected.has(l.id) ? "border-blue-500 ring-1 ring-blue-300" : "border-zinc-200"}`}>
-                {l.likelihood && (
-                  <div className={`mb-1.5 -mx-2.5 -mt-2.5 rounded-t-lg px-2.5 py-1 text-[11px] leading-snug ${LIKELY[l.likelihood]}`}>
-                    <span className="font-semibold">{l.likelihood}</span>{l.likelihoodWhy ? <span>: {l.likelihoodWhy}</span> : null}
-                  </div>
-                )}
                 <div className="flex items-start gap-1.5">
                   <input type="checkbox" checked={selected.has(l.id)} onChange={() => onToggle(l.id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${l.business}`} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span className="flex-1 text-sm font-medium leading-tight">{l.business}</span>
+                  {l.likelihood && <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${LIKELY[l.likelihood]}`} title={l.likelihoodWhy || ""}>{l.likelihood}</span>}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
                   {l.problem && <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
+                  {l.contactUnverified && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
                   <span>{l.area}</span>
                   {l.netAssets != null && l.netAssets !== "" && <span>· {money(l.netAssets)}</span>}
                 </div>
-                {c.id === "not-pursuing" && l.caveats && <div className="mt-1 truncate text-[11px] text-zinc-500" title={l.caveats}>{l.caveats.split("; ").find((x) => /under £|already a client|current|dormant/i.test(x)) || l.caveats}</div>}
+                {c.id === "not-pursuing" && (l.caveats || l.contactUnverified) && <div className="mt-1 truncate text-[11px] text-zinc-500" title={l.caveats}>{l.contactUnverified ? "No verified email address" : l.caveats.split("; ").find((x) => /under £|already a client|current|dormant/i.test(x)) || l.caveats}</div>}
                 {l.checking && <div className="mt-1 text-[11px] text-blue-600">Checking…</div>}
               </div>
             ))}
@@ -393,7 +390,8 @@ function pickPerson(l, p, onChange) {
   const first = p.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0];
   const email = p.email || p.emailGuess || l.emailAddress || "";
   const body = String(l.email || "").replace(/^Hi( there| [A-Z][a-z'’-]+)?,/, `Hi ${first},`);
-  onChange({ emailAddress: email, contactName: first, email: body, ...(l.status === "no-contact" && email ? { status: "qualified" } : {}) });
+  const verified = !!p.email;
+  onChange({ emailAddress: email, contactName: first, email: body, ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && verified ? { status: "qualified", contactUnverified: false } : {}) });
 }
 
 function Contacts({ l, onChange, onContacts }) {
@@ -420,7 +418,7 @@ function Contacts({ l, onChange, onContacts }) {
                 <div className="text-xs text-zinc-500">{p.why}</div>
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
                   {p.email && <span className="text-green-800">{p.email} <span className="text-zinc-500">· {p.emailStatus}</span></span>}
-                  {!p.email && p.emailGuess && <span className="text-amber-800">{p.emailGuess} <span className="text-zinc-500">· {p.emailStatus}</span></span>}
+                  {!p.email && p.emailGuess && <span className="font-medium text-red-700">{p.emailGuess} <span className="font-normal text-red-600">· {p.emailStatus}</span></span>}
                   <a href={p.linkedinSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Find on LinkedIn</a>
                   <a href={p.googleSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Google</a>
                 </div>
@@ -516,6 +514,12 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onS
           <button onClick={onClose} aria-label="Close" className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900"><CloseIcon /></button>
         </div>
         <div className="space-y-4 px-5 py-4">
+          {l.likelihood && (
+            <div className={`rounded-lg px-3 py-2 text-sm ${LIKELY[l.likelihood]}`}>
+              <span className="font-semibold">{l.likelihood} likelihood</span>{l.likelihoodWhy ? <span>: {l.likelihoodWhy}</span> : null}
+            </div>
+          )}
+          {l.contactUnverified && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"><span className="font-semibold">Contact not verified.</span> No email address was found on their site or at Companies House, so this lead was parked. Add a verified address below and it moves back to Qualified.</div>}
           <DesignNotes l={l} onChange={onChange} />
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Field label="Likelihood"><select value={l.likelihood || ""} onChange={(e) => onChange({ likelihood: e.target.value })} className={`rounded px-1.5 py-0.5 text-sm font-semibold ${LIKELY[l.likelihood] || ""}`}><option value="">—</option><option>High</option><option>Medium</option><option>Low</option></select></Field>
@@ -582,7 +586,7 @@ function LeadDrawer({ l, onClose, onChange, onRemove, onRecheck, onContacts, onS
             </div>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">To</div>
-                <input value={l.emailAddress || ""} onChange={(e) => onChange({ emailAddress: e.target.value, ...(l.status === "no-contact" && e.target.value.trim() ? { status: "qualified" } : {}) })} placeholder={l.emailNote || "email address"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
+                <input value={l.emailAddress || ""} onChange={(e) => onChange({ emailAddress: e.target.value, ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && e.target.value.trim() ? { status: "qualified", contactUnverified: false } : {}) })} placeholder={l.emailNote || "email address"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
               <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact first name</div>
                 <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value })} placeholder="Used for “Hi Steve,”" className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
             </div>
