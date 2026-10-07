@@ -10,6 +10,12 @@ import SEED from "@/data/leads.json";
 // through Companies House and worked through a pipeline board.
 const KEY = "flc-leads-v1";
 const SCAN_KEY = "flc-leads-scan-v1"; // an interrupted scan, so it can be continued after a reload
+// Every company the finder has already checked, kept or discarded, so a new scan never
+// re-reads the same accounts and websites. Re-checked after SEEN_DAYS in case things changed.
+const SEEN_KEY = "flc-leads-seen-v1";
+const SEEN_DAYS = 90;
+const loadSeen = () => { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || "{}") || {}; } catch { return {}; } };
+const saveSeen = (v) => { try { localStorage.setItem(SEEN_KEY, JSON.stringify(v)); } catch {} };
 const loadScan = () => { try { return JSON.parse(localStorage.getItem(SCAN_KEY) || "null"); } catch { return null; } };
 const saveScan = (v) => { try { if (v) localStorage.setItem(SCAN_KEY, JSON.stringify(v)); else localStorage.removeItem(SCAN_KEY); } catch {} };
 const load = () => { try { const v = JSON.parse(localStorage.getItem(KEY) || "null"); return v && typeof v === "object" ? v : null; } catch { return null; } };
@@ -116,6 +122,17 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const openLeads = list.filter((l) => ["new", "qualified", "replied"].includes(l.status)).length;
   useEffect(() => { onCount?.(openLeads); }, [openLeads, onCount]);
 
+  // Seen registry: local copy merged with the team's, pushed after each scan.
+  const seenRef = useRef({});
+  useEffect(() => {
+    seenRef.current = loadSeen();
+    fetch("/api/settings?key=leads-seen").then((r) => r.json()).then((j) => { if (j.shared && j.value) { seenRef.current = { ...seenRef.current, ...j.value }; saveSeen(seenRef.current); } }).catch(() => {});
+  }, []);
+  useEffect(() => { for (const l of Object.values(leads)) if (l.companyNumber && !seenRef.current[l.companyNumber]) seenRef.current[l.companyNumber] = { at: (l.addedAt || new Date().toISOString()).slice(0, 10), outcome: l.status }; saveSeen(seenRef.current); }, [leads]);
+  const markSeen = (companyNumber, outcome) => { seenRef.current[companyNumber] = { at: new Date().toISOString().slice(0, 10), outcome }; saveSeen(seenRef.current); };
+  const pushSeen = () => fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "leads-seen", value: seenRef.current }) }).catch(() => {});
+  const seenRecently = (companyNumber) => { const v = seenRef.current[companyNumber]; return !!v && (Date.now() - new Date(v.at).getTime()) / 86400000 < SEEN_DAYS; };
+
   // Pages on icldigital.com the emails link to (shared setting, edited in Settings → Connections).
   const linksRef = useRef({});
   const [followUp, setFollowUp] = useState(FOLLOW_UP_DEFAULTS);
@@ -148,7 +165,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     onRunning?.(true);
     setPending(null);
     const places = place.trim() ? [place.trim()] : areas.flatMap((k) => PLACES[k] || []);
-    const known = new Set(Object.keys(leads));
+    const known = new Set(Object.keys(leadsRef.current));
+    let skipped = 0;
     const knownSites = clients.flatMap((c) => c.websites || []).map((w) => String(w).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""));
     const st = resume ? { phase: "Continuing…", done: resume.done || 0, total: resume.total || 0, found: resume.found || 0, errors: [] } : { phase: "Searching Companies House…", done: 0, total: 0, found: 0, errors: [] };
     const floor = resume ? resume.minAssets : minAssets;
@@ -161,9 +179,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           let start = 0;
           for (let page = 0; page < 5; page++) {
             let j; try { j = await post({ step: "search", place: pl, sectors, startIndex: start, areas: place.trim() ? [] : areas }); } catch (e) { if (stopRef.current) break; throw e; }
-            for (const c of j.candidates) if (!known.has(c.companyNumber)) { known.add(c.companyNumber); candidates.push(c); }
+            for (const c of j.candidates) { if (known.has(c.companyNumber)) continue; known.add(c.companyNumber); if (seenRecently(c.companyNumber)) { skipped++; continue; } candidates.push(c); }
             start += 100;
-            st.phase = `Searching ${pl}… ${candidates.length} candidates`; setRun({ ...st });
+            st.phase = `Searching ${pl}… ${candidates.length} new companies${skipped ? `, ${skipped} already checked` : ""}`; setRun({ ...st });
             if (start >= j.total || j.scanned < 100) break;
           }
         }
@@ -182,15 +200,16 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           // Last step, qualified leads only: web search for rank and competitors (spends search credit).
           if (!tooSmall && lead.problem && lead.status === "qualified") { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = r.lead; } catch {} }
           st.done++;
-          if (lead.problem && !tooSmall) { if (["new", "qualified"].includes(lead.status)) st.found++; else st.parked = (st.parked || 0) + 1; update(lead.id, lead); }
-          else if (lead.problem) { st.parked = (st.parked || 0) + 1; update(lead.id, { ...lead, status: "not-pursuing" }); }
-          // Current sites with no licence problems are not kept: nothing to pitch.
+          if (lead.problem && !tooSmall) { if (["new", "qualified"].includes(lead.status)) st.found++; else st.parked = (st.parked || 0) + 1; update(lead.id, lead); markSeen(c.companyNumber, lead.status); }
+          else if (lead.problem) { st.parked = (st.parked || 0) + 1; update(lead.id, { ...lead, status: "not-pursuing" }); markSeen(c.companyNumber, "too-small"); }
+          else markSeen(c.companyNumber, "site-fine"); // current site, nothing to pitch: not kept, but not checked again for a while either
         } catch (e) { if (stopRef.current) break; st.done++; st.errors.push(`${c.name}: ${e.message}`); }
         candidates = candidates.slice(1);
         setRun({ ...st });
       }
       if (candidates.length) saveScan({ kind: "find", queue: candidates, done: st.done, total: st.total, found: st.found, minAssets: floor }); else saveScan(null);
-      st.phase = stopRef.current ? `Stopped with ${candidates.length} companies still to check.` : `Done: ${st.found} new lead${st.found === 1 ? "" : "s"} from ${st.done} companies checked${st.parked ? `, ${st.parked} parked in Not pursuing (no verified contact, too small or already a client)` : ""}.`;
+      pushSeen();
+      st.phase = stopRef.current ? `Stopped with ${candidates.length} companies still to check.` : `Done: ${st.found} new lead${st.found === 1 ? "" : "s"} from ${st.done} companies checked${st.parked ? `, ${st.parked} parked` : ""}${skipped ? `, ${skipped} skipped as already checked in the last ${SEEN_DAYS} days` : ""}.`;
       setRun({ ...st });
       if (candidates.length) setPending(loadScan());
       fetch("/api/leads").then((r) => r.json()).then(setCfg).catch(() => {});
