@@ -94,8 +94,10 @@ export async function POST(request) {
     if (!leadsConfigured()) return Response.json({ error: "Companies House is not set up. Add COMPANIES_HOUSE_API_KEY in Vercel (free key from developer.company-information.service.gov.uk) and redeploy." }, { status: 400 });
     if (b.step === "search") {
       const place = String(b.place || "").slice(0, 60);
+      // No business-type filter: every active company in the place, then the usual sifting (holding and
+      // property shells, dormant, too young) before anything is enriched.
       const sics = [...new Set((Array.isArray(b.sectors) ? b.sectors : []).flatMap((k) => SECTOR_PRESETS[k]?.sics || []))];
-      if (!place || !sics.length) return Response.json({ error: "place and sectors required" }, { status: 400 });
+      if (!place) return Response.json({ error: "place required" }, { status: 400 });
       const { items, total } = await leadsSearch({ place, sics, startIndex: Number(b.startIndex) || 0, size: 100 });
       const minAge = Number(b.minAgeYears) || 2;
       const postcodes = [...new Set((Array.isArray(b.areas) ? b.areas : []).flatMap((k) => AREA_PRESETS[k]?.postcodes || []))];
