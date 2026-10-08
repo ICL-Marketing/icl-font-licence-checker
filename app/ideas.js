@@ -207,12 +207,14 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   }, [clients]);
 
   const running = !!run && !/^(Done|Stopped)/.test(run.phase);
-  const cards = Object.values(recs).flatMap((r) => (r.ideas || []).map((i) => ({ ...i, recId: r.id, client: r.name, website: r.website, manager: r.manager })));
+  // Ideas for a client deleted in Settings drop out of view (the record is kept in case the client is re-added).
+  const liveRecs = clients.length ? Object.values(recs).filter((r) => clients.some((c) => c.id === r.clientId || (!r.clientId && c.name === r.name))) : Object.values(recs);
+  const cards = liveRecs.flatMap((r) => (r.ideas || []).map((i) => ({ ...i, recId: r.id, client: r.name, website: r.website, manager: r.manager })));
   const q = filter.trim().toLowerCase();
   const shown = cards.filter((c) => (!kind || c.kind === kind) && (!q || `${c.client} ${c.website} ${c.title} ${c.manager}`.toLowerCase().includes(q)));
   // Group by client for the monthly send-out.
   const byClient = new Map();
-  for (const r of Object.values(recs)) { const k = r.clientId || r.name; if (!byClient.has(k)) byClient.set(k, { clientId: r.clientId, name: r.name, manager: r.manager || "", recs: [] }); byClient.get(k).recs.push(r); }
+  for (const r of liveRecs) { const k = r.clientId || r.name; if (!byClient.has(k)) byClient.set(k, { clientId: r.clientId, name: r.name, manager: r.manager || "", recs: [] }); byClient.get(k).recs.push(r); }
   const groups = [...byClient.values()].map((g) => { const queue = clientQueue(g.recs); return { ...g, queue, top: topIdeas(queue.filter((i) => !badRuleKeys.has(i.key) && (service !== "★" || i.starred)), 50, service === "★" ? "" : service), pick: monthlyPick(queue, month) }; })
     .filter((g) => g.queue.length && (!manager || g.manager === manager) && (!q || `${g.name} ${g.manager} ${g.queue.map((i) => i.title).join(" ")}`.toLowerCase().includes(q)))
     .filter((g) => !service || g.top.length)
