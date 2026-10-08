@@ -520,11 +520,11 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
             <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
           </div>
         </div>
-        {cfg?.hunter && cfg.hunterUsage?.cap > 0 && (
-          <p className="mt-2 text-xs text-zinc-500" title="One Hunter credit per lead, spent only on High leads where the site and Companies House gave no address. Medium and Low leads and background lookups never use one.">Hunter.io credits used this month: <span className={cfg.hunterUsage.used >= cfg.hunterUsage.cap ? "font-semibold text-red-700" : "font-semibold"}>{cfg.hunterUsage.used}</span> of {cfg.hunterUsage.cap}. Spent only on High leads the free routes couldn&apos;t find an address for.</p>
-        )}
-        {cfg?.brave && cfg.usage?.cap > 0 && (
-          <p className="mt-2 text-xs text-zinc-500" title="Searches check where each lead ranks for its trade and town (the SEO point in the email) and find websites the name-guess misses. Two per lead; the app stops at the cap so the card is never charged.">Brave Search credit used this month: <span className={cfg.usage.used >= cfg.usage.cap ? "font-semibold text-red-700" : "font-semibold"}>{cfg.usage.used}</span> of {cfg.usage.cap} searches, about {Math.max(0, Math.floor((cfg.usage.cap - cfg.usage.used) / 2))} more leads.</p>
+        {((cfg?.hunter && cfg.hunterUsage?.cap > 0) || (cfg?.brave && cfg.usage?.cap > 0)) && (
+          <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
+            {cfg?.hunter && cfg.hunterUsage?.cap > 0 && <span title="One Hunter credit per lead, spent only on High leads where the site and Companies House gave no address, and only when Hunter holds named people. Medium and Low leads and background lookups never use one.">Hunter.io credits used this month: <span className={cfg.hunterUsage.used >= cfg.hunterUsage.cap ? "font-semibold text-red-700" : "font-semibold"}>{cfg.hunterUsage.used}</span> of {cfg.hunterUsage.cap}. Spent only on High leads the free routes couldn&apos;t find an address for.</span>}
+            {cfg?.brave && cfg.usage?.cap > 0 && <span title="One search per Medium or High lead: where they rank for their trade in their town (the search point in the email). The app stops at the cap so the card is never charged.">Brave Search credit used this month: <span className={cfg.usage.used >= cfg.usage.cap ? "font-semibold text-red-700" : "font-semibold"}>{cfg.usage.used}</span> of {cfg.usage.cap} searches, about {Math.max(0, cfg.usage.cap - cfg.usage.used)} more leads.</span>}
+          </p>
         )}
         {run && (
           <div className="mt-3 text-sm">
