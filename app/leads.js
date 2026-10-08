@@ -157,7 +157,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const selectIds = (ids, on) => setSelected((prev) => { const n = new Set(prev); for (const id of ids) { if (on) n.add(id); else n.delete(id); } return n; });
 
   const list = Object.values(leads);
-  const openLeads = list.filter((l) => ["new", "qualified", "replied"].includes(l.status)).length;
+  const openLeads = list.filter((l) => ["new", "qualified", "ready", "replied"].includes(l.status)).length;
   useEffect(() => { onCount?.(openLeads); }, [openLeads, onCount]);
 
   // Seen registry: local copy merged with the team's, pushed after each scan.
@@ -383,7 +383,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   // Emails written before the current wording get redrafted automatically on load.
   const redraftingRef = useRef(false);
   useEffect(() => {
-    const stale = Object.values(leads).filter((l) => l.problem && !l.emailEdited && !isFrozen(l) && (l.draftVersion || 0) < DRAFT_VERSION);
+    const stale = Object.values(leads).filter((l) => l.problem && !l.emailEdited && !isFrozen(l) && l.status !== "ready" && (l.draftVersion || 0) < DRAFT_VERSION);
     if (!stale.length || redraftingRef.current) return;
     redraftingRef.current = true;
     (async () => {
@@ -475,7 +475,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
             {running
               ? <button onClick={stopNow} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
               : <button onClick={() => findLeads()} disabled={cfg?.configured === false} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find leads</button>}
-            <button onClick={() => refreshLeads(list.filter((l) => !["won", "lost", "not-pursuing"].includes(l.status)).map((l) => l.id))} disabled={running || !list.length} title="Re-run the website, search, accounts and contact checks on every open lead with the latest rules (Won, Lost and Not pursuing are skipped). Statuses and notes are kept." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Rescan all leads</button>
+            <button onClick={() => refreshLeads(list.filter((l) => !["won", "lost", "not-pursuing", "ready"].includes(l.status)).map((l) => l.id))} disabled={running || !list.length} title="Re-run the website, search, accounts and contact checks on every open lead with the latest rules (Ready to send, Won, Lost and Not pursuing are skipped). Statuses and notes are kept." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Rescan all leads</button>
             {(() => { const due = list.filter((l) => !isFrozen(l) && (l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified && !contactExhausted(l))) && l.contactsStamp !== contactsStamp(cfg)); return due.length > 0 && (
               <button onClick={() => retryContacts(due.map((l) => l.id))} disabled={running} title="The contact finder has improved since these were parked (or Hunter.io was connected). Look again; any that now have an address come back to the board." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-900 hover:bg-red-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Retry contacts ({due.length}{(() => { const h = cfg?.hunter ? due.filter((l) => l.likelihood === "High" && !l.hunterTried && l.website).length : 0; return h ? `, ${h} High via Hunter` : ""; })()})</button>
             ); })()}
