@@ -242,14 +242,13 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
                   {it ? (
                     <button onClick={() => setOpen({ id: it.recId, key: it.key })} className="min-w-0 flex-1 text-left">
                       <div className="flex flex-wrap items-center gap-1.5 text-sm"><span className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold text-white ${IDEA_KINDS[it.kind]?.tone || "bg-zinc-500"}`}>{IDEA_KINDS[it.kind]?.label}</span>{it.ai && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[11px] font-semibold text-violet-800">AI</span>}<span className="font-medium text-zinc-900">{it.title}</span></div>
-                      <div className="mt-0.5 truncate text-xs text-zinc-500">{it.subject} · {String(it.email || "").split("\n")[0]}</div>
                     </button>
                   ) : <div className="flex-1 text-sm text-zinc-500">Queue empty: research this client again for new ideas.</div>}
                   <div className="flex shrink-0 items-center gap-2 text-xs">
                     {g.pick.sent
                       ? <><span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800">Sent {new Date(g.pick.sent.sentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span><button onClick={() => undoSent(g.pick.sent.recId, g.pick.sent.key)} className="text-zinc-400 underline hover:text-zinc-700">Undo</button></>
                       : it && <>
-                        <button onClick={() => setOpen({ id: it.recId, key: it.key })} className="rounded-md border border-zinc-300 bg-white px-2.5 py-1 hover:bg-zinc-100">Open email</button>
+                        {(() => { const r = g.recs.find((x) => x.id === it.recId) || g.recs[0]; const to = (r?.emails || [])[0] || ""; const href = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(to)}&subject=${encodeURIComponent(it.subject || "")}&body=${encodeURIComponent(ideaEmail(r, it, to))}`; return <a href={href} target="_blank" rel="noopener" title={to ? `Opens Outlook with the email to ${to} filled in` : "No email for this client in Settings; Outlook opens with the To field empty"} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 hover:bg-zinc-100"><MailIcon className="h-3.5 w-3.5" /> Open in Outlook</a>; })()}
                         <button onClick={() => markSent(it.recId, it.key)} className="rounded-md bg-emerald-700 px-2.5 py-1 font-medium text-white hover:bg-emerald-800">Mark sent</button>
                         <button onClick={() => skip(g.clientId, it)} title="Move this idea to the back of the client's queue; the next one comes up" className="rounded-md px-2 py-1 text-zinc-500 hover:text-zinc-900">Skip</button>
                       </>}
