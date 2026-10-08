@@ -1020,8 +1020,7 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
             </div>
           )}
           {l.contactUnverified && l.status !== "not-pursuing" && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"><span className="font-semibold">Contact not verified.</span> No email address was found on their site or at Companies House. Add a verified address below, or pick a person with one, and it moves back to To assess.</div>}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Field label={cf.includes("likelihood") ? "Likelihood · Claude" : "Likelihood"}><select value={l.likelihood || ""} onChange={(e) => onChange({ likelihood: e.target.value })} className={`rounded px-1.5 py-0.5 text-sm font-semibold ${LIKELY[l.likelihood] || ""}`}><option value="">—</option><option>High</option><option>Medium</option><option>Low</option></select></Field>
+          <div className="grid grid-cols-3 gap-3">
             <Field label={`Net assets${l.accountsDate ? ` · year to ${accountsYear(l.accountsDate)}` : ""}`}>{money(l.netAssets)}{accountsNote(l)}</Field>
             <Field label="RE change">{signed(l.reChange)}</Field>
             <Field label="Area"><input value={l.area || ""} onChange={(e) => onChange({ area: e.target.value })} className="w-full rounded border border-transparent hover:border-zinc-300" /></Field>
