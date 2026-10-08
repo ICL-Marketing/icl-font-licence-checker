@@ -111,6 +111,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       // Contact not verified, and every route tried: nothing more to do, so park it.
       // Qualified was folded into To assess.
       for (const l of Object.values(local)) if (l.status === "qualified") { l.status = "new"; l.updatedAt = new Date().toISOString(); }
+      // Claude said skip: parked for good, whichever column it was left in.
+      for (const l of Object.values(local)) if (claudeSkip(l) && ["new", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.updatedAt = new Date().toISOString(); }
       for (const l of Object.values(local)) if (l.status === "no-contact" && contactExhausted(l)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); }
       // "info", "hello" and the like are inboxes, not people: the email opens "Hi there," instead.
       for (const l of Object.values(local)) if (!isFrozen(l) && l.contactName && !firstNameOf(l.contactName)) { l.contactName = ""; l.updatedAt = new Date().toISOString(); }
@@ -132,6 +134,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const l of Object.values(next)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status) && websiteIsVerified(l)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried) && ["new", "qualified"].includes(l.status)) { l.contactUnverified = true; l.status = parkStatus(l); l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "qualified") { l.status = "new"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (claudeSkip(l) && ["new", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "no-contact" && contactExhausted(l)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!isFrozen(l) && l.contactName && !firstNameOf(l.contactName)) { l.contactName = ""; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!isFrozen(l) && l.seo?.searches?.some((x) => x.kind !== "trade")) { l.seo = { ...l.seo, searches: l.seo.searches.filter((x) => x.kind === "trade") }; l.updatedAt = new Date().toISOString(); push(l.id, l); }
@@ -622,9 +625,11 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
 
 // The real reason a lead sits in Not pursuing, if there is one beyond a missing contact.
 const parkReason = (l) => { const m = `${l.caveats || ""}; ${l.likelihoodWhy || ""}`.split(/;\s*/).find((x) => /under £|already a client|site is current|dormant/i.test(x)); if (m) return m.trim().replace(/\.$/, ""); if (claudeSkip(l)) return "Claude: skip"; if (contactExhausted(l)) return "Verified email not found"; return ""; };
+// First sentence only, no bracketed asides, kept short.
+const oneLine = (t) => { let x = String(t || "").replace(/\s*\([^)]*\)/g, "").replace(/\s+/g, " ").trim(); const m = x.match(/^(.+?[.!?])(\s|$)/); if (m) x = m[1]; return x.length > 170 ? `${x.slice(0, 167).replace(/\s+\S*$/, "")}…` : x; };
 const claudeSkip = (l) => !!l.claude && !(l.claude.worth_contacting && l.claude.issue_confirmed);
 // Parked for a reason Claude could change (contact, site, issue), not a fact like size, dormancy or being a client.
-const recheckable = (l) => !isFrozen(l) && !l.optedOut && (l.status === "no-contact" || (l.status === "not-pursuing" && !/under £|already a client|dormant/i.test(parkReason(l))));
+const recheckable = (l) => !isFrozen(l) && !l.optedOut && !claudeSkip(l) && (l.status === "no-contact" || (l.status === "not-pursuing" && !/under £|already a client|dormant/i.test(parkReason(l))));
 // The same reason spelled out with the numbers, for the top of the lead page.
 function parkExplain(l) {
   const r = parkReason(l);
@@ -957,19 +962,25 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
               {l.tradingAddress && <span className={`block ${l.tradesElsewhere ? "font-medium text-red-700" : "text-zinc-500"}`}>Trades from {l.tradingAddress}{l.tradesElsewhere ? " — outside our area; only the registered office is local" : ""}</span>}
             </p>
           )}
-          {l.claude && (
-            <div className={`rounded-lg border px-3 py-2 text-sm ${l.claude.worth_contacting && l.claude.issue_confirmed ? "border-orange-200 bg-orange-50/60" : "border-red-200 bg-red-50"}`}>
-              <div className="flex flex-wrap items-baseline gap-2"><span className="font-semibold">{l.claude.worth_contacting && l.claude.issue_confirmed ? "Claude: worth contacting" : "Claude: probably skip"}</span><span className="text-[11px] text-zinc-500">checked {new Date(l.claude.checkedAt).toLocaleDateString("en-GB")}</span></div>
-              <p className="mt-0.5 text-zinc-700">{l.claude.reason}</p>
-              <p className="mt-1 text-xs text-zinc-600">{l.claude.what_they_do && <><span className="font-medium">Does:</span> {l.claude.what_they_do} · </>}{l.claude.location && <><span className="font-medium">Where:</span> {l.claude.location} · </>}<span className="font-medium">Issue:</span> {l.claude.issue_confirmed ? "confirmed" : "not confirmed"}{l.claude.issue_note ? ` (${l.claude.issue_note})` : ""}</p>
-              {l.claude.contact?.name && <p className="mt-1 text-xs text-zinc-600"><span className="font-medium">Contact:</span> {l.claude.contact.name}{l.claude.contact.role ? `, ${l.claude.contact.role}` : ""}{l.claude.contact.email ? ` · ${l.claude.contact.email}` : " · no published email"}{l.claude.contact.email_source ? ` (from ${l.claude.contact.email_source})` : ""}{l.claude.contact.linkedin && <> · <a href={l.claude.contact.linkedin} target="_blank" rel="noreferrer" className="text-blue-700 underline">LinkedIn</a></>}</p>}
-              {!l.claude.website_is_theirs && <p className="mt-1 text-xs text-red-700">The website we matched wasn’t theirs{l.claude.correct_website ? `; switched to ${l.claude.correct_website} and rescanned` : "; no website found for them"}.</p>}
-              {l.claude.sources?.length > 0 && <details className="mt-1 text-xs text-zinc-500"><summary>{l.claude.sources.length} source{l.claude.sources.length === 1 ? "" : "s"}</summary><ul className="mt-1 space-y-0.5">{l.claude.sources.map((u) => <li key={u}><a href={u} target="_blank" rel="noreferrer" className="break-all text-blue-700 underline">{u}</a></li>)}</ul></details>}
-            </div>
-          )}
+          {l.claude && (() => {
+            const c = l.claude, ok = c.worth_contacting && c.issue_confirmed;
+            const row = (label, text) => text ? <div className="flex gap-1.5"><span className="w-14 shrink-0 text-zinc-500">{label}</span><span className="min-w-0">{text}</span></div> : null;
+            return (
+              <div className={`rounded-lg border px-3 py-2 text-xs ${ok ? "border-green-200 bg-green-50 text-green-950" : "border-red-200 bg-red-50 text-red-950"}`}>
+                <div className="mb-1 flex items-baseline gap-2 text-sm"><span className="font-semibold">{ok ? "Claude: worth contacting" : "Claude: skip"}</span><span className="text-[11px] opacity-60">checked {new Date(c.checkedAt).toLocaleDateString("en-GB")}</span>{c.sources?.length > 0 && <details className="relative ml-auto text-[11px] opacity-70"><summary className="cursor-pointer">sources</summary><div className="absolute right-0 z-10 mt-1 w-80 max-w-md rounded-md border border-zinc-200 bg-white p-2 shadow">{c.sources.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" className="block break-all text-blue-700 underline">{u}</a>)}</div></details>}</div>
+                <div className="space-y-0.5">
+                  {row("Why", oneLine(c.reason))}
+                  {row("Does", [oneLine(c.what_they_do), oneLine(c.location)].filter(Boolean).join(" · "))}
+                  {row("Issue", `${c.issue_confirmed ? "Confirmed" : "Not confirmed"}${c.issue_note ? `: ${oneLine(c.issue_note)}` : ""}`)}
+                  {c.contact?.name && row("Contact", <>{c.contact.name}{c.contact.role ? `, ${oneLine(c.contact.role)}` : ""}{c.contact.email ? ` · ${c.contact.email}` : " · no published email"}{c.contact.linkedin && <> · <a href={c.contact.linkedin} target="_blank" rel="noreferrer" className="text-blue-700 underline">LinkedIn</a></>}</>)}
+                  {!c.website_is_theirs && row("Website", c.correct_website ? `Wasn’t theirs; switched to ${c.correct_website}` : "Wasn’t theirs; none found")}
+                </div>
+              </div>
+            );
+          })()}
           {l.status === "not-pursuing" ? (
             <div className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">Not worth pursuing.</span> {parkExplain(l)} <span className="text-red-700">Change the status above if you still want to go for it.</span></div>
-          ) : l.likelihood && (
+          ) : l.likelihood && !l.claude && (
             <div className={`rounded-lg px-3 py-2 text-sm ${LIKELY[l.likelihood]}`}>
               <span className="font-semibold">{l.likelihood} likelihood</span>{l.likelihoodWhy ? <span>: {l.likelihoodWhy}</span> : null}
             </div>
@@ -1124,7 +1135,7 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
 const CHECK_COLUMNS = [["new", "To assess"], ["no-contact", "Contact not verified"], ["not-pursuing", "Not pursuing"]];
 function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
   const [col, setCol] = useState(column);
-  const poolFor = (cl) => sorted(leads.filter((l) => (l.status || "new") === cl && (cl === "new" || recheckable(l))));
+  const poolFor = (cl) => sorted(leads.filter((l) => (l.status || "new") === cl && !claudeSkip(l) && (cl === "new" || recheckable(l))));
   const pool = poolFor(col);
   const [size, setSize] = useState(5);
   const [picked, setPicked] = useState(() => (preset.length ? preset : poolFor(column).filter((l) => !l.claude).slice(0, 5).map((l) => l.id)));
