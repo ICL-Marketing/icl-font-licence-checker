@@ -273,14 +273,14 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
       {view === "top" && (
         <div className="mt-3 overflow-x-auto rounded-xl border border-zinc-200 bg-white">
           <table className="w-full min-w-[900px] text-sm">
-            <thead><tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500"><th className="w-52 px-4 py-2 font-semibold">Client</th><th className="px-3 py-2 font-semibold">{service ? `${service} ideas` : "Ideas"}, best first <span className="normal-case tracking-normal text-zinc-400">· scroll sideways for more</span></th></tr></thead>
+            <thead><tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500"><th className="w-52 px-4 py-2 font-semibold">Client</th><th className="px-3 py-2 font-semibold">{service ? `${service} ideas` : ""}</th></tr></thead>
             <tbody className="divide-y divide-zinc-100">
               {groups.length === 0 && <tr><td colSpan={2} className="p-4 text-zinc-500">No ideas yet. Use Research with Claude above.</td></tr>}
               {groups.map((g) => (
                 <tr key={g.clientId || g.name} className="align-top">
                   <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return w ? <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline">{w} <ExternalIcon /></a> : null; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><button onClick={() => setAddFor(g)} className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button>{g.top.length < 3 && <button onClick={() => setResearchFor([g.clientId])} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
                   <td className="max-w-0 px-3 py-3">
-                  <div className="grid snap-x auto-cols-[calc((100%-1.5rem)/3)] grid-flow-col gap-3 overflow-x-auto pb-1">
+                  <div className="grid snap-x auto-cols-[calc((100%-2.25rem)/3.2)] grid-flow-col gap-3 overflow-x-auto pb-1">
                   {g.top.length === 0 && <div className="text-xs text-zinc-400">No big ideas yet.</div>}
                   {g.top.map((it, n) => {
                     const r = g.recs.find((x) => x.id === it.recId) || g.recs[0]; const to = (r?.emails || [])[0] || "";
