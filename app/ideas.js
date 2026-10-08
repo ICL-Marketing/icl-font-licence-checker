@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine } from "@/lib/clientIdeas";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, normStatus, monthKey, monthName, clientQueue, monthlyPick } from "@/lib/clientIdeas";
 import { dayGreeting, firstNameOf } from "@/lib/leadsShared";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
@@ -42,7 +42,10 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
   const [withSearch, setWithSearch] = useState(true);
   const [cfg, setCfg] = useState(null); // { ai, aiUsage }
   const [withAi, setWithAi] = useState(true);
-  const [researchFor, setResearchFor] = useState(null); // null = closed, [] = next batch, [clientId] = that client
+  const [researchFor, setResearchFor] = useState(null);
+  const [view, setViewState] = useState(() => { try { return localStorage.getItem("flc-ideas-view") || "month"; } catch { return "month"; } });
+  const setView = (v) => { setViewState(v); try { localStorage.setItem("flc-ideas-view", v); } catch {} };
+  const [manager, setManager] = useState(""); // null = closed, [] = next batch, [clientId] = that client
   useEffect(() => { fetch("/api/ideas").then((r) => r.json()).then(setCfg).catch(() => {}); }, []);
 
   useEffect(() => {
@@ -69,6 +72,21 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
     const r = recsRef.current[id]; if (!r) return;
     update(id, { ideas: (r.ideas || []).map((i) => (i.key === key ? { ...i, ...fields, ...(fields.status && fields.status !== i.status ? { statusAt: new Date().toISOString() } : {}) } : i)) });
   };
+
+  // Monthly send-out actions. Priorities are shared across a client's sites, so moves swap values.
+  const month = monthKey();
+  function markSent(recIdArg, key) { updateIdea(recIdArg, key, { status: "sent", sentAt: new Date().toISOString(), sentMonth: month }); }
+  function undoSent(recIdArg, key) { updateIdea(recIdArg, key, { status: "queued", sentAt: "", sentMonth: "" }); }
+  function queueOf(clientId) { return clientQueue(Object.values(recsRef.current).filter((r) => r.clientId === clientId)); }
+  function skip(clientId, idea) { const q = queueOf(clientId); const last = Math.max(...q.map((i) => i.priority ?? 0)); updateIdea(idea.recId, idea.key, { priority: last + 1 }); }
+  function move(clientId, idea, dir) {
+    const q = queueOf(clientId).filter((i) => i.status === "queued");
+    const at = q.findIndex((i) => i.recId === idea.recId && i.key === idea.key); const other = q[at + dir];
+    if (at < 0 || !other) return;
+    const a = idea.priority ?? at, b = other.priority ?? at + dir;
+    updateIdea(idea.recId, idea.key, { priority: b === a ? b + dir : b });
+    updateIdea(other.recId, other.key, { priority: a });
+  }
 
   // One client site, start to finish: health + homepage gaps, licences, then (optionally) one search.
   async function checkOne(c, w, st) {
@@ -110,7 +128,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
     setRun({ ...st });
     for (const [c, w] of jobs) {
       if (stopRef.current) break;
-      try { const r = await checkOne(c, w, st); st.found += (r.ideas || []).filter((i) => i.status === "idea").length; } catch (e) { st.errors.push(`${c.name}: ${e.message}`); }
+      try { const r = await checkOne(c, w, st); st.found += (r.ideas || []).filter((i) => normStatus(i.status) === "queued").length; } catch (e) { st.errors.push(`${c.name}: ${e.message}`); }
       st.done++; setRun({ ...st });
     }
     st.phase = stopRef.current ? `Stopped: ${st.done} of ${st.total} client sites checked` : `Done: ${st.done} client site${st.done === 1 ? "" : "s"} checked, ${st.found} new idea${st.found === 1 ? "" : "s"}${jobs.length ? "" : " (all checked in the last 30 days; use Re-check all to force)"}`;
@@ -118,7 +136,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
   }
   // Claude's reply (from the user's own Claude plan) -> research + ideas on each client's records.
   function importResearch(items) {
-    let clientsDone = 0, ideasAdded = 0;
+    let clientsDone = 0, ideasAdded = 0; const doneIds = [];
     for (const it of items) {
       const c = clients.find((x) => String(x.id) === it.client_id) || clients.find((x) => String(x.id).toLowerCase() === it.client_id.toLowerCase());
       if (!c) continue;
@@ -131,9 +149,9 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
         ideasAdded += rec.ideas.filter((i) => i.ai && !(prev.ideas || []).some((p) => p.key === i.key)).length;
         update(id, rec);
       }
-      clientsDone++;
+      clientsDone++; doneIds.push(c.id);
     }
-    return { clientsDone, ideasAdded };
+    return { clientsDone, ideasAdded, doneIds };
   }
   async function recheckOne(id) {
     const r = recsRef.current[id]; const c = clients.find((x) => x.id === r?.clientId) || { id: r?.clientId, name: r?.name, emails: r?.emails, poc: r?.poc, manager: r?.manager };
@@ -159,8 +177,16 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
   const cards = Object.values(recs).flatMap((r) => (r.ideas || []).map((i) => ({ ...i, recId: r.id, client: r.name, website: r.website, manager: r.manager })));
   const q = filter.trim().toLowerCase();
   const shown = cards.filter((c) => (!kind || c.kind === kind) && (!q || `${c.client} ${c.website} ${c.title} ${c.manager}`.toLowerCase().includes(q)));
-  const openCount = cards.filter((c) => ["idea", "shortlist", "ready"].includes(c.status)).length;
-  useEffect(() => { onCount?.(openCount); }, [openCount, onCount]);
+  // Group by client for the monthly send-out.
+  const byClient = new Map();
+  for (const r of Object.values(recs)) { const k = r.clientId || r.name; if (!byClient.has(k)) byClient.set(k, { clientId: r.clientId, name: r.name, manager: r.manager || "", recs: [] }); byClient.get(k).recs.push(r); }
+  const groups = [...byClient.values()].map((g) => { const queue = clientQueue(g.recs); return { ...g, queue, pick: monthlyPick(queue, month) }; })
+    .filter((g) => g.queue.length && (!manager || g.manager === manager) && (!q || `${g.name} ${g.manager} ${g.queue.map((i) => i.title).join(" ")}`.toLowerCase().includes(q)))
+    .sort((a, b) => (a.pick.sent ? 1 : 0) - (b.pick.sent ? 1 : 0) || a.name.localeCompare(b.name));
+  const dueCount = groups.filter((g) => g.pick.next).length;
+  const sentCount = groups.filter((g) => g.pick.sent).length;
+  const managers = [...new Set([...byClient.values()].map((g) => g.manager).filter(Boolean))].sort();
+  useEffect(() => { onCount?.(dueCount); }, [dueCount, onCount]);
   const sitesTotal = clients.reduce((n, c) => n + (c.websites || []).length, 0);
   const sitesChecked = clients.reduce((n, c) => n + (c.websites || []).filter((w) => recs[recId(c, w)]?.checkedAt).length, 0);
   const noSite = clients.filter((c) => !(c.websites || []).length).length;
@@ -194,15 +220,75 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-md border border-zinc-300 bg-white p-0.5 text-sm">
+          {[["month", `This month`], ["clients", "By client"], ["replies", "Replies"]].map(([id, label]) => <button key={id} onClick={() => setView(id)} className={`rounded px-3 py-1 ${view === id ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>{label}</button>)}
+        </div>
         <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search clients or ideas" className="w-56 rounded-md border border-zinc-300 px-3 py-1.5 text-sm" />
-        <select value={kind} onChange={(e) => setKind(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm">
-          <option value="">All kinds</option>
-          {Object.entries(IDEA_KINDS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-        </select>
-        <span className="text-xs text-zinc-500">{shown.length} of {cards.length} ideas · drag a card to change its status</span>
+        {managers.length > 0 && <select value={manager} onChange={(e) => setManager(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm"><option value="">All account managers</option>{managers.map((m) => <option key={m}>{m}</option>)}</select>}
+        {view === "replies" && <select value={kind} onChange={(e) => setKind(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm"><option value="">All kinds</option>{Object.entries(IDEA_KINDS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>}
       </div>
 
-      <IdeaBoard cards={shown} filtering={!!(q || kind)} onOpen={(id, key) => setOpen({ id, key })} onMove={(id, key, status) => updateIdea(id, key, { status })} />
+      {view === "month" && (
+        <div className="mt-3">
+          <div className="flex flex-wrap items-baseline gap-2 text-sm"><span className="font-semibold">{monthName(month)} send-out</span><span className="text-zinc-500">{sentCount} of {sentCount + dueCount} clients sent · one suggestion each, top of their queue</span></div>
+          <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-zinc-100"><div className="h-full bg-emerald-500 transition-all" style={{ width: `${sentCount + dueCount ? Math.round((sentCount / (sentCount + dueCount)) * 100) : 0}%` }} /></div>
+          <div className="mt-3 divide-y divide-zinc-100 rounded-xl border border-zinc-200 bg-white">
+            {groups.length === 0 && <p className="p-4 text-sm text-zinc-500">No ideas yet. Use Find ideas or Research with Claude above.</p>}
+            {groups.map((g) => {
+              const it = g.pick.sent || g.pick.next; const queued = g.queue.filter((i) => i.status === "queued").length;
+              return (
+                <div key={g.clientId || g.name} className={`flex flex-wrap items-center gap-3 px-4 py-3 ${g.pick.sent ? "bg-emerald-50/40" : ""}`}>
+                  <div className="w-56 shrink-0"><div className="font-medium">{g.name}</div><div className="text-[11px] text-zinc-500">{g.manager || "No account manager"} · {queued} in queue</div></div>
+                  {it ? (
+                    <button onClick={() => setOpen({ id: it.recId, key: it.key })} className="min-w-0 flex-1 text-left">
+                      <div className="flex flex-wrap items-center gap-1.5 text-sm"><span className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold text-white ${IDEA_KINDS[it.kind]?.tone || "bg-zinc-500"}`}>{IDEA_KINDS[it.kind]?.label}</span>{it.ai && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[11px] font-semibold text-violet-800">AI</span>}<span className="font-medium text-zinc-900">{it.title}</span></div>
+                      <div className="mt-0.5 truncate text-xs text-zinc-500">{it.subject} · {String(it.email || "").split("\n")[0]}</div>
+                    </button>
+                  ) : <div className="flex-1 text-sm text-zinc-500">Queue empty: research this client again for new ideas.</div>}
+                  <div className="flex shrink-0 items-center gap-2 text-xs">
+                    {g.pick.sent
+                      ? <><span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800">Sent {new Date(g.pick.sent.sentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span><button onClick={() => undoSent(g.pick.sent.recId, g.pick.sent.key)} className="text-zinc-400 underline hover:text-zinc-700">Undo</button></>
+                      : it && <>
+                        <button onClick={() => setOpen({ id: it.recId, key: it.key })} className="rounded-md border border-zinc-300 bg-white px-2.5 py-1 hover:bg-zinc-100">Open email</button>
+                        <button onClick={() => markSent(it.recId, it.key)} className="rounded-md bg-emerald-700 px-2.5 py-1 font-medium text-white hover:bg-emerald-800">Mark sent</button>
+                        <button onClick={() => skip(g.clientId, it)} title="Move this idea to the back of the client's queue; the next one comes up" className="rounded-md px-2 py-1 text-zinc-500 hover:text-zinc-900">Skip</button>
+                      </>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {view === "clients" && (
+        <div className="mt-3 space-y-2">
+          {groups.length === 0 && <p className="rounded-xl border border-zinc-200 bg-white p-4 text-sm text-zinc-500">No ideas yet.</p>}
+          {groups.map((g) => (
+            <details key={g.clientId || g.name} className="rounded-xl border border-zinc-200 bg-white" open={!!q}>
+              <summary className="flex cursor-pointer flex-wrap items-center gap-2 px-4 py-2.5"><span className="font-medium">{g.name}</span><span className="text-xs text-zinc-500">{g.manager} · {g.queue.filter((i) => i.status === "queued").length} queued · {g.queue.filter((i) => i.status !== "queued").length} sent or replied</span></summary>
+              <ol className="divide-y divide-zinc-100 border-t border-zinc-100">
+                {g.queue.map((it) => {
+                  const queuedList = g.queue.filter((i) => i.status === "queued"); const pos = queuedList.findIndex((i) => i.recId === it.recId && i.key === it.key);
+                  return (
+                    <li key={`${it.recId}|${it.key}`} className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm">
+                      <span className="w-6 text-right text-xs text-zinc-400">{pos >= 0 ? pos + 1 : ""}</span>
+                      <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold text-white ${IDEA_KINDS[it.kind]?.tone || "bg-zinc-500"}`}>{IDEA_KINDS[it.kind]?.label}</span>
+                      {it.ai && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[11px] font-semibold text-violet-800">AI</span>}
+                      <button onClick={() => setOpen({ id: it.recId, key: it.key })} className="min-w-0 flex-1 truncate text-left hover:underline">{it.title}</button>
+                      {pos >= 0 && <span className="flex gap-1"><button onClick={() => move(g.clientId, it, -1)} disabled={pos === 0} aria-label="Move up" className="rounded border border-zinc-200 px-1.5 text-xs disabled:opacity-30">↑</button><button onClick={() => move(g.clientId, it, 1)} disabled={pos === queuedList.length - 1} aria-label="Move down" className="rounded border border-zinc-200 px-1.5 text-xs disabled:opacity-30">↓</button></span>}
+                      <select value={it.status} onChange={(e) => updateIdea(it.recId, it.key, { status: e.target.value, ...(e.target.value === "sent" && !it.sentAt ? { sentAt: new Date().toISOString(), sentMonth: month } : {}) })} className="rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-xs">{IDEA_STATUSES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>
+                      {it.sentAt && <span className="text-[11px] text-zinc-400">sent {new Date(it.sentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>}
+                    </li>
+                  );
+                })}
+              </ol>
+            </details>
+          ))}
+        </div>
+      )}
+
+      {view === "replies" && <IdeaBoard cards={shown.filter((c) => normStatus(c.status) !== "queued").map((c) => ({ ...c, status: normStatus(c.status) }))} filtering={!!(q || kind)} onOpen={(id, key) => setOpen({ id, key })} onMove={(id, key, status) => updateIdea(id, key, { status })} />}
 
       {researchFor && <ResearchModal clients={clients} recs={recs} preset={researchFor} onClose={() => setResearchFor(null)} onImport={importResearch} />}
 
@@ -215,14 +301,14 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
 
 function IdeaBoard({ cards, filtering, onOpen, onMove }) {
   const [over, setOver] = useState(null);
-  const cols = IDEA_STATUSES.filter(([id]) => !filtering || cards.some((c) => c.status === id));
+  const cols = IDEA_STATUSES.filter(([id]) => id !== "queued" && (!filtering || cards.some((c) => c.status === id)));
   return (
     <div className="mt-3 flex gap-3 overflow-x-auto pb-4">
       {cols.map(([id, label, blurb]) => {
         const list = cards.filter((c) => c.status === id).sort((a, b) => a.rank - b.rank || a.client.localeCompare(b.client));
         return (
           <div key={id} onDragOver={(e) => { e.preventDefault(); setOver(id); }} onDragLeave={() => setOver(null)} onDrop={(e) => { e.preventDefault(); const [rid, key] = String(e.dataTransfer.getData("text/idea") || "").split("|"); if (rid && key) onMove(rid, key, id); setOver(null); }}
-            className={`w-72 shrink-0 rounded-xl border p-2 ${over === id ? "border-blue-400 bg-blue-50" : "border-zinc-200 bg-zinc-50"} ${id === "not-now" ? "opacity-60" : ""}`}>
+            className={`w-72 shrink-0 rounded-xl border p-2 ${over === id ? "border-blue-400 bg-blue-50" : "border-zinc-200 bg-zinc-50"} ${id === "declined" ? "opacity-60" : ""}`}>
             <div className="flex items-baseline justify-between px-1"><span className="text-sm font-semibold">{label}</span><span className="rounded-full bg-white px-2 text-xs text-zinc-500">{list.length}</span></div>
             <div className="px-1 text-[11px] text-zinc-500">{blurb}</div>
             <div className="mt-2 space-y-2">
@@ -272,7 +358,7 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, onR
               {r.manager && <span className="text-zinc-500">Account manager: {r.manager}</span>}
             </div>
           </div>
-          <select value={idea.status} onChange={(e) => onIdea({ status: e.target.value })} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm">
+          <select value={normStatus(idea.status)} onChange={(e) => onIdea({ status: e.target.value, ...(e.target.value === "sent" && !idea.sentAt ? { sentAt: new Date().toISOString(), sentMonth: monthKey() } : {}) })} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm">
             {IDEA_STATUSES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
           </select>
           <button onClick={onClose} aria-label="Close" className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button>
@@ -301,7 +387,7 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, onR
           {others.length > 0 && (
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Other ideas for {r.name}</div>
-              <div className="mt-1 flex flex-wrap gap-1.5">{others.map((i) => <button key={i.key} onClick={() => onPick(i.key)} className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100">{i.title} <span className="text-zinc-400">· {IDEA_STATUSES.find(([id]) => id === i.status)?.[1]}</span></button>)}</div>
+              <div className="mt-1 flex flex-wrap gap-1.5">{others.map((i) => <button key={i.key} onClick={() => onPick(i.key)} className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100">{i.title} <span className="text-zinc-400">· {IDEA_STATUSES.find(([id]) => id === normStatus(i.status))?.[1]}</span></button>)}</div>
             </div>
           )}
 
@@ -311,6 +397,9 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, onR
               <span className="ml-auto flex gap-2">
                 <a href={outlook} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100"><MailIcon className="h-3.5 w-3.5" /> Open in Outlook</a>
                 <button onClick={copy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy email</>}</button>
+                {normStatus(idea.status) === "queued"
+                  ? <button onClick={() => onIdea({ status: "sent", sentAt: new Date().toISOString(), sentMonth: monthKey() })} className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-800">Mark sent</button>
+                  : idea.sentAt && <span className="self-center text-xs text-emerald-700">Sent {new Date(idea.sentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>}
               </span>
             </div>
             <label className="mt-2 block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">To</div>
@@ -347,7 +436,7 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, onR
           {r.checking && <span className="inline-flex items-center gap-1 text-blue-700"><SpinnerIcon className="h-3.5 w-3.5" /> Working…</span>}
           <button onClick={onResearch} className="inline-flex items-center gap-1 rounded-md border border-violet-300 bg-violet-50 px-2.5 py-1 text-violet-900 hover:bg-violet-100"><SearchIcon className="h-3.5 w-3.5" /> Research with Claude</button>
           {r.checkedAt && !r.checking && <span className="text-zinc-500">Checked {new Date(r.checkedAt).toLocaleDateString("en-GB")}</span>}
-          <button onClick={() => onIdea({ status: "not-now" })} className="ml-auto rounded-md px-2 py-1 text-zinc-500 hover:text-zinc-900">Not now</button>
+          <button onClick={() => onIdea({ status: "declined" })} className="ml-auto rounded-md px-2 py-1 text-zinc-500 hover:text-zinc-900">Not for them</button>
         </div>
       </div>
     </div>
@@ -373,14 +462,15 @@ function ResearchModal({ clients, recs, preset, onClose, onImport }) {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
     if (open) window.open("https://claude.ai/new", "_blank", "noopener");
   }
-  function nextBatch(n) { setSize(n); setPicked(clients.filter((c) => !researched(c)).slice(0, n).map((c) => c.id)); }
+  function nextBatch(n, alsoDone = []) { setSize(n); setPicked(clients.filter((c) => !researched(c) && !alsoDone.includes(c.id)).slice(0, n).map((c) => c.id)); }
   function doImport() {
     try {
       const list = parseResearchReply(reply);
       if (!list.length) { setMsg("No clients found in the reply. Make sure Claude kept the client_id values."); return; }
-      const { clientsDone, ideasAdded } = onImport(list);
-      setMsg(`Added ${ideasAdded} idea${ideasAdded === 1 ? "" : "s"} for ${clientsDone} client${clientsDone === 1 ? "" : "s"}.${clientsDone < list.length ? ` ${list.length - clientsDone} didn't match a client in Settings.` : ""}`);
+      const { clientsDone, ideasAdded, doneIds } = onImport(list);
+      setMsg(`Added ${ideasAdded} idea${ideasAdded === 1 ? "" : "s"} for ${clientsDone} client${clientsDone === 1 ? "" : "s"}.${clientsDone < list.length ? ` ${list.length - clientsDone} didn't match a client in Settings.` : ""} The next ${size} are selected.`);
       setReply("");
+      nextBatch(size, doneIds);
     } catch (e) { setMsg(e.message); }
   }
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
