@@ -428,7 +428,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   }, [leads]); // eslint-disable-line react-hooks/exhaustive-deps
   // Claude's checks (run on the user's own Claude plan) applied to each lead: website, contact, verdict, draft.
   function applyLeadCheck(items) {
-    let done = 0; const rescan = []; const doneIds = [];
+    let done = 0; const rescan = []; const doneIds = []; const moved = { skip: 0, back: 0 };
     for (const it of items) {
       const l = leadsRef.current[it.lead_id]; if (!l) continue;
       const f = { claude: it };
@@ -451,10 +451,29 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         if (c.email && (!current || GENERIC_BOX_RE.test(current.split("@")[0]))) { f.emailAddress = c.email; f.contactName = firstNameOf(c.name); f.contactUnverified = false; if (["no-contact", "not-pursuing"].includes(l.status) && l.contactUnverified) f.status = "new"; }
       }
       if (it.email_body && !l.emailEdited) Object.assign(f, { emailPrevious: l.email, email: it.email_body, subject: it.email_subject || l.subject, emailEdited: false, claudeDraft: true });
+      // Fill the lead's fields with what Claude confirmed (shown in orange in the drawer).
+      const filled = [];
+      if (it.what_they_do) { f.whatTheyDo = it.what_they_do; filled.push("whatTheyDo"); }
+      if (it.location && !/^(national|online|uk|nationwide)$/i.test(it.location.trim())) { f.tradingTown = it.location; filled.push("tradingTown"); }
+      if (it.issue_note && it.issue_confirmed && l.problem) { f.problemDetail = it.issue_note; filled.push("problemDetail"); }
+      if (it.likelihood) { f.likelihood = it.likelihood; filled.push("likelihood"); }
+      if (it.likelihood_reason || it.reason) { f.likelihoodWhy = it.likelihood_reason || it.reason; filled.push("likelihoodWhy"); }
+      if (it.background) { f.background = it.background; filled.push("background"); }
+      if (f.contacts) filled.push("contacts");
+      if (f.email) filled.push("email");
+      f.claudeFields = filled;
+      // Claude's verdict decides the column, unless a conversation has already started or it was sorted by hand.
+      if (!isFrozen(l) && !l.optedOut && ["new", "no-contact", "not-pursuing"].includes(l.status)) {
+        const skip = !(it.worth_contacting && it.issue_confirmed);
+        const email = f.emailAddress ?? l.emailAddress;
+        if (skip) { f.status = "not-pursuing"; moved.skip++; }
+        else if (email) { f.status = "new"; f.contactUnverified = false; if (l.status !== "new") moved.back++; }
+        else { f.status = "no-contact"; f.contactUnverified = true; }
+      }
       update(l.id, f); done++; doneIds.push(l.id);
     }
     if (rescan.length) setTimeout(() => refreshLeads(rescan), 100);
-    return { done, doneIds, rescanned: rescan.length };
+    return { done, doneIds, rescanned: rescan.length, moved };
   }
   async function checkLicence(l) {
     update(l.id, { checking: true, error: "" });
@@ -592,17 +611,20 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           <button onClick={() => { if (confirm(`Delete ${selected.size} lead${selected.size === 1 ? "" : "s"}?`)) removeMany([...selected]); }} className="ml-auto inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50"><TrashIcon className="h-3.5 w-3.5" /> Delete</button>
         </div>
       )}
-      {claudeFor && <LeadCheckModal leads={list} preset={claudeFor} onClose={() => setClaudeFor(null)} onApply={applyLeadCheck} />}
-      <Board onClaude={() => setClaudeFor([])} leads={visible} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
+      {claudeFor && <LeadCheckModal leads={list} preset={claudeFor.ids} column={claudeFor.col} onClose={() => setClaudeFor(null)} onApply={applyLeadCheck} />}
+      <Board onClaude={(col) => setClaudeFor({ col, ids: [] })} leads={visible} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status }); }} />
 
-      {current && <LeadDrawer onClaude={() => setClaudeFor([current.id])} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onSeo={() => checkSeo(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
+      {current && <LeadDrawer onClaude={() => setClaudeFor({ col: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new", ids: [current.id] })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onSeo={() => checkSeo(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
   );
 }
 
 // The real reason a lead sits in Not pursuing, if there is one beyond a missing contact.
-const parkReason = (l) => { const m = `${l.caveats || ""}; ${l.likelihoodWhy || ""}`.split(/;\s*/).find((x) => /under £|already a client|site is current|dormant/i.test(x)); if (m) return m.trim().replace(/\.$/, ""); if (contactExhausted(l)) return "Verified email not found"; return ""; };
+const parkReason = (l) => { const m = `${l.caveats || ""}; ${l.likelihoodWhy || ""}`.split(/;\s*/).find((x) => /under £|already a client|site is current|dormant/i.test(x)); if (m) return m.trim().replace(/\.$/, ""); if (claudeSkip(l)) return "Claude: skip"; if (contactExhausted(l)) return "Verified email not found"; return ""; };
+const claudeSkip = (l) => !!l.claude && !(l.claude.worth_contacting && l.claude.issue_confirmed);
+// Parked for a reason Claude could change (contact, site, issue), not a fact like size, dormancy or being a client.
+const recheckable = (l) => !isFrozen(l) && !l.optedOut && (l.status === "no-contact" || (l.status === "not-pursuing" && !/under £|already a client|dormant/i.test(parkReason(l))));
 // The same reason spelled out with the numbers, for the top of the lead page.
 function parkExplain(l) {
   const r = parkReason(l);
@@ -615,6 +637,7 @@ function parkExplain(l) {
   if (/dormant/i.test(r)) return `Filed as dormant at Companies House (accounts to ${l.accountsDate || "the last filing"}). The company isn't trading, so whatever the site looks like there is nobody to sell to.`;
   if (/under £/i.test(r)) { const floor = (r.match(/£([\d,]+)/) || [])[1]; return `Net assets are ${l.netAssets != null ? `£${Math.round(l.netAssets).toLocaleString("en-GB")}` : "unknown"}${l.reChange != null && l.reChange < 0 ? ` and fell by £${Math.abs(Math.round(l.reChange)).toLocaleString("en-GB")} last year` : ""}, under the £${floor || "20,000"} floor set for the scan. Too small to have a budget for this.`; }
   if (/already a client/i.test(r)) return `${l.website || "This site"} is already one of ours.`;
+  if (/^Claude/.test(r)) return `Claude checked it and suggests skipping: ${l.claude.reason || "not worth contacting"}${!l.claude.issue_confirmed && l.claude.issue_note ? ` The issue: ${l.claude.issue_note}` : ""}`;
   if (/site is current/i.test(r)) return "The site is current and no licence problems were found, so there is nothing to pitch.";
   if (/Verified email not found/i.test(r)) return `No verified email address anywhere: the website and Companies House gave nothing${l.hunterTried ? " and a Hunter credit was spent with no result" : l.hunterOnFile === 0 ? " and Hunter has nothing on file" : ""}. Add an address by hand if you find one and it comes straight back.`;
   return r;
@@ -653,7 +676,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
             <span>{c.label}</span><span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{c.items.length}</span>
           </div>
           <div className="px-1 pb-2 text-[11px] font-normal text-zinc-500">{c.hint}</div>
-          {c.id === "new" && c.items.length > 0 && <button onClick={onClaude} title="Free on your Claude plan: Claude checks the website, the issue and the best contact for a batch of leads" className="mx-1 mb-2 inline-flex items-center justify-center gap-1 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-900 hover:bg-violet-100"><SearchIcon className="h-3 w-3" /> Check with Claude ({c.items.filter((l) => !l.claude).length} to check)</button>}
+          {(c.id === "new" || c.id === "no-contact" || c.id === "not-pursuing") && (() => { const todo = c.items.filter((l) => !l.claude && (c.id === "new" || recheckable(l))).length; return c.items.length > 0 && <button onClick={() => onClaude(c.id)} title={c.id === "new" ? "Free on your Claude plan: Claude checks the website, the issue and the best contact for a batch of leads" : "Claude re-checks parked leads: anything worth pursuing with a published email moves back to To assess (size, dormant and existing clients are left out)"} className="mx-1 mb-2 inline-flex items-center justify-center gap-1 rounded-md border border-orange-300 bg-orange-50 px-2 py-1 text-[11px] font-medium text-orange-900 hover:bg-orange-100"><SearchIcon className="h-3 w-3" /> {c.id === "new" ? "Check" : "Re-check"} with Claude ({todo} to check)</button>; })()}
           <div className="flex flex-1 flex-col gap-2">
             {c.items.slice(0, shown[c.id] || 60).map((l) => (
               <div key={l.id} draggable onDragStart={(e) => { e.dataTransfer.setData("text/lead", l.id); e.dataTransfer.effectAllowed = "move"; }} onClick={() => onOpen(l.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") onOpen(l.id); }}
@@ -666,7 +689,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
                   {l.problem && <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
-                  {l.claude && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${l.claude.worth_contacting && l.claude.issue_confirmed ? "bg-violet-100 text-violet-800" : "bg-red-100 text-red-800"}`} title={l.claude.reason}>{l.claude.worth_contacting && l.claude.issue_confirmed ? "Claude ✓" : "Claude: skip"}</span>}
+                  {l.claude && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${l.claude.worth_contacting && l.claude.issue_confirmed ? "bg-orange-100 text-orange-800" : "bg-red-100 text-red-800"}`} title={l.claude.reason}>{l.claude.worth_contacting && l.claude.issue_confirmed ? "Claude ✓" : "Claude: skip"}</span>}
                   {l.optedOut && <span className="rounded-full bg-red-600 px-1.5 py-0.5 font-semibold text-white" title={`Asked not to be contacted${l.optedOutAt ? ` on ${new Date(l.optedOutAt).toLocaleDateString("en-GB")}` : ""}`}>Opted out</span>}
                   {l.tradesElsewhere && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800" title={`Website address: ${l.tradingAddress}`}>Trades elsewhere</span>}
                   {!websiteIsVerified(l) && !isFrozen(l) && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="The website was matched on its name only. Open the lead and confirm it is theirs before anything goes out.">Confirm website</span>}
@@ -711,10 +734,10 @@ function AutoTextarea({ value, minRows = 2, className = "", ...rest }) {
 function Field({ label, children }) {
   return <div><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{label}</div><div className="mt-0.5 text-sm">{children}</div></div>;
 }
-function TextField({ label, value, onChange, rows = 2, mono = false }) {
+function TextField({ label, value, onChange, rows = 2, mono = false, ai = false }) {
   return (
-    <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{label}</div>
-      <AutoTextarea value={value || ""} onChange={(e) => onChange(e.target.value)} minRows={rows} className={`mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm ${mono ? "font-mono text-xs" : ""}`} />
+    <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{label}{ai && <span className="ml-1 normal-case tracking-normal text-orange-600">· from Claude</span>}</div>
+      <AutoTextarea value={value || ""} onChange={(e) => onChange(e.target.value)} minRows={rows} className={`mt-0.5 w-full rounded-md border px-2 py-1 text-sm ${ai ? "border-orange-300 bg-orange-50/60" : "border-zinc-300"} ${mono ? "font-mono text-xs" : ""}`} />
     </label>
   );
 }
@@ -849,6 +872,7 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
   const genericBox = GENERIC_BOX_RE.test(String(l.emailAddress || "").split("@")[0]);
   const full = `Subject: ${l.subject || ""}\n\n${emailText}`;
   const outlook = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(l.emailAddress || "")}&subject=${encodeURIComponent(l.subject || "")}&body=${encodeURIComponent(emailText)}`;
+  const cf = l.claudeFields || [];
   const issues = issuesFor(l);
   const current = issues.find((i) => i.id === l.issueId) || null;
   const person = (l.contacts || []).find((p) => p.email && p.email === l.emailAddress) || null;
@@ -902,7 +926,7 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
                 <input key={`${l.id}:${l.website || ""}`} defaultValue={l.website || ""} onBlur={(e) => commitWebsite(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitWebsite(e.currentTarget.value); e.currentTarget.blur(); } }} onPaste={(e) => { const t = e.clipboardData?.getData("text"); if (t && /\./.test(t)) { e.preventDefault(); e.currentTarget.value = t.trim(); commitWebsite(t); } }} placeholder="website (paste or type to correct)" title="Paste or type their website. It counts as confirmed by you and the lead is rescanned straight away." style={{ width: `${Math.max(10, (l.website || "").length + 1)}ch` }} className="rounded border border-transparent px-1 text-xs text-blue-700 hover:border-zinc-300 focus:border-zinc-400" />
                 {site && <a href={site} target="_blank" rel="noreferrer" aria-label="Open website" className="-ml-1 text-blue-700"><ExternalIcon /></a>}
               </span>
-              {(l.tradingTown || l.area) && <span className={`inline-flex items-center gap-1 text-xs ${l.tradesElsewhere ? "text-red-700" : "text-zinc-600"}`} title={l.tradingAddress ? `Address on their website: ${l.tradingAddress}${l.area && l.tradingTown && l.tradingTown !== l.area ? ` (registered office: ${l.area})` : ""}` : `Registered office: ${l.address || l.area}`}><PinIcon /> {l.tradingTown || l.area}{l.tradingTown && l.area && l.tradingTown.toLowerCase() !== l.area.toLowerCase() ? <span className="text-zinc-400"> · registered in {l.area}</span> : null}</span>}
+              {(l.tradingTown || l.area) && <span className={`inline-flex items-center gap-1 text-xs ${l.tradesElsewhere ? "text-red-700" : cf.includes("tradingTown") ? "text-orange-700" : "text-zinc-600"}`} title={l.tradingAddress ? `Address on their website: ${l.tradingAddress}${l.area && l.tradingTown && l.tradingTown !== l.area ? ` (registered office: ${l.area})` : ""}` : `Registered office: ${l.address || l.area}`}><PinIcon /> {l.tradingTown || l.area}{l.tradingTown && l.area && l.tradingTown.toLowerCase() !== l.area.toLowerCase() ? <span className="text-zinc-400"> · registered in {l.area}</span> : null}</span>}
               {l.companyNumber && <a href={`https://find-and-update.company-information.service.gov.uk/company/${l.companyNumber}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700 underline">Companies House {l.companyNumber} <ExternalIcon /></a>}
               {l.website && !websiteIsVerified(l) && (l.websiteDoubt || isFrozen(l)) && <button onClick={rejectWebsite} title="This website belongs to a different business. It is dropped, remembered as wrong, and the lead is rescanned without it." className="rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[11px] text-red-800 hover:bg-red-100">Not their website</button>}
             </div>
@@ -927,14 +951,14 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
         <div className="min-h-0 flex-1 overflow-y-auto"><div className="space-y-4 px-5 py-4">
           {(l.whatTheyDo || l.siteDescription || l.background || l.sics?.length) && (
             <p className="text-sm text-zinc-700">
-              <span className="font-medium" title={l.sicStale ? `Companies House lists this company as: ${sicDescription(l.sics)}. The website says otherwise, so that is hidden.` : undefined}>{l.whatTheyDo || sicDescription(l.sics) || (l.sics?.length ? `SIC ${l.sics[0]}` : "")}</span>
+              <span className={`font-medium ${cf.includes("whatTheyDo") ? "text-orange-700" : ""}`} title={cf.includes("whatTheyDo") ? "From Claude's check" : l.sicStale ? `Companies House lists this company as: ${sicDescription(l.sics)}. The website says otherwise, so that is hidden.` : undefined}>{l.whatTheyDo || sicDescription(l.sics) || (l.sics?.length ? `SIC ${l.sics[0]}` : "")}</span>
               {l.background && <span className="text-zinc-500"> · {l.background}</span>}{l.area && <span className="text-zinc-500"> · {l.area}</span>}
               {l.siteDescription && <span className="block text-zinc-500">“{l.siteDescription}”</span>}
               {l.tradingAddress && <span className={`block ${l.tradesElsewhere ? "font-medium text-red-700" : "text-zinc-500"}`}>Trades from {l.tradingAddress}{l.tradesElsewhere ? " — outside our area; only the registered office is local" : ""}</span>}
             </p>
           )}
           {l.claude && (
-            <div className={`rounded-lg border px-3 py-2 text-sm ${l.claude.worth_contacting && l.claude.issue_confirmed ? "border-violet-200 bg-violet-50/60" : "border-red-200 bg-red-50"}`}>
+            <div className={`rounded-lg border px-3 py-2 text-sm ${l.claude.worth_contacting && l.claude.issue_confirmed ? "border-orange-200 bg-orange-50/60" : "border-red-200 bg-red-50"}`}>
               <div className="flex flex-wrap items-baseline gap-2"><span className="font-semibold">{l.claude.worth_contacting && l.claude.issue_confirmed ? "Claude: worth contacting" : "Claude: probably skip"}</span><span className="text-[11px] text-zinc-500">checked {new Date(l.claude.checkedAt).toLocaleDateString("en-GB")}</span></div>
               <p className="mt-0.5 text-zinc-700">{l.claude.reason}</p>
               <p className="mt-1 text-xs text-zinc-600">{l.claude.what_they_do && <><span className="font-medium">Does:</span> {l.claude.what_they_do} · </>}{l.claude.location && <><span className="font-medium">Where:</span> {l.claude.location} · </>}<span className="font-medium">Issue:</span> {l.claude.issue_confirmed ? "confirmed" : "not confirmed"}{l.claude.issue_note ? ` (${l.claude.issue_note})` : ""}</p>
@@ -952,14 +976,14 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
           )}
           {l.contactUnverified && l.status !== "not-pursuing" && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"><span className="font-semibold">Contact not verified.</span> No email address was found on their site or at Companies House. Add a verified address below, or pick a person with one, and it moves back to To assess.</div>}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Field label="Likelihood"><select value={l.likelihood || ""} onChange={(e) => onChange({ likelihood: e.target.value })} className={`rounded px-1.5 py-0.5 text-sm font-semibold ${LIKELY[l.likelihood] || ""}`}><option value="">—</option><option>High</option><option>Medium</option><option>Low</option></select></Field>
+            <Field label={cf.includes("likelihood") ? "Likelihood · Claude" : "Likelihood"}><select value={l.likelihood || ""} onChange={(e) => onChange({ likelihood: e.target.value })} className={`rounded px-1.5 py-0.5 text-sm font-semibold ${LIKELY[l.likelihood] || ""}`}><option value="">—</option><option>High</option><option>Medium</option><option>Low</option></select></Field>
             <Field label={`Net assets${l.accountsDate ? ` · year to ${accountsYear(l.accountsDate)}` : ""}`}>{money(l.netAssets)}{accountsNote(l)}</Field>
             <Field label="RE change">{signed(l.reChange)}</Field>
             <Field label="Area"><input value={l.area || ""} onChange={(e) => onChange({ area: e.target.value })} className="w-full rounded border border-transparent hover:border-zinc-300" /></Field>
           </div>
-          <TextField label="Problem detail" value={l.problemDetail} onChange={(v) => onChange({ problemDetail: v })} rows={1} />
-          <TextField label="Likelihood rationale" value={l.likelihoodWhy} onChange={(v) => onChange({ likelihoodWhy: v })} rows={2} />
-          <TextField label="Background" value={l.background} onChange={(v) => onChange({ background: v })} rows={2} />
+          <TextField label="Problem detail" ai={cf.includes("problemDetail")} value={l.problemDetail} onChange={(v) => onChange({ problemDetail: v })} rows={1} />
+          <TextField label="Likelihood rationale" ai={cf.includes("likelihoodWhy")} value={l.likelihoodWhy} onChange={(v) => onChange({ likelihoodWhy: v })} rows={2} />
+          <TextField label="Background" ai={cf.includes("background")} value={l.background} onChange={(v) => onChange({ background: v })} rows={2} />
           <TextField label="Pitch angle" value={l.pitch} onChange={(v) => onChange({ pitch: v })} rows={2} />
           <TextField label="Caveats" value={l.caveats} onChange={(v) => onChange({ caveats: v })} rows={1} />
 
@@ -1075,7 +1099,7 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
 
         </div></div>
         <div className="shrink-0 flex flex-wrap items-center gap-2 border-t border-zinc-200 bg-white px-5 py-3 text-xs shadow-[0_-6px_12px_-8px_rgba(0,0,0,0.15)]">
-          <button onClick={onClaude} className="inline-flex items-center gap-1 rounded-md border border-violet-300 bg-violet-50 px-2.5 py-1 text-violet-900 hover:bg-violet-100"><SearchIcon className="h-3.5 w-3.5" /> Check with Claude</button>
+          <button onClick={onClaude} className="inline-flex items-center gap-1 rounded-md border border-orange-300 bg-orange-50 px-2.5 py-1 text-orange-900 hover:bg-orange-100"><SearchIcon className="h-3.5 w-3.5" /> Check with Claude</button>
           <button onClick={() => onRefresh()} disabled={l.checking} className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2.5 py-1 font-medium text-white disabled:opacity-40"><RefreshIcon className="h-3.5 w-3.5" /> Rescan this lead</button>
           {!l.optedOut
             ? <button onClick={() => { if (confirm("Mark as opted out? The lead moves to Lost and is never chased or emailed from here again.")) onChange({ optedOut: true, optedOutAt: new Date().toISOString(), status: "lost", notesLog: [...(l.notesLog || []), { at: new Date().toISOString(), text: "Asked not to be contacted" }] }); }} className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2.5 py-1 text-red-700 hover:bg-red-50" title="They replied asking not to hear from us">Do not contact</button>
@@ -1097,10 +1121,13 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
 }
 
 // Check with Claude: free on the user's own Claude plan. The app writes the prompt, Claude researches, the reply is pasted back.
-function LeadCheckModal({ leads, preset, onClose, onApply }) {
-  const pool = sorted(leads.filter((l) => (l.status || "new") === "new"));
+const CHECK_COLUMNS = [["new", "To assess"], ["no-contact", "Contact not verified"], ["not-pursuing", "Not pursuing"]];
+function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
+  const [col, setCol] = useState(column);
+  const poolFor = (cl) => sorted(leads.filter((l) => (l.status || "new") === cl && (cl === "new" || recheckable(l))));
+  const pool = poolFor(col);
   const [size, setSize] = useState(5);
-  const [picked, setPicked] = useState(() => (preset.length ? preset : pool.filter((l) => !l.claude).slice(0, 5).map((l) => l.id)));
+  const [picked, setPicked] = useState(() => (preset.length ? preset : poolFor(column).filter((l) => !l.claude).slice(0, 5).map((l) => l.id)));
   const [reply, setReply] = useState("");
   const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState(false);
@@ -1109,16 +1136,17 @@ function LeadCheckModal({ leads, preset, onClose, onApply }) {
     id: l.id, business: l.business, companyNumber: l.companyNumber, address: l.address || l.area, sic: sicDescription(l.sics || []), website: l.website || "",
     issue: [l.problem, l.problemDetail].filter(Boolean).join(": "),
     contacts: (l.contacts || []).slice(0, 5).map((p) => `${p.name} (${p.role}${p.email ? `, ${p.email}` : ""})`).join("; "),
+    parked: l.status === "not-pursuing" ? parkExplain(l) : l.status === "no-contact" ? "No verified email address found yet" : "",
   }));
   const prompt = items.length ? leadCheckPrompt(items) : "";
   async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); }
-  const nextBatch = (n, alsoDone = []) => { setSize(n); setPicked(pool.filter((l) => !l.claude && !alsoDone.includes(l.id)).slice(0, n).map((l) => l.id)); };
+  const nextBatch = (n, alsoDone = [], cl = col) => { setSize(n); setPicked(poolFor(cl).filter((l) => !l.claude && !alsoDone.includes(l.id)).slice(0, n).map((l) => l.id)); };
   function doApply() {
     try {
       const list = parseLeadCheck(reply);
       if (!list.length) { setMsg("No leads found in the reply. Make sure Claude kept the lead_id values."); return; }
-      const { done, doneIds, rescanned } = onApply(list);
-      setMsg(`Updated ${done} lead${done === 1 ? "" : "s"}${rescanned ? `; ${rescanned} rescanning on their correct website` : ""}. The next ${size} are selected.`);
+      const { done, doneIds, rescanned, moved } = onApply(list);
+      setMsg(`Updated ${done} lead${done === 1 ? "" : "s"}${moved.back ? `; ${moved.back} moved back to To assess` : ""}${moved.skip ? `; ${moved.skip} moved to Not pursuing` : ""}${rescanned ? `; ${rescanned} rescanning on their correct website` : ""}. The next ${size} are selected.`);
       setReply(""); nextBatch(size, doneIds);
     } catch (e) { setMsg(e.message); }
   }
@@ -1133,14 +1161,16 @@ function LeadCheckModal({ leads, preset, onClose, onApply }) {
         </div>
         <div className="space-y-4 px-5 py-4 text-sm">
           <div>
-            <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">1. Pick leads</span><span className="text-xs text-zinc-500">Next unchecked in To assess:</span>
+            <div className="mb-2 inline-flex rounded-md border border-zinc-300 bg-white p-0.5 text-xs">{CHECK_COLUMNS.map(([id, label]) => <button key={id} onClick={() => { setCol(id); nextBatch(size, [], id); }} className={`rounded px-2.5 py-1 ${col === id ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>{label} ({poolFor(id).filter((l) => !l.claude).length})</button>)}</div>
+            <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">1. Pick leads</span><span className="text-xs text-zinc-500">Next unchecked:</span>
               {[1, 3, 5, 8].map((n) => <button key={n} onClick={() => nextBatch(n)} className={`rounded-full border px-2 py-0.5 text-xs ${size === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{n}</button>)}
             </div>
             <div className="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
-              {pool.map((l) => <button key={l.id} onClick={() => toggle(l.id)} className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(l.id) ? "border-violet-500 bg-violet-100 text-violet-900" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{l.business}{l.claude ? " ✓" : ""}</button>)}
-              {preset.filter((id) => !pool.some((l) => l.id === id)).map((id) => { const l = leads.find((x) => x.id === id); return l && <button key={id} onClick={() => toggle(id)} className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(id) ? "border-violet-500 bg-violet-100 text-violet-900" : "border-zinc-300"}`}>{l.business}</button>; })}
+              {pool.map((l) => <button key={l.id} onClick={() => toggle(l.id)} className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(l.id) ? "border-orange-500 bg-orange-100 text-orange-900" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{l.business}{l.claude ? " ✓" : ""}</button>)}
+              {preset.filter((id) => !pool.some((l) => l.id === id)).map((id) => { const l = leads.find((x) => x.id === id); return l && <button key={id} onClick={() => toggle(id)} className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(id) ? "border-orange-500 bg-orange-100 text-orange-900" : "border-zinc-300"}`}>{l.business}</button>; })}
             </div>
-            <p className="mt-1 text-[11px] text-zinc-500">{picked.length} picked · {pool.filter((l) => !l.claude).length} in To assess still to check · ✓ already checked</p>
+            <p className="mt-1 text-[11px] text-zinc-500">{picked.length} picked · {pool.filter((l) => !l.claude).length} still to check · ✓ already checked{col !== "new" ? " · leads parked for size, dormancy or being a client are left out" : ""}</p>
+            <p className="mt-0.5 text-[11px] text-zinc-500">Claude’s verdict moves each lead: skip → Not pursuing; worth it with a published email → To assess; worth it but no email → Contact not verified.</p>
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">2. Run it in Claude</span>
@@ -1156,7 +1186,7 @@ function LeadCheckModal({ leads, preset, onClose, onApply }) {
             <span className="font-semibold">3. Paste Claude’s reply</span>
             <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={5} placeholder="Paste the whole reply here (the JSON block)" className="mt-1 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" />
             <div className="mt-1 flex items-center gap-2">
-              <button onClick={doApply} disabled={!reply.trim()} className="rounded-md bg-violet-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">Update leads</button>
+              <button onClick={doApply} disabled={!reply.trim()} className="rounded-md bg-orange-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">Update leads</button>
               {msg && <span className="text-xs text-zinc-700">{msg}</span>}
             </div>
           </div>
