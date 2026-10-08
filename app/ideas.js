@@ -211,10 +211,11 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
   // Group by client for the monthly send-out.
   const byClient = new Map();
   for (const r of Object.values(recs)) { const k = r.clientId || r.name; if (!byClient.has(k)) byClient.set(k, { clientId: r.clientId, name: r.name, manager: r.manager || "", recs: [] }); byClient.get(k).recs.push(r); }
-  const groups = [...byClient.values()].map((g) => { const queue = clientQueue(g.recs); return { ...g, queue, top: topIdeas(queue.filter((i) => !badRuleKeys.has(i.key)), 50, service), pick: monthlyPick(queue, month) }; })
+  const groups = [...byClient.values()].map((g) => { const queue = clientQueue(g.recs); return { ...g, queue, top: topIdeas(queue.filter((i) => !badRuleKeys.has(i.key) && (service !== "★" || i.starred)), 50, service === "★" ? "" : service), pick: monthlyPick(queue, month) }; })
     .filter((g) => g.queue.length && (!manager || g.manager === manager) && (!q || `${g.name} ${g.manager} ${g.queue.map((i) => i.title).join(" ")}`.toLowerCase().includes(q)))
     .filter((g) => !service || g.top.length)
     .sort((a, b) => a.name.localeCompare(b.name));
+  const starCount = [...byClient.values()].reduce((n, g) => n + clientQueue(g.recs).filter((i) => i.starred && !["declined", "done"].includes(i.status)).length, 0);
   // Service chips: how many big ideas of each type are in play (respecting the manager and search filters).
   const serviceCounts = {};
   for (const g of [...byClient.values()]) {
@@ -265,6 +266,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
       {view === "top" && (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <button onClick={() => setService("")} className={`rounded-full border px-3 py-1 text-xs font-medium ${!service ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>All services</button>
+          {starCount > 0 && <button onClick={() => setService(service === "★" ? "" : "★")} className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium ${service === "★" ? "border-amber-500 bg-amber-500 text-white" : "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"}`}>★ Starred <span className="opacity-70">{starCount}</span></button>}
           {Object.keys(IDEA_SERVICES).filter((k) => serviceCounts[k]).map((k) => (
             <button key={k} onClick={() => setService(service === k ? "" : k)} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${service === k ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}><span className={`h-2 w-2 rounded-full ${IDEA_SERVICES[k]}`} />{k}<span className="opacity-60">{serviceCounts[k]}</span></button>
           ))}
@@ -273,7 +275,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
       {view === "top" && (
         <div className="mt-3 overflow-x-auto rounded-xl border border-zinc-200 bg-white">
           <table className="w-full min-w-[900px] text-sm">
-            <thead><tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500"><th className="w-52 px-4 py-2 font-semibold">Client</th><th className="px-3 py-2 font-semibold">{service ? `${service} ideas` : ""}</th></tr></thead>
+            <thead><tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500"><th className="w-52 px-4 py-2 font-semibold">Client</th><th className="px-3 py-2 font-semibold">{service === "★" ? "Starred ideas" : service ? `${service} ideas` : ""}</th></tr></thead>
             <tbody className="divide-y divide-zinc-100">
               {groups.length === 0 && <tr><td colSpan={2} className="p-4 text-zinc-500">No ideas yet. Use Research with Claude above.</td></tr>}
               {groups.map((g) => (
@@ -286,7 +288,8 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
                     const r = g.recs.find((x) => x.id === it.recId) || g.recs[0]; const to = (r?.emails || [])[0] || "";
                     const href = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(to)}&subject=${encodeURIComponent(it.subject || "")}&body=${encodeURIComponent(ideaEmail(r, it, to))}`;
                     return (
-                      <div key={`${it.recId}|${it.key}`} onClick={() => setOpen({ id: it.recId, key: it.key })} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setOpen({ id: it.recId, key: it.key }); }} className="cursor-pointer snap-start rounded-lg border border-zinc-200 p-2.5 hover:border-zinc-400 hover:bg-zinc-50">
+                      <div key={`${it.recId}|${it.key}`} onClick={() => setOpen({ id: it.recId, key: it.key })} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setOpen({ id: it.recId, key: it.key }); }} className={`relative cursor-pointer snap-start rounded-lg border p-2.5 pr-8 hover:border-zinc-400 hover:bg-zinc-50 ${it.starred ? "border-amber-300 bg-amber-50/40" : "border-zinc-200"}`}>
+                        <button onClick={(e) => { e.stopPropagation(); updateIdea(it.recId, it.key, { starred: !it.starred }); }} aria-label={it.starred ? "Unstar" : "Star this idea"} title={it.starred ? "Starred: kept at the front. Click to unstar" : "Star a good idea to prioritise it"} className={`absolute right-2 top-2 text-lg leading-none ${it.starred ? "text-amber-500" : "text-zinc-300 hover:text-amber-400"}`}>{it.starred ? "★" : "☆"}</button>
                         <div className="flex flex-wrap items-center gap-1 text-[11px]">
                           {(() => { const sv = it.service || serviceFor(it.title); return <button onClick={(e) => { e.stopPropagation(); setService(service === sv ? "" : sv); }} title={`Show only ${sv} ideas`} className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${IDEA_SERVICES[sv] || "bg-zinc-500"}`}>{sv}</button>; })()}
                           {isQuickFix(it) ? <span className="rounded-full bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-800">Quick fix</span> : it.size === "large" && <span className="rounded-full bg-zinc-900 px-1.5 py-0.5 font-semibold text-white">Large</span>}
@@ -417,6 +420,7 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onBad }) {
               </span>
             </div>
           </div>
+          <button onClick={() => onIdea({ starred: !idea.starred })} aria-label={idea.starred ? "Unstar" : "Star this idea"} title={idea.starred ? "Starred: kept at the front. Click to unstar" : "Star a good idea to prioritise it"} className={`text-2xl leading-none ${idea.starred ? "text-amber-500" : "text-zinc-300 hover:text-amber-400"}`}>{idea.starred ? "★" : "☆"}</button>
           <select value={normStatus(idea.status)} onChange={(e) => onIdea({ status: e.target.value, ...(e.target.value === "sent" && !idea.sentAt ? { sentAt: new Date().toISOString(), sentMonth: monthKey() } : {}) })} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm">
             {IDEA_STATUSES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
           </select>
@@ -485,7 +489,8 @@ function ResearchModal({ feedback = [], clients, recs, preset, initialManager = 
     const rec = Object.values(recs).find((r) => r.clientId === c.id && r.checkedAt);
     return { id: c.id, name: c.name, websites: c.websites || [], notes: c.notes || "", findings: findingsLine(rec) };
   });
-  const prompt = items.length ? researchPrompt(items, feedback) : "";
+  const liked = Object.values(recs).flatMap((r) => (r.ideas || []).filter((i) => i.starred).map((i) => ({ title: i.title, service: i.service })));
+  const prompt = items.length ? researchPrompt(items, feedback, liked) : "";
   async function copy(open) {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
     if (open) window.open("https://claude.ai/new", "_blank", "noopener");
