@@ -993,9 +993,10 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
             return (
               <div className={`rounded-lg border px-3 py-2 text-xs ${ok ? "border-green-200 bg-green-50 text-green-950" : "border-red-200 bg-red-50 text-red-950"}`}>
                 <div className="mb-1 flex items-baseline gap-2 text-sm"><span className="font-semibold">{ok ? "Claude: worth contacting" : "Claude: skip"}</span><span className="text-[11px] opacity-60">checked {new Date(c.checkedAt).toLocaleDateString("en-GB")}</span>{c.sources?.length > 0 && <details className="relative ml-auto text-[11px] opacity-70"><summary className="cursor-pointer">sources</summary><div className="absolute right-0 z-10 mt-1 w-80 max-w-md rounded-md border border-zinc-200 bg-white p-2 shadow">{c.sources.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" className="block break-all text-blue-700 underline">{u}</a>)}</div></details>}</div>
-                <div className="space-y-0.5">
+                {!ok && <div>{oneLine(c.reason) || oneLine(c.issue_note) || "Claude did not think this one is worth contacting."}</div>}
+                <div className={ok ? "space-y-0.5" : "hidden"}>
                   {row("Raise", oneLine(c.angle) || (c.issue_confirmed ? oneLine(l.problemDetail || l.problem) : oneLine(c.issue_note)) || oneLine(l.subject))}
-                  {row("Why", oneLine(c.reason))}
+                  {ok && row("Why", oneLine(c.reason))}
                   {row("Does", [oneLine(c.what_they_do), oneLine(c.location)].filter(Boolean).join(" · "))}
                   {row("Issue", `${c.issue_confirmed ? "Confirmed" : "Not confirmed"}${c.issue_note ? `: ${oneLine(c.issue_note)}` : ""}`)}
                   {c.contact?.name && row("Contact", <>{c.contact.name}{c.contact.role ? `, ${oneLine(c.contact.role)}` : ""}{c.contact.email ? ` · ${c.contact.email}` : " · no published email"}{c.contact.linkedin && <> · <a href={c.contact.linkedin} target="_blank" rel="noreferrer" className="text-blue-700 underline">LinkedIn</a></>}</>)}
