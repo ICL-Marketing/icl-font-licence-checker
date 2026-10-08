@@ -352,8 +352,22 @@ export default function Home() {
 
   return (
     <main className="mx-auto w-full max-w-[1500px] p-4 sm:p-6">
-      <header className="flex items-center justify-between gap-3">
+      <header className="flex flex-wrap items-center gap-x-6 gap-y-2">
         <h1 className="text-2xl font-semibold">Website Checker</h1>
+        <nav className="ml-auto flex flex-wrap items-center justify-end gap-x-5 gap-y-1" aria-label="Sections">
+          {[["leads", "Website Leads", leadsCount || null], ["ideas", "Client Ideas", ideasCount || null],
+            ["design", "Design Checks", designCount || null],
+            ["launch", "Launch Checks", launchCount || null],
+            ["post", "Post Launch Checks", postCount || null],
+            ["fonts", "Font Licenses", fontRows.length ? fontCounts.PROBLEM + fontCounts.CHECK : null],
+            ["images", "Image Licenses", imgRows.length ? imgPaidSites : null]].map(([id, label, n]) => (
+            <button key={id} onClick={() => setArea(id)} aria-current={area === id ? "page" : undefined}
+              className={`whitespace-nowrap py-1 text-sm ${area === id ? "font-semibold text-zinc-900 underline decoration-2 underline-offset-[6px]" : "text-zinc-500 hover:text-zinc-900"}`}>
+              {label}{n != null && <span className="ml-1 text-xs text-zinc-400">{n}</span>}
+              {(running === id || (id === "launch" && launchRunning) || (id === "post" && postRunning) || (id === "design" && designRunning) || (id === "leads" && leadsRunning) || (id === "ideas" && ideasRunning)) && <span className="ml-2 inline-block align-middle text-blue-600" title="Scanning"><SpinnerIcon /></span>}
+            </button>
+          ))}
+        </nav>
         <Link href="/settings" aria-label="Settings" title={anyRunning ? "A scan is running: Settings opens in a new tab so it carries on" : "Settings"}
           target={anyRunning ? "_blank" : undefined}
           onClick={(e) => { if (anyRunning && !window.confirm("A scan is still running. Settings will open in a new tab so the scan carries on here.\n\nOK opens the new tab. Cancel stays put.")) e.preventDefault(); }}
@@ -365,20 +379,6 @@ export default function Home() {
         </Link>
       </header>
 
-      <nav className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 rounded-xl bg-zinc-200/70 p-1 sm:inline-grid sm:w-auto" aria-label="Licence area">
-        {[["leads", "Website Leads", leadsCount || null], ["ideas", "Client Ideas", ideasCount || null],
-          ["design", "Design Checks", designCount || null],
-          ["launch", "Launch Checks", launchCount || null],
-          ["post", "Post Launch Checks", postCount || null],
-          ["fonts", "Font Licenses", fontRows.length ? fontCounts.PROBLEM + fontCounts.CHECK : null],
-          ["images", "Image Licenses", imgRows.length ? imgPaidSites : null]].map(([id, label, n]) => (
-          <button key={id} onClick={() => setArea(id)} aria-current={area === id ? "page" : undefined}
-            className={`rounded-lg px-4 py-2 text-sm font-semibold ${area === id ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"}`}>
-            {label}{n != null && <span className="ml-2 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] text-zinc-700">{n}</span>}
-            {(running === id || (id === "launch" && launchRunning) || (id === "post" && postRunning) || (id === "design" && designRunning) || (id === "leads" && leadsRunning) || (id === "ideas" && ideasRunning)) && <span className="ml-2 inline-block align-middle text-blue-600" title="Scanning"><SpinnerIcon /></span>}
-          </button>
-        ))}
-      </nav>
 
       {/* All areas stay mounted so a running scan carries on when you switch tabs. */}
       <section className={`mt-5 ${area === "design" ? "" : "hidden"}`}><DesignArea onRunning={setDesignRunning} onCount={setDesignCount} /></section>
