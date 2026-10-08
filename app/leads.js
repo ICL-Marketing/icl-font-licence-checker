@@ -479,7 +479,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     // checked lead that still has no address (the site, Companies House, then Hunter under the usual rules).
     setTimeout(async () => {
       if (rescan.length) await refreshLeads(rescan);
-      const need = doneIds.filter((id) => { const x = leadsRef.current[id]; return x && x.website && !x.emailAddress && !isFrozen(x) && !x.optedOut && !claudeSkip(x); });
+      const need = doneIds.filter((id) => { const x = leadsRef.current[id]; return x && x.website && !x.emailAddress && !isFrozen(x) && !x.optedOut && !claudeSkip(x) && !/under £|already a client|dormant/i.test(parkReason(x)); });
+      // A contact found here moves the lead to To assess (retryContacts does that for every lead it finds an address for).
       if (need.length && !stopRef.current) await retryContacts(need);
     }, 100);
     return { done, doneIds, rescanned: rescan.length, moved, retry: doneIds.length };
