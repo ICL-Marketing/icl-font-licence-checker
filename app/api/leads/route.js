@@ -1,4 +1,4 @@
-import { siteAddress, townFromAddress, verifyWebsite, websiteIsVerified, searchUsage, hunterUsage, applyTradingAddress, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
+import { areaFor, setPatchOutcodes, siteAddress, townFromAddress, verifyWebsite, websiteIsVerified, searchUsage, hunterUsage, applyTradingAddress, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 50;
@@ -22,6 +22,8 @@ export async function GET(request) {
 //   recheck {website, business, ...lead}        -> re-run the website check and redraft
 export async function POST(request) {
   const b = await request.json().catch(() => ({}));
+  // The team's scan area decides what counts as "in our patch" (Trades elsewhere tags, address checks).
+  try { const { getSetting } = await import("@/lib/store"); const a = await getSetting("lead-area"); setPatchOutcodes(a?.outcodes); } catch {}
   const links = b.links && typeof b.links === "object" ? b.links : {};
   try {
     if (b.step === "contacts") {
@@ -112,6 +114,13 @@ export async function POST(request) {
       return Response.json({ lead });
     }
     if (!leadsConfigured()) return Response.json({ error: "Companies House is not set up. Add COMPANIES_HOUSE_API_KEY in Vercel (free key from developer.company-information.service.gov.uk) and redeploy." }, { status: 400 });
+    if (b.step === "area") {
+      // Locations + radius -> postcode districts and towns to search, saved for the whole team.
+      const area = await areaFor({ centres: b.centres, miles: b.miles });
+      if (!area.outcodes.length) return Response.json({ ...area, error: area.missing.length ? `Couldn't find ${area.missing.join(", ")}. Try a town name or a postcode.` : "No postcode districts found for that area." });
+      try { const { setSetting } = await import("@/lib/store"); await setSetting("lead-area", area); } catch {}
+      return Response.json(area);
+    }
     if (b.step === "search") {
       const place = String(b.place || "").slice(0, 60);
       // No business-type filter: every active company in the place, then the usual sifting (holding and
@@ -121,7 +130,7 @@ export async function POST(request) {
       const { items, total } = await leadsSearch({ place, sics, startIndex: Number(b.startIndex) || 0, size: 100 });
       const minAge = Number(b.minAgeYears) || 2;
       const keys = Array.isArray(b.areas) && b.areas.length ? b.areas : Object.keys(AREA_PRESETS);
-      const postcodes = [...new Set(keys.flatMap((k) => AREA_PRESETS[k]?.postcodes || []))];
+      const postcodes = Array.isArray(b.postcodes) && b.postcodes.length ? b.postcodes.map((x) => String(x).toUpperCase()) : [...new Set(keys.flatMap((k) => AREA_PRESETS[k]?.postcodes || []))];
       const town = "";
       return Response.json({ total, candidates: items.filter((c) => worthEnriching(c, { minAgeYears: minAge }) && inArea(c, { postcodes, town })), scanned: items.length });
     }

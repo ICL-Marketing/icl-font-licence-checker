@@ -63,6 +63,31 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     floorTimer.current = setTimeout(() => { const n = applyFloor(v); if (n) setRun({ kind: "floor", phase: `Done: floor set to £${v.toLocaleString("en-GB")}, ${n} lead${n === 1 ? "" : "s"} moved between columns.`, done: 0, total: 0, found: 0, errors: [] }); }, 700);
   }
   const [run, setRun] = useState(null); // {phase, done, total, found, errors}
+  // Scan area: locations + radius, shared with the team. The server turns it into postcode districts.
+  const [areaCentres, setAreaCentres] = useState(["Richmond"]);
+  const [areaMiles, setAreaMiles] = useState(10);
+  const [areaMilesDraft, setAreaMilesDraft] = useState("10");
+  const [areaDraft, setAreaDraft] = useState("");
+  const [areaState, setAreaState] = useState({ busy: false, error: "", outcodes: 0 });
+  const areaRef = useRef(null); // { outcodes:[], places:[] } once mapped
+  useEffect(() => {
+    fetch("/api/settings?key=lead-area").then((r) => r.json()).then((j) => {
+      const a = j.shared && j.value;
+      if (a?.outcodes?.length) { areaRef.current = a; setAreaCentres(a.centres?.length ? a.centres : ["Richmond"]); setAreaMiles(a.miles || 10); setAreaMilesDraft(String(a.miles || 10)); setAreaState({ busy: false, error: "", outcodes: a.outcodes.length, places: a.places?.length || 0, found: a.found }); }
+    }).catch(() => {});
+  }, []);
+  async function saveArea(centres, miles) {
+    const list = [...new Set(centres.map((x) => String(x).trim()).filter(Boolean))];
+    if (!list.length) return;
+    setAreaCentres(list); setAreaMiles(miles); setAreaMilesDraft(String(miles));
+    setAreaState((s) => ({ ...s, busy: true, error: "" }));
+    try {
+      const r = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ step: "area", centres: list, miles }) });
+      const j = await r.json();
+      if (j.outcodes?.length) { areaRef.current = j; setAreaState({ busy: false, error: j.missing?.length ? `Couldn't find ${j.missing.join(", ")}` : "", outcodes: j.outcodes.length, places: j.places?.length || 0, found: j.found }); }
+      else setAreaState({ busy: false, error: j.error || "Couldn't map that area", outcodes: 0 });
+    } catch { setAreaState({ busy: false, error: "Couldn't map that area. Check the connection.", outcodes: 0 }); }
+  }
   const [pending, setPending] = useState(null); // interrupted scan found on load
   const [open, setOpen] = useState(null);
   const [filter, setFilter] = useState("");
@@ -202,7 +227,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     stopRef.current = false;
     onRunning?.(true);
     setPending(null);
-    const places = [...new Set(Object.values(PLACES).flat())];
+    const area = areaRef.current;
+    const places = area?.places?.length ? area.places : [...new Set(Object.values(PLACES).flat())];
+    const areaPostcodes = area?.outcodes?.length ? area.outcodes : [];
     const known = new Set(Object.keys(leadsRef.current));
     let skipped = 0;
     const knownSites = clients.flatMap((c) => c.websites || []).map((w) => String(w).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""));
@@ -216,7 +243,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           if (stopRef.current) break;
           let start = 0;
           for (let page = 0; page < 5; page++) {
-            let j; try { j = await post({ step: "search", place: pl, startIndex: start, areas: [] }); } catch (e) { if (stopRef.current) break; throw e; }
+            let j; try { j = await post({ step: "search", place: pl, startIndex: start, areas: [], postcodes: areaPostcodes }); } catch (e) { if (stopRef.current) break; throw e; }
             for (const c of j.candidates) { if (known.has(c.companyNumber)) continue; known.add(c.companyNumber); if (seenRecently(c.companyNumber)) { skipped++; continue; } candidates.push(c); }
             start += 100;
             st.phase = `Searching ${pl}… ${candidates.length} new companies${skipped ? `, ${skipped} already checked` : ""}`; setRun({ ...st });
@@ -421,6 +448,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   // Leaving mid-scan loses nothing (it can be continued), but warn anyway.
   // A run is in progress only while its loop is going; summary lines (Done, Stopped, floor changes) are not runs.
   const running = !!run && run.kind !== "floor" && !/^(Done|Stopped)/.test(run.phase);
+  const areaTitle = areaState.outcodes ? `Every active trading company registered within ${areaMiles} miles of ${areaCentres.join(", ")}: ${areaState.outcodes} postcode areas, searched as ${areaState.places || 0} towns and districts. Anything registered further out is dropped. Type a town or postcode and press Enter to add it.` : "Type a town or postcode and press Enter. Until an area is set, the scan covers about 20 minutes around Richmond.";
   // Licence and search checks run on their own for any lead that never had them (older leads, or ones
   // parked as "site is current" before search visibility counted), a few at a time, when nothing else is running.
   const catchingUpRef = useRef(false);
@@ -466,9 +494,19 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
         <h2 className="font-semibold">Website Leads</h2>
         {cfg && !cfg.configured && <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Companies House is not connected yet. Add the free API key in <Link href="/settings?section=connections" className="underline">Settings → Connections</Link>. The board below still works.</p>}
-        <div className="mt-3 flex flex-col gap-3">
-          <p className="text-xs text-zinc-600">Every active trading company within about 20 minutes of Richmond: Twickenham, Teddington, Kingston, Sheen, Kew, Chiswick, Hounslow, Putney, Wimbledon, Sunbury, Staines, Walton and the towns between. Anything registered further out is dropped.</p>
+        <div className="mt-3">
           <div className="flex flex-wrap items-center gap-2">
+            <div className={`flex min-w-[16rem] flex-1 flex-wrap items-center gap-1 rounded-md border bg-white px-2 py-1 ${areaState.error ? "border-red-300" : "border-zinc-300"}`} title={areaTitle}>
+              <PinIcon className="h-4 w-4 shrink-0 text-zinc-400" />
+              {areaCentres.map((c) => (
+                <span key={c} className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">{c}<button onClick={() => saveArea(areaCentres.filter((x) => x !== c), areaMiles)} disabled={running} aria-label={`Remove ${c}`} className="text-zinc-400 hover:text-red-600 disabled:opacity-40">×</button></span>
+              ))}
+              <input value={areaDraft} onChange={(e) => setAreaDraft(e.target.value)} onKeyDown={(e) => { if ((e.key === "Enter" || e.key === ",") && areaDraft.trim()) { e.preventDefault(); saveArea([...areaCentres, areaDraft.trim()], areaMiles); setAreaDraft(""); } else if (e.key === "Backspace" && !areaDraft && areaCentres.length > 1) saveArea(areaCentres.slice(0, -1), areaMiles); }} onBlur={() => { if (areaDraft.trim()) { saveArea([...areaCentres, areaDraft.trim()], areaMiles); setAreaDraft(""); } }} disabled={running} placeholder={areaCentres.length ? "Add a town or postcode" : "Town or postcode"} className="min-w-[9rem] flex-1 bg-transparent px-1 py-0.5 text-sm outline-none" />
+              <span className="shrink-0 text-xs text-zinc-500">{areaState.busy ? "Mapping…" : areaState.error ? <span className="text-red-700">{areaState.error}</span> : areaState.outcodes ? `${areaState.outcodes} postcode areas` : ""}</span>
+            </div>
+            <label className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-700" title="How far from the locations to look. Companies registered outside it are dropped.">within
+              <input type="number" min={1} max={30} value={areaMilesDraft} onChange={(e) => setAreaMilesDraft(e.target.value)} onBlur={() => { const n = Math.max(1, Math.min(30, Number(areaMilesDraft) || areaMiles)); setAreaMilesDraft(String(n)); if (n !== areaMiles) saveArea(areaCentres, n); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} disabled={running} className="w-12 rounded border border-zinc-200 px-1 py-0.5 text-sm" /> miles
+            </label>
             {!running && pending && (
               <button onClick={continueScan} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white"><PlayIcon className="h-4 w-4" /> Continue {pending.kind === "refresh" ? "rescan" : "scan"} ({(pending.queue || pending.ids || []).length} left)</button>
             )}
