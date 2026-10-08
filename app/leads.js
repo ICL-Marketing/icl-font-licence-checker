@@ -475,8 +475,14 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       }
       update(l.id, f); done++; doneIds.push(l.id);
     }
-    if (rescan.length) setTimeout(() => refreshLeads(rescan), 100);
-    return { done, doneIds, rescanned: rescan.length, moved };
+    // Once Claude's answers are in: rescan any lead on a new website, then look for contacts again on every
+    // checked lead that still has no address (the site, Companies House, then Hunter under the usual rules).
+    setTimeout(async () => {
+      if (rescan.length) await refreshLeads(rescan);
+      const need = doneIds.filter((id) => { const x = leadsRef.current[id]; return x && x.website && !x.emailAddress && !isFrozen(x) && !x.optedOut && !claudeSkip(x); });
+      if (need.length && !stopRef.current) await retryContacts(need);
+    }, 100);
+    return { done, doneIds, rescanned: rescan.length, moved, retry: doneIds.length };
   }
   async function checkLicence(l) {
     update(l.id, { checking: true, error: "" });
