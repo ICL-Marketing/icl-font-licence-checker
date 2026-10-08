@@ -300,7 +300,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
 
       {view === "replies" && <IdeaBoard cards={shown.filter((c) => normStatus(c.status) !== "queued").map((c) => ({ ...c, status: normStatus(c.status) }))} filtering={!!(q || kind)} onOpen={(id, key) => setOpen({ id, key })} onMove={(id, key, status) => updateIdea(id, key, { status })} />}
 
-      {researchFor && <ResearchModal clients={clients} recs={recs} preset={researchFor} onClose={() => setResearchFor(null)} onImport={importResearch} />}
+      {researchFor && <ResearchModal clients={clients} recs={recs} preset={researchFor} initialManager={manager} onClose={() => setResearchFor(null)} onImport={importResearch} />}
 
       {current && currentIdea && (
         <IdeaDrawer r={current} idea={currentIdea} onClose={() => setOpen(null)} onIdea={(fields) => updateIdea(current.id, currentIdea.key, fields)} onPick={(key) => setOpen({ id: current.id, key })} onRecord={(fields) => update(current.id, fields)} onRecheck={() => recheckOne(current.id)} onResearch={() => setResearchFor([current.clientId])} running={running} />
@@ -454,10 +454,14 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, onR
 }
 
 // Free research on your own Claude plan: pick clients, copy the prompt into Claude, paste the reply back.
-function ResearchModal({ clients, recs, preset, onClose, onImport }) {
+function ResearchModal({ clients, recs, preset, initialManager = "", onClose, onImport }) {
   const researched = (c) => Object.values(recs).some((r) => r.clientId === c.id && r.ai);
+  // Account managers can work through just their own clients.
+  const [mgr, setMgr] = useState(initialManager);
+  const mgrs = [...new Set(clients.map((c) => c.manager).filter(Boolean))].sort();
+  const mine = (c, m = mgr) => !m || c.manager === m;
   const [size, setSize] = useState(5);
-  const [picked, setPicked] = useState(() => (preset.length ? preset : clients.filter((c) => !researched(c)).slice(0, 5).map((c) => c.id)));
+  const [picked, setPicked] = useState(() => (preset.length ? preset : clients.filter((c) => mine(c) && !researched(c)).slice(0, 5).map((c) => c.id)));
   const [reply, setReply] = useState("");
   const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState(false);
@@ -472,7 +476,7 @@ function ResearchModal({ clients, recs, preset, onClose, onImport }) {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
     if (open) window.open("https://claude.ai/new", "_blank", "noopener");
   }
-  function nextBatch(n, alsoDone = []) { setSize(n); setPicked(clients.filter((c) => !researched(c) && !alsoDone.includes(c.id)).slice(0, n).map((c) => c.id)); }
+  function nextBatch(n, alsoDone = [], m = mgr) { setSize(n); setPicked(clients.filter((c) => mine(c, m) && !researched(c) && !alsoDone.includes(c.id)).slice(0, n).map((c) => c.id)); }
   function doImport() {
     try {
       const list = parseResearchReply(reply);
@@ -484,7 +488,7 @@ function ResearchModal({ clients, recs, preset, onClose, onImport }) {
     } catch (e) { setMsg(e.message); }
   }
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
-  const list = clients.filter((c) => !q || c.name.toLowerCase().includes(q.toLowerCase()));
+  const list = clients.filter((c) => mine(c) && (!q || c.name.toLowerCase().includes(q.toLowerCase())));
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
       <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -498,14 +502,15 @@ function ResearchModal({ clients, recs, preset, onClose, onImport }) {
             <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">1. Pick clients</span>
               <span className="text-xs text-zinc-500">Next unresearched:</span>
               {[1, 3, 5, 8].map((n) => <button key={n} onClick={() => nextBatch(n)} className={`rounded-full border px-2 py-0.5 text-xs ${size === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{n}</button>)}
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a client" className="ml-auto w-40 rounded-md border border-zinc-300 px-2 py-0.5 text-xs" />
+              {mgrs.length > 0 && <select value={mgr} onChange={(e) => { setMgr(e.target.value); nextBatch(size, [], e.target.value); }} className="ml-auto rounded-md border border-zinc-300 bg-white px-1.5 py-0.5 text-xs"><option value="">All account managers</option>{mgrs.map((m) => <option key={m}>{m}</option>)}</select>}
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a client" className={`${mgrs.length ? "" : "ml-auto "}w-40 rounded-md border border-zinc-300 px-2 py-0.5 text-xs`} />
             </div>
             <div className="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
               {list.map((c) => (
                 <button key={c.id} onClick={() => toggle(c.id)} className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(c.id) ? "border-violet-500 bg-violet-100 text-violet-900" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{c.name}{researched(c) ? " ✓" : ""}</button>
               ))}
             </div>
-            <p className="mt-1 text-[11px] text-zinc-500">{picked.length} picked. Around 5 at a time works well; ✓ means already researched.</p>
+            <p className="mt-1 text-[11px] text-zinc-500">{picked.length} picked{mgr ? ` from ${mgr}’s ${list.length} clients (${list.filter((c) => !researched(c)).length} still to research)` : ""}. Around 5 at a time works well; ✓ means already researched.</p>
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">2. Run it in Claude</span>
