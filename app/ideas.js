@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, normStatus, monthKey, monthName, clientQueue, monthlyPick } from "@/lib/clientIdeas";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick } from "@/lib/clientIdeas";
 import { dayGreeting, firstNameOf } from "@/lib/leadsShared";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
@@ -49,15 +49,24 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
   useEffect(() => { fetch("/api/ideas").then((r) => r.json()).then(setCfg).catch(() => {}); }, []);
 
   useEffect(() => {
-    const local = load();
-    recsRef.current = local;
-    setTimeout(() => setRecs(local), 0);
+    // Emails written with older wording are rewritten (hand-edited ones are left alone); statuses and order are kept.
+    const refresh = (all) => {
+      const changed = [];
+      const out = { ...all };
+      for (const [id, r] of Object.entries(out)) if ((r.ideasVersion || 0) < IDEAS_VERSION && (r.ideas || []).length) { out[id] = { ...r, ideas: ideasFor(r, r.ideas), ideasVersion: IDEAS_VERSION, updatedAt: new Date().toISOString() }; changed.push(id); }
+      return { out, changed };
+    };
+    const first = refresh(load());
+    recsRef.current = first.out; save(first.out);
+    setTimeout(() => setRecs(first.out), 0);
     fetch("/api/results?kind=ideas").then((r) => r.json()).then((j) => {
       if (!j.shared) return;
       sharedRef.current = true;
-      const next = { ...recsRef.current };
-      for (const [id, v] of Object.entries(j.results || {})) if (!next[id] || String(v.updatedAt || "") >= String(next[id].updatedAt || "")) next[id] = v;
-      recsRef.current = next; save(next); setRecs(next);
+      const merged = { ...recsRef.current };
+      for (const [id, v] of Object.entries(j.results || {})) if (!merged[id] || String(v.updatedAt || "") >= String(merged[id].updatedAt || "")) merged[id] = v;
+      const { out, changed } = refresh(merged);
+      recsRef.current = out; save(out); setRecs(out);
+      for (const id of [...new Set([...first.changed, ...changed])]) if (out[id]) fetch("/api/results", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "ideas", site: id, data: out[id] }) }).catch(() => {});
     }).catch(() => {});
   }, []);
 
@@ -117,6 +126,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
       fetch("/api/ideas").then((r) => r.json()).then(setCfg).catch(() => {});
     }
     rec.ideas = ideasFor(rec, prev.ideas || []);
+    rec.ideasVersion = IDEAS_VERSION;
     update(id, rec);
     return rec;
   }
@@ -146,6 +156,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
         const prev = recsRef.current[id] || { website: w === "none" ? "" : host(w) };
         const rec = { ...prev, clientId: c.id, name: c.name, manager: c.manager || "", poc: c.poc || "", emails: c.emails || [], ai: it, aiError: "" };
         rec.ideas = ideasFor(rec, prev.ideas || []);
+        rec.ideasVersion = IDEAS_VERSION;
         ideasAdded += rec.ideas.filter((i) => i.ai && !(prev.ideas || []).some((p) => p.key === i.key)).length;
         update(id, rec);
       }
