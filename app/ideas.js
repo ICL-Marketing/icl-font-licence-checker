@@ -510,7 +510,9 @@ function ResearchModal({ feedback = [], clients, recs, preset, initialManager = 
     } catch (e) { setMsg(e.message); }
   }
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
-  const list = clients.filter((c) => mine(c) && (!q || c.name.toLowerCase().includes(q.toLowerCase())));
+  // Researched clients are hidden from the picker; search still finds them for a re-run.
+  const list = clients.filter((c) => mine(c) && (q ? c.name.toLowerCase().includes(q.toLowerCase()) : !researched(c) || picked.includes(c.id)));
+  const doneCount = clients.filter((c) => mine(c) && researched(c)).length;
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
       <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -532,7 +534,7 @@ function ResearchModal({ feedback = [], clients, recs, preset, initialManager = 
                 <button key={c.id} onClick={() => toggle(c.id)} className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(c.id) ? "border-violet-500 bg-violet-100 text-violet-900" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{c.name}{researched(c) ? " ✓" : ""}</button>
               ))}
             </div>
-            <p className="mt-1 text-[11px] text-zinc-500">{picked.length} picked{mgr ? ` from ${mgr}’s ${list.length} clients (${list.filter((c) => !researched(c)).length} still to research)` : ""}. Around 5 at a time works well; ✓ means already researched.</p>
+            <p className="mt-1 text-[11px] text-zinc-500">{picked.length} picked{mgr ? ` from ${mgr}’s clients` : ""}. Around 5 at a time works well.{doneCount > 0 && ` ${doneCount} already researched (hidden; type a name to re-run one).`}</p>
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">2. Run it in Claude</span>
