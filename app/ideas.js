@@ -284,7 +284,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
               {groups.length === 0 && <tr><td colSpan={2} className="p-4 text-zinc-500">No ideas yet. Use Research with Claude above.</td></tr>}
               {groups.map((g) => (
                 <tr key={g.clientId || g.name} className="align-top">
-                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return w ? <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline">{w} <ExternalIcon /></a> : null; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button><RankCheck g={g} onSave={(rec, seo) => update(rec.id, { ...rec, seo, ideas: ideasFor({ ...rec, seo }, rec.ideas || []), ideasVersion: IDEAS_VERSION })} /></div>{g.top.length < 3 && <button onClick={() => setResearchFor([g.clientId])} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
+                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return w ? <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline">{w} <ExternalIcon /></a> : null; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button></div>{g.top.length < 3 && <button onClick={() => setResearchFor([g.clientId])} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
                   <td className="max-w-0 px-3 py-3">
                   <div className="grid snap-x auto-cols-[calc((100%-2.25rem)/3.2)] grid-flow-col gap-3 overflow-x-auto pb-1">
                   {g.top.length === 0 && <div className="text-xs text-zinc-400">No big ideas yet.</div>}
@@ -606,33 +606,6 @@ function AddIdeaModal({ group, onClose, onSave }) {
   );
 }
 
-// Where the client ranks on Google for their trade in their town, checked by hand. Feeds the search idea.
-function RankCheck({ g, onSave }) {
-  const rec = g.recs.find((r) => r.website) || g.recs[0];
-  const [open, setOpen] = useState(false);
-  if (!rec) return null;
-  const stored = rec.seo?.searches?.find((x) => x.kind === "trade");
-  const town = rec.townOverride || rec.searchTown || rec.tradingTown || (rec.ai?.location && !/^(national|online|uk|nationwide)$/i.test(rec.ai.location) ? rec.ai.location : "");
-  const trade = rec.tradeOverride || rec.searchTrade || rec.ai?.what_they_do || "";
-  const query = stored?.manual ? stored.query : [trade, town].filter(Boolean).join(" ");
-  const rank = stored ? (stored.position === 1 ? "top" : stored.position === null ? "none" : stored.position <= 3 ? "top3" : "page1") : "";
-  const save = (v) => {
-    const position = { top: 1, top3: 2, page1: 5, none: null }[v];
-    onSave(rec, v ? { manual: true, engine: "Checked by you on Google", checkedAt: new Date().toISOString(), searches: [{ kind: "trade", query, position, manual: true }] } : null);
-  };
-  const tone = rank === "top" ? "border-green-300 bg-green-50 text-green-800" : rank === "none" || rank === "page1" ? "border-red-300 bg-red-50 text-red-800" : rank ? "border-amber-300 bg-amber-50 text-amber-800" : "border-zinc-300 bg-white text-zinc-700";
-  if (!open) return <button onClick={() => setOpen(true)} title={query ? `Check where they rank on Google for “${query}”` : "Set what they do first (research or Add idea)"} className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] hover:opacity-80 ${tone}`}>{rank ? `Google: ${{ top: "top", top3: "top 3", page1: "page 1", none: "not on page 1" }[rank]}` : "Google rank"}</button>;
-  return (
-    <span className="inline-flex flex-wrap items-center gap-1 text-[11px]">
-      <input key={`${rec.id}:${query}`} defaultValue={query} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== query) onSave(rec, { ...(rec.seo || { manual: true, engine: "Checked by you on Google", checkedAt: new Date().toISOString() }), searches: [{ ...(stored || { kind: "trade", position: undefined }), kind: "trade", query: v, manual: true }] }); }} placeholder="e.g. trophy shop Richmond" className="w-44 rounded border border-zinc-300 px-1.5 py-0.5" />
-      {query && <a href={`https://www.google.com/search?q=${encodeURIComponent(query)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100">Google <ExternalIcon /></a>}
-      <select value={rank} onChange={(e) => { save(e.target.value); setOpen(false); }} className={`rounded-md border px-1.5 py-0.5 ${tone}`}>
-        <option value="">Where do they rank?</option><option value="top">Top result</option><option value="top3">In the top 3</option><option value="page1">On page 1, below top 3</option><option value="none">Not on page 1</option>
-      </select>
-      <button onClick={() => setOpen(false)} className="text-zinc-400">✕</button>
-    </span>
-  );
-}
 
 // Websites for clients that have none: email domains first (free, instant), then Claude for the rest.
 function FindWebsitesModal({ clients, onClose, onSave }) {
