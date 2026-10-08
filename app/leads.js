@@ -111,6 +111,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       // Contact not verified, and every route tried: nothing more to do, so park it.
       // Qualified was folded into To assess.
       for (const l of Object.values(local)) if (l.status === "qualified") { l.status = "new"; l.updatedAt = new Date().toISOString(); }
+      // A Claude check made before the website was confirmed or replaced no longer applies.
+      for (const l of Object.values(local)) if (l.claude && l.website && l.websiteConfirmed && l.claude.website_is_theirs === false && l.website !== l.claude.correct_website) { l.claude = null; l.claudeFields = []; if (l.status === "not-pursuing" && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.statusAt = new Date().toISOString(); } l.updatedAt = new Date().toISOString(); }
       // Claude said skip: parked for good, whichever column it was left in.
       for (const l of Object.values(local)) if (claudeSkip(l) && ["new", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.statusAt = l.updatedAt = new Date().toISOString(); }
       // Parked earlier only because Claude couldn't confirm the issue, though it said to contact them: bring back.
@@ -137,6 +139,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const l of Object.values(next)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status) && websiteIsVerified(l) && !(l.websiteConfirmed && !l.claude)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried) && ["new", "qualified"].includes(l.status)) { l.contactUnverified = true; l.status = parkStatus(l); l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "qualified") { l.status = "new"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (l.claude && l.website && l.websiteConfirmed && l.claude.website_is_theirs === false && l.website !== l.claude.correct_website) { l.claude = null; l.claudeFields = []; if (l.status === "not-pursuing" && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.statusAt = new Date().toISOString(); } l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (claudeSkip(l) && ["new", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "not-pursuing" && websiteUnknown(l) && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.websiteNeeded = true; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "not-pursuing" && l.claude?.worth_contacting && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = l.emailAddress ? "new" : "no-contact"; l.contactUnverified = !l.emailAddress; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
@@ -274,9 +277,6 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           const tooSmall = lead.netAssets !== null && lead.netAssets !== undefined && lead.netAssets < floor;
           // Licence sweep only for sites we might pitch (not parked/dead, not too small).
           if (!tooSmall && lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
-          // Last step (spends search credit): are they found for their own trade? A current site that is not
-          // becomes a "Low search visibility" lead; leads with no site get a search for one when open.
-          if (!tooSmall && websiteIsVerified(lead) && lead.problem && ["High", "Medium"].includes(lead.likelihood) && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site" && ["new", "qualified"].includes(lead.status)) { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = r.lead; } catch {} }
           st.done++;
           if (lead.problem && !tooSmall) { if (["new", "qualified"].includes(lead.status)) st.found++; else st.parked = (st.parked || 0) + 1; update(lead.id, lead); markSeen(c.companyNumber, lead.status); }
           else if (lead.problem) { st.parked = (st.parked || 0) + 1; update(lead.id, { ...lead, status: "not-pursuing" }); markSeen(c.companyNumber, "too-small"); }
@@ -347,7 +347,6 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       try {
         let { lead } = await post({ step: "refresh", lead: l, knownSites });
         if (lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
-        if (websiteIsVerified(lead) && (lead.problem ? ["High", "Medium"].includes(lead.likelihood) : lead.websiteConfirmed) && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site" && ["new", "qualified", "contacted", "replied", "meeting", "not-pursuing"].includes(lead.status) && !isFrozen(lead)) { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = { ...r.lead, status: !lead.problem && r.lead.problem ? r.lead.status : lead.status }; } catch {} }
         // A site you confirmed with nothing found yet is not parked: Claude decides. Claude's location beats the footer address.
         if (lead.websiteConfirmed && !lead.problem && !lead.claude && lead.status === "not-pursuing" && !l.optedOut) { lead.status = "new"; lead.likelihood = ""; lead.likelihoodWhy = "Site looks current; check with Claude for another angle"; lead.statusAt = new Date().toISOString(); }
         if (lead.claude?.location && !/^(national|online|uk|nationwide)$/i.test(lead.claude.location)) { lead.tradingTown = lead.claude.location; lead.tradesElsewhere = false; }
@@ -500,11 +499,6 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     try { const { lead } = await post({ step: "licence", lead: l }); update(l.id, { ...lead, checking: false, error: lead.licence?.error || "" }); }
     catch (e) { update(l.id, { checking: false, error: e.message }); }
   }
-  async function checkSeo(l) {
-    update(l.id, { checking: true, error: "" });
-    try { const r = await post({ step: "seo", lead: l }); update(l.id, { ...(r.lead || {}), seo: r.seo, status: !l.problem && r.lead?.problem ? r.lead.status : l.status, checking: false, error: r.seo.searches.every((x) => x.error) ? r.seo.searches[0]?.error || "Search failed" : "" }); }
-    catch (e) { update(l.id, { checking: false, error: e.message }); }
-  }
   async function recheck(l, redraft = false) {
     update(l.id, { checking: true, error: "" });
     const person = redraft ? ((l.contacts || []).find((p) => p.email && p.email === l.emailAddress) || null) : null;
@@ -529,10 +523,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     if (running || catchingUpRef.current) return;
     const siteOk = (l) => l.website && l.problem !== "Parked domain" && l.problem !== "Dead/broken site" && !l.checking;
     const open = (l) => ["new", "qualified", "no-contact"].includes(l.status) && !!l.problem;
-    const wantsSeo = (l) => !l.seo && ["High", "Medium"].includes(l.likelihood);
     // Leads from before websites were verified get the free check (company number, postcode, director on the site).
     const toVerify = Object.values(leadsRef.current).filter((l) => siteOk(l) && l.websiteVerified === undefined && !isFrozen(l)).sort((x, y) => (open(x) ? 0 : 1) - (open(y) ? 0 : 1));
-    const todo = Object.values(leadsRef.current).filter((l) => siteOk(l) && open(l) && websiteIsVerified(l) && (!l.licence || wantsSeo(l)));
+    const todo = Object.values(leadsRef.current).filter((l) => siteOk(l) && open(l) && websiteIsVerified(l) && !l.licence);
     if (!toVerify.length && !todo.length) return;
     catchingUpRef.current = true;
     (async () => {
@@ -545,8 +538,6 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         if (stopRef.current) break;
         const cur = leadsRef.current[l.id]; if (!cur) continue;
         if (!cur.licence) await checkLicence(cur);
-        const now = leadsRef.current[l.id] || cur;
-        if (wantsSeo(now)) await checkSeo(now);
       }
       catchingUpRef.current = false;
     })();
@@ -593,10 +584,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
             <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
           </div>
         </div>
-        {((cfg?.hunter && cfg.hunterUsage?.cap > 0) || (cfg?.brave && cfg.usage?.cap > 0)) && (
+        {cfg?.hunter && cfg.hunterUsage?.cap > 0 && (
           <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
             {cfg?.hunter && cfg.hunterUsage?.cap > 0 && <span title="One Hunter credit per lead, spent only on High leads where the site and Companies House gave no address, and only when Hunter holds named people. Medium and Low leads and background lookups never use one.">Hunter.io credits used this month: <span className={cfg.hunterUsage.used >= cfg.hunterUsage.cap ? "font-semibold text-red-700" : "font-semibold"}>{cfg.hunterUsage.used}</span> of {cfg.hunterUsage.cap}. Spent only on High leads the free routes couldn&apos;t find an address for.</span>}
-            {cfg?.brave && cfg.usage?.cap > 0 && <span title="One search per Medium or High lead: where they rank for their trade in their town (the search point in the email). The app stops at the cap so the card is never charged.">Brave Search credit used this month: <span className={cfg.usage.used >= cfg.usage.cap ? "font-semibold text-red-700" : "font-semibold"}>{cfg.usage.used}</span> of {cfg.usage.cap} searches, about {Math.max(0, cfg.usage.cap - cfg.usage.used)} more leads.</span>}
           </p>
         )}
         {run && (
@@ -635,7 +625,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       <Board onClaude={(col) => setClaudeFor({ col, ids: [] })} leads={visible} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status }); }} />
 
-      {current && <LeadDrawer onClaude={() => setClaudeFor({ col: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new", ids: [current.id] })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onSeo={() => checkSeo(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
+      {current && <LeadDrawer onClaude={() => setClaudeFor({ col: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new", ids: [current.id] })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
   );
 }
@@ -892,7 +882,7 @@ function FollowUp({ l, onChange }) {
   );
 }
 
-function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjects = {}, onClose, onChange, onRemove, onRecheck, onContacts, onHunter, onSeo, onLicence, onRefresh }) {
+function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjects = {}, onClose, onChange, onRemove, onRecheck, onContacts, onHunter, onLicence, onRefresh }) {
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
@@ -996,7 +986,7 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
               </span>
             </div>
           )}
-          {l.claude && (() => {
+          {l.claude && l.status !== "not-pursuing" && (() => {
             const c = l.claude, ok = c.worth_contacting;
             const row = (label, text) => text ? <div className="flex gap-1.5"><span className="w-14 shrink-0 text-zinc-500">{label}</span><span className="min-w-0">{text}</span></div> : null;
             return (
@@ -1013,7 +1003,17 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
             );
           })()}
           {l.status === "not-pursuing" ? (
-            <div className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">Not worth pursuing.</span> {parkExplain(l)} <span className="text-red-700">Change the status above if you still want to go for it.</span></div>
+            <div className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">Not worth pursuing.</span> {parkExplain(l)} <span className="text-red-700">Change the status above if you still want to go for it.</span>
+              {l.claude && (() => { const c = l.claude; return (
+                <details className="mt-1 text-xs text-red-800"><summary className="cursor-pointer">What Claude found</summary>
+                  <div className="mt-1 space-y-0.5">
+                    {c.what_they_do && <div><span className="opacity-70">Does </span>{oneLine(c.what_they_do)}{c.location ? ` · ${oneLine(c.location)}` : ""}</div>}
+                    <div><span className="opacity-70">Issue </span>{c.issue_confirmed ? "confirmed" : "not confirmed"}{c.issue_note ? `: ${oneLine(c.issue_note)}` : ""}</div>
+                    {c.contact?.name && <div><span className="opacity-70">Contact </span>{c.contact.name}{c.contact.role ? `, ${oneLine(c.contact.role)}` : ""}{c.contact.email ? ` · ${c.contact.email}` : " · no published email"}</div>}
+                    {c.sources?.length > 0 && <div className="opacity-70">{c.sources.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" className="mr-2 underline">{u.replace(/^https?:\/\/(www\.)?/, "").slice(0, 40)}</a>)}</div>}
+                  </div>
+                </details>); })()}
+            </div>
           ) : l.likelihood && !l.claude && (
             <div className={`rounded-lg px-3 py-2 text-sm ${LIKELY[l.likelihood]}`}>
               <span className="font-semibold">{l.likelihood} likelihood</span>{l.likelihoodWhy ? <span>: {l.likelihoodWhy}</span> : null}
@@ -1035,32 +1035,41 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
           <div className="rounded-lg border border-zinc-200 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold">Search visibility</span>
-              {(l.website || l.trade || l.tradeOverride) && (() => { const q = l.seo?.searches?.find((x) => x.kind === "trade")?.query || ""; const town = l.tradingTown || l.area || ""; const auto = l.trade || (q && town && q.toLowerCase().endsWith(" " + town.toLowerCase()) ? q.slice(0, -town.length - 1) : q); return (
-                <label className="inline-flex items-center gap-1 text-xs text-zinc-600" title="What a customer would type. Make it as specific as their business really is, then Search again.">searching for
-                  <input key={`${l.id}:${l.tradeOverride || ""}:${auto}`} defaultValue={l.tradeOverride || auto} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (l.tradeOverride || auto)) onChange({ tradeOverride: v === auto ? "" : v }); }} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }} placeholder="e.g. trophy shop" className="rounded border border-zinc-300 px-1.5 py-0.5 text-xs" style={{ width: `${Math.max(12, (l.tradeOverride || auto || "").length + 2)}ch` }} />
-                  {town ? <span>in {town}</span> : null}
-                </label>
-              ); })()}
-              <button onClick={onSeo} disabled={l.checking} className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {l.seo ? "Search again" : "Check search"}</button>
+              <span className="text-[11px] text-zinc-500">Run the search on Google and say where they come. The search issue and its email follow from your answer.</span>
             </div>
-            {!l.seo && <p className="mt-2 text-xs text-zinc-500">Runs during the scan for Medium and High leads once the website is verified. Searches their trade + town, the search customers make, and records where their site comes.</p>}
-            {l.seo && (
-              <ul className="mt-2 space-y-1 text-sm">
-                {l.seo.searches.filter((x) => x.kind === "trade").map((x, i) => (
-                  <li key={i} className="flex flex-wrap items-baseline gap-x-2">
-                    <span className="text-zinc-600">“{x.query}”</span>
-                    <a href={`https://www.google.com/search?q=${encodeURIComponent(x.query)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-xs text-blue-700 underline" title="See the live Google results for this search">check on Google <ExternalIcon /></a>
-                    {x.error ? <span className="text-red-700">{x.error}</span> : <>
-                      <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${x.position === 1 ? "bg-green-100 text-green-800" : x.position && x.position <= 3 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"}`}>{x.position ? `#${x.position}` : "Not on page 1"}</span>
-                      {x.volume > 0 && <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-700">{x.volume.toLocaleString("en-GB")} searches/month</span>}
-                      {x.ahead?.length > 0 && <span className="text-xs text-zinc-500">behind {x.ahead.join(", ")}</span>}
-                      {x.directoriesOnly && <span className="text-xs text-zinc-500">directories hold the top spots</span>}
-                    </>}
-                  </li>
-                ))}
-                <li className="text-[11px] text-zinc-400">{l.seo.engine} · {new Date(l.seo.checkedAt).toLocaleDateString("en-GB")}{l.website ? "" : " · no website, so only competitors are listed"}</li>
-              </ul>
-            )}
+            {(() => {
+              const stored = l.seo?.searches?.find((x) => x.kind === "trade");
+              const town = l.tradingTown || l.area || "";
+              const autoTrade = l.tradeOverride || l.trade || (stored && town && stored.query.toLowerCase().endsWith(" " + town.toLowerCase()) ? stored.query.slice(0, -town.length - 1) : stored?.query || "");
+              const query = [autoTrade, town].filter(Boolean).join(" ");
+              const rank = !stored || stored.manual === undefined && stored.position === undefined ? "" : stored.position === 1 ? "top" : stored.position === 2 ? "top3" : stored.position === 5 ? "page1" : stored.position === null ? "none" : stored.position <= 3 ? "top3" : stored.position <= 10 ? "page1" : "none";
+              const setRank = (v) => {
+                if (!v) { onChange({ seo: null }); return; }
+                const position = { top: 1, top3: 2, page1: 5, none: null }[v];
+                const poor = position === null || position > 3;
+                const f = { seo: { manual: true, engine: "Checked by you on Google", checkedAt: new Date().toISOString(), searches: [{ kind: "trade", query, position, manual: true }] } };
+                if (poor && !l.problem) { f.problem = "Low search visibility"; f.problemDetail = `${position ? `#${position}` : "Not on page 1"} for “${query}”`; }
+                else if (!poor && l.problem === "Low search visibility") { f.problem = ""; f.problemDetail = ""; }
+                onChange(f);
+              };
+              return (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                  <label className="inline-flex items-center gap-1 text-xs text-zinc-600">searching for
+                    <input key={`${l.id}:${l.tradeOverride || ""}:${autoTrade}`} defaultValue={autoTrade} onBlur={(e) => { const v = e.target.value.trim(); if (v !== autoTrade) onChange({ tradeOverride: v, seo: null }); }} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }} placeholder="e.g. trophy shop" className="rounded border border-zinc-300 px-1.5 py-0.5 text-xs" style={{ width: `${Math.max(12, (autoTrade || "").length + 2)}ch` }} />
+                    {town ? <span>in {town}</span> : null}
+                  </label>
+                  {query && <a href={`https://www.google.com/search?q=${encodeURIComponent(query)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100">Search on Google <ExternalIcon /></a>}
+                  <select value={rank} onChange={(e) => setRank(e.target.value)} className={`rounded-md border px-2 py-1 text-xs ${rank === "top" ? "border-green-300 bg-green-50 text-green-800" : rank === "none" || rank === "page1" ? "border-red-300 bg-red-50 text-red-800" : rank ? "border-amber-300 bg-amber-50 text-amber-800" : "border-zinc-300 bg-white"}`}>
+                    <option value="">Where do they rank?</option>
+                    <option value="top">Top result</option>
+                    <option value="top3">In the top 3</option>
+                    <option value="page1">On page 1, below the top 3</option>
+                    <option value="none">Not on page 1</option>
+                  </select>
+                  {stored && <span className="text-[11px] text-zinc-400">{l.seo.engine} · {new Date(l.seo.checkedAt).toLocaleDateString("en-GB")}</span>}
+                </div>
+              );
+            })()}
           </div>
 
           {l.website && (

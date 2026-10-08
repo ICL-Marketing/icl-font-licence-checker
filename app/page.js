@@ -10,7 +10,7 @@ import DesignArea from "@/app/design";
 import LeadsArea from "@/app/leads";
 import IdeasArea from "@/app/ideas";
 import { DEFAULT_SITES } from "@/data/sites";
-import { loadClients } from "@/app/clients";
+import { loadClients, saveClients } from "@/app/clients";
 import { scanFonts as scanFontsShared, scanImages as scanImagesShared } from "@/app/scans";
 import { clientForSite, normaliseClients } from "@/lib/clients";
 import { buildFontEmail, buildImageEmail, isFreeLib, segmentsToText, segmentsToHtml } from "@/lib/email";
@@ -383,7 +383,7 @@ export default function Home() {
       {/* All areas stay mounted so a running scan carries on when you switch tabs. */}
       <section className={`mt-5 ${area === "design" ? "" : "hidden"}`}><DesignArea onRunning={setDesignRunning} onCount={setDesignCount} /></section>
       <section className={`mt-5 ${area === "leads" ? "" : "hidden"}`}><LeadsArea onRunning={setLeadsRunning} onCount={setLeadsCount} clients={clients} /></section>
-      <section className={`mt-5 ${area === "ideas" ? "" : "hidden"}`}><IdeasArea onRunning={setIdeasRunning} onCount={setIdeasCount} clients={clients} /></section>
+      <section className={`mt-5 ${area === "ideas" ? "" : "hidden"}`}><IdeasArea onRunning={setIdeasRunning} onCount={setIdeasCount} clients={clients} onClientsChange={(next) => { const list = normaliseClients(next); setClients(list); saveClients(list); fetch("/api/clients", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clients: list }) }).catch(() => {}); }} /></section>
       <section className={`mt-5 ${area === "launch" ? "" : "hidden"}`}><LaunchArea post={post} mode="launch" onRunning={setLaunchRunning} onCount={setLaunchCount} onSiteResult={patch} siteResults={results} /></section>
       <section className={`mt-5 ${area === "post" ? "" : "hidden"}`}><LaunchArea post={post} mode="post" onRunning={setPostRunning} onCount={setPostCount} onSiteResult={patch} siteResults={results} /></section>
 

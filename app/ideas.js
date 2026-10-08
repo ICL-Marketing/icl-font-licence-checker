@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea } from "@/lib/clientIdeas";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, websiteFromEmails, findWebsitesPrompt, parseWebsitesReply } from "@/lib/clientIdeas";
 import { dayGreeting, firstNameOf } from "@/lib/leadsShared";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
@@ -30,7 +30,7 @@ async function post(body) {
   return j;
 }
 
-export default function IdeasArea({ clients = [], onRunning, onCount }) {
+export default function IdeasArea({ clients = [], onRunning, onCount, onClientsChange }) {
   const [recs, setRecs] = useState({});
   const recsRef = useRef({});
   const sharedRef = useRef(false);
@@ -39,7 +39,6 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
   const [open, setOpen] = useState(null); // { id, key }
   const [filter, setFilter] = useState("");
   const [kind, setKind] = useState("");
-  const [withSearch, setWithSearch] = useState(true);
   const [cfg, setCfg] = useState(null); // { ai, aiUsage }
   const [withAi, setWithAi] = useState(true);
   const [researchFor, setResearchFor] = useState(null);
@@ -47,6 +46,13 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
   const [manager, setManager] = useState("");
   const [service, setService] = useState("");
   const [addFor, setAddFor] = useState(null); // the client group an idea is being added to
+  const [findSites, setFindSites] = useState(false);
+  const missingSites = clients.filter((c) => !(c.websites || []).length);
+  function setWebsites(pairs) { // [{ clientId, website }]
+    if (!onClientsChange) return;
+    const byId = new Map(pairs.map((p) => [p.clientId, p.website]));
+    onClientsChange(clients.map((c) => (byId.get(c.id) ? { ...c, websites: [...new Set([...(c.websites || []), byId.get(c.id)])] } : c)));
+  }
   // Feedback on bad ideas, shared with the team: fed into research prompts, and repeat offenders drop out of the top 3.
   const [feedback, setFeedback] = useState([]);
   const feedbackRef = useRef([]);
@@ -126,10 +132,6 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
     let rec = { ...prev, ...site, clientId: c.id, name: c.name, manager: c.manager || "", poc: c.poc || "", emails: c.emails || [] };
     const alive = site.problem !== "Dead/broken site" && site.problem !== "Parked domain";
     if (alive && !stopRef.current) { st.phase = `Checking licences on ${host(w)}…`; setRun({ ...st }); try { const l = await post({ step: "licence", website: w }); rec.licence = l.licence; } catch {} }
-    if (alive && withSearch && !stopRef.current) {
-      st.phase = `Searching for ${c.name}…`; setRun({ ...st });
-      try { const s = await post({ step: "seo", website: w, name: c.name, town: prev.townOverride || (/^(national|online|uk|nationwide)$/i.test(prev.ai?.location || "") ? "" : prev.ai?.location || ""), trade: prev.tradeOverride || prev.ai?.what_they_do || "", title: site.title, siteDescription: site.siteDescription, siteHeadings: site.siteHeadings, siteBody: site.siteBody }); rec.seo = s.seo || prev.seo || null; rec.searchTown = s.town || ""; rec.searchTrade = s.trade || ""; rec.searchNote = s.skipped || ""; } catch (e) { rec.searchNote = e.message; }
-    }
     // AI research: who they really are and what would help them, from the web plus our findings.
     if (cfg?.ai && withAi && !stopRef.current) {
       st.phase = `Researching ${c.name} with AI…`; setRun({ ...st });
@@ -241,12 +243,12 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
             ? <button onClick={() => { stopRef.current = true; }} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
             : <button onClick={() => checkAll(false)} disabled={!sitesTotal} title="Checks every client website not checked in the last 30 days" className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find ideas</button>}
           <button onClick={() => checkAll(true)} disabled={running || !sitesTotal} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Re-check all</button>
-          <label className="inline-flex items-center gap-1.5 text-sm text-zinc-700" title="One Brave search credit per client site, shared with Website Leads"><input type="checkbox" checked={withSearch} onChange={(e) => setWithSearch(e.target.checked)} disabled={running} /> Include search ranking</label>
           {cfg?.ai
             ? <label className="inline-flex items-center gap-1.5 text-sm text-zinc-700" title="Claude researches each client on the web (what they really do, where, competitors, whether the website on file is theirs) and writes ideas specific to them. Roughly 20-40p per client."><input type="checkbox" checked={withAi} onChange={(e) => setWithAi(e.target.checked)} disabled={running} /> AI research <span className="text-xs text-zinc-400">{cfg.aiUsage?.used || 0} of {cfg.aiUsage?.cap || 0} this month</span></label>
             : null}
           <button onClick={() => setResearchFor([])} disabled={!clients.length} title="Free: the app writes a research prompt for a batch of clients, you run it in Claude on your own plan and paste the reply back" className="inline-flex items-center gap-1.5 rounded-md border border-violet-300 bg-violet-50 px-4 py-2 text-sm text-violet-900 hover:bg-violet-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Research with Claude</button>
-          <span className="text-xs text-zinc-500">{sitesChecked} of {sitesTotal} client sites checked{noSite ? ` · ${noSite} client${noSite === 1 ? "" : "s"} with no website in Settings` : ""}</span>
+          <span className="text-xs text-zinc-500">{sitesChecked} of {sitesTotal} client sites checked</span>
+          {noSite > 0 && <button onClick={() => setFindSites(true)} className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-900 hover:bg-amber-100"><SearchIcon className="h-3.5 w-3.5" /> Find websites ({noSite} without one)</button>}
         </div>
         {run && (
           <div className="mt-3 text-sm">
@@ -280,7 +282,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
               {groups.length === 0 && <tr><td colSpan={2} className="p-4 text-zinc-500">No ideas yet. Use Research with Claude above.</td></tr>}
               {groups.map((g) => (
                 <tr key={g.clientId || g.name} className="align-top">
-                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return w ? <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline">{w} <ExternalIcon /></a> : null; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><button onClick={() => setAddFor(g)} className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button>{g.top.length < 3 && <button onClick={() => setResearchFor([g.clientId])} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
+                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return w ? <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline">{w} <ExternalIcon /></a> : null; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button><RankCheck g={g} onSave={(rec, seo) => update(rec.id, { ...rec, seo, ideas: ideasFor({ ...rec, seo }, rec.ideas || []), ideasVersion: IDEAS_VERSION })} /></div>{g.top.length < 3 && <button onClick={() => setResearchFor([g.clientId])} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
                   <td className="max-w-0 px-3 py-3">
                   <div className="grid snap-x auto-cols-[calc((100%-2.25rem)/3.2)] grid-flow-col gap-3 overflow-x-auto pb-1">
                   {g.top.length === 0 && <div className="text-xs text-zinc-400">No big ideas yet.</div>}
@@ -344,6 +346,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
 
       {view === "replies" && <IdeaBoard cards={shown.filter((c) => normStatus(c.status) !== "queued").map((c) => ({ ...c, status: normStatus(c.status) }))} filtering={!!(q || kind)} onOpen={(id, key) => setOpen({ id, key })} onMove={(id, key, status) => updateIdea(id, key, { status })} />}
 
+      {findSites && <FindWebsitesModal clients={missingSites} onClose={() => setFindSites(false)} onSave={setWebsites} />}
       {addFor && <AddIdeaModal group={addFor} onClose={() => setAddFor(null)} onSave={(data) => { addIdea(addFor, data); setAddFor(null); }} />}
       {researchFor && <ResearchModal feedback={feedback} clients={clients} recs={recs} preset={researchFor} initialManager={manager} onClose={() => setResearchFor(null)} onImport={importResearch} />}
 
@@ -592,6 +595,84 @@ function AddIdeaModal({ group, onClose, onSave }) {
           <label className={label}>Email subject<input value={f.subject} onChange={set("subject")} placeholder="An idea for your website" className={input} /></label>
           <label className={label}>Email (optional)<textarea value={f.email} onChange={set("email")} rows={4} placeholder="Leave blank and it’s written for you in the usual style, ending with the estimate offer" className={input} /></label>
           <div className="flex justify-end gap-2"><button onClick={onClose} className="rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100">Cancel</button><button onClick={() => f.title.trim() && onSave(f)} disabled={!f.title.trim()} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Add idea</button></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Where the client ranks on Google for their trade in their town, checked by hand. Feeds the search idea.
+function RankCheck({ g, onSave }) {
+  const rec = g.recs.find((r) => r.website) || g.recs[0];
+  const [open, setOpen] = useState(false);
+  if (!rec) return null;
+  const stored = rec.seo?.searches?.find((x) => x.kind === "trade");
+  const town = rec.townOverride || rec.searchTown || rec.tradingTown || (rec.ai?.location && !/^(national|online|uk|nationwide)$/i.test(rec.ai.location) ? rec.ai.location : "");
+  const trade = rec.tradeOverride || rec.searchTrade || rec.ai?.what_they_do || "";
+  const query = stored?.manual ? stored.query : [trade, town].filter(Boolean).join(" ");
+  const rank = stored ? (stored.position === 1 ? "top" : stored.position === null ? "none" : stored.position <= 3 ? "top3" : "page1") : "";
+  const save = (v) => {
+    const position = { top: 1, top3: 2, page1: 5, none: null }[v];
+    onSave(rec, v ? { manual: true, engine: "Checked by you on Google", checkedAt: new Date().toISOString(), searches: [{ kind: "trade", query, position, manual: true }] } : null);
+  };
+  const tone = rank === "top" ? "border-green-300 bg-green-50 text-green-800" : rank === "none" || rank === "page1" ? "border-red-300 bg-red-50 text-red-800" : rank ? "border-amber-300 bg-amber-50 text-amber-800" : "border-zinc-300 bg-white text-zinc-700";
+  if (!open) return <button onClick={() => setOpen(true)} title={query ? `Check where they rank on Google for “${query}”` : "Set what they do first (research or Add idea)"} className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] hover:opacity-80 ${tone}`}>{rank ? `Google: ${{ top: "top", top3: "top 3", page1: "page 1", none: "not on page 1" }[rank]}` : "Google rank"}</button>;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1 text-[11px]">
+      <input key={`${rec.id}:${query}`} defaultValue={query} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== query) onSave(rec, { ...(rec.seo || { manual: true, engine: "Checked by you on Google", checkedAt: new Date().toISOString() }), searches: [{ ...(stored || { kind: "trade", position: undefined }), kind: "trade", query: v, manual: true }] }); }} placeholder="e.g. trophy shop Richmond" className="w-44 rounded border border-zinc-300 px-1.5 py-0.5" />
+      {query && <a href={`https://www.google.com/search?q=${encodeURIComponent(query)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100">Google <ExternalIcon /></a>}
+      <select value={rank} onChange={(e) => { save(e.target.value); setOpen(false); }} className={`rounded-md border px-1.5 py-0.5 ${tone}`}>
+        <option value="">Where do they rank?</option><option value="top">Top result</option><option value="top3">In the top 3</option><option value="page1">On page 1, below top 3</option><option value="none">Not on page 1</option>
+      </select>
+      <button onClick={() => setOpen(false)} className="text-zinc-400">✕</button>
+    </span>
+  );
+}
+
+// Websites for clients that have none: email domains first (free, instant), then Claude for the rest.
+function FindWebsitesModal({ clients, onClose, onSave }) {
+  const guesses = clients.map((c) => ({ c, site: websiteFromEmails(c) })).filter((x) => x.site);
+  const [accepted, setAccepted] = useState(() => new Set(guesses.map((x) => x.c.id)));
+  const rest = clients.filter((c) => !guesses.some((g) => g.c.id === c.id));
+  const [reply, setReply] = useState("");
+  const [found, setFound] = useState([]);
+  const [msg, setMsg] = useState("");
+  const [copied, setCopied] = useState(false);
+  useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
+  const prompt = rest.length ? findWebsitesPrompt(rest.map((c) => ({ id: c.id, name: c.name, type: c.type, poc: String(c.poc || "").split("\n")[0], emails: c.emails || [], notes: c.notes || "" }))) : "";
+  async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); }
+  function read() { try { const list = parseWebsitesReply(reply).filter((x) => x.website); setFound(list.map((x) => ({ ...x, keep: x.confidence !== "low" }))); setMsg(list.length ? `${list.length} website${list.length === 1 ? "" : "s"} found. Untick any that look wrong, then save.` : "Claude found no websites in that reply."); } catch (e) { setMsg(e.message); } }
+  function saveAll() {
+    const pairs = [...guesses.filter((g) => accepted.has(g.c.id)).map((g) => ({ clientId: g.c.id, website: g.site })), ...found.filter((f) => f.keep).map((f) => ({ clientId: f.client_id, website: f.website }))];
+    onSave(pairs); setMsg(`Saved ${pairs.length} website${pairs.length === 1 ? "" : "s"} to Settings → Clients.`); setTimeout(onClose, 900);
+  }
+  const nameOf = (id) => clients.find((c) => c.id === id)?.name || id;
+  return (
+    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
+      <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3"><h3 className="text-lg font-semibold">Find websites</h3><span className="text-xs text-zinc-500">{clients.length} client{clients.length === 1 ? "" : "s"} without one in Settings</span><button onClick={onClose} aria-label="Close" className="ml-auto rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button></div>
+        <div className="space-y-4 px-5 py-4 text-sm">
+          {guesses.length > 0 && (
+            <div>
+              <div className="font-semibold">1. From their email addresses <span className="font-normal text-xs text-zinc-500">· a company email domain is nearly always the website</span></div>
+              <div className="mt-2 grid gap-1 sm:grid-cols-2">{guesses.map(({ c, site }) => <label key={c.id} className="flex items-center gap-2 rounded-md border border-zinc-200 px-2 py-1"><input type="checkbox" checked={accepted.has(c.id)} onChange={(e) => setAccepted((s) => { const n = new Set(s); if (e.target.checked) n.add(c.id); else n.delete(c.id); return n; })} /><span className="min-w-0 flex-1 truncate">{c.name}</span><a href={`https://${site}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700">{site} <ExternalIcon /></a></label>)}</div>
+            </div>
+          )}
+          {rest.length > 0 && (
+            <div>
+              <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">{guesses.length ? "2" : "1"}. Ask Claude about the other {rest.length}</span>
+                <span className="ml-auto flex gap-2">
+                  <button onClick={() => copy(false)} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy prompt</>}</button>
+                  <button onClick={() => copy(true)} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white"><ExternalIcon /> Copy and open Claude</button>
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-zinc-500">{rest.map((c) => c.name).join(" · ")}</p>
+              <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={4} placeholder="Paste Claude’s reply here" className="mt-2 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" />
+              <div className="mt-1 flex items-center gap-2"><button onClick={read} disabled={!reply.trim()} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-40">Read reply</button>{msg && <span className="text-xs text-zinc-700">{msg}</span>}</div>
+              {found.length > 0 && <div className="mt-2 grid gap-1 sm:grid-cols-2">{found.map((f) => <label key={f.client_id} className="flex items-center gap-2 rounded-md border border-zinc-200 px-2 py-1" title={f.evidence}><input type="checkbox" checked={f.keep} onChange={(e) => setFound((l) => l.map((x) => (x.client_id === f.client_id ? { ...x, keep: e.target.checked } : x)))} /><span className="min-w-0 flex-1 truncate">{nameOf(f.client_id)}</span><a href={`https://${f.website}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700">{f.website} <ExternalIcon /></a><span className={`text-[10px] ${f.confidence === "high" ? "text-green-700" : f.confidence === "low" ? "text-red-700" : "text-amber-700"}`}>{f.confidence}</span></label>)}</div>}
+            </div>
+          )}
+          <div className="flex items-center justify-end gap-2"><button onClick={onClose} className="rounded-md px-3 py-1.5 text-zinc-600 hover:bg-zinc-100">Cancel</button><button onClick={saveAll} disabled={!accepted.size && !found.some((f) => f.keep)} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Save to Settings</button></div>
         </div>
       </div>
     </div>
