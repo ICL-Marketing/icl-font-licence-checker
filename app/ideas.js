@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix } from "@/lib/clientIdeas";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea } from "@/lib/clientIdeas";
 import { dayGreeting, firstNameOf } from "@/lib/leadsShared";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
@@ -43,14 +43,21 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
   const [cfg, setCfg] = useState(null); // { ai, aiUsage }
   const [withAi, setWithAi] = useState(true);
   const [researchFor, setResearchFor] = useState(null);
-  const [view, setViewState] = useState(() => { try { const v = localStorage.getItem("flc-ideas-view"); return v && v !== "month" ? v : "top"; } catch { return "top"; } });
-  const setView = (v) => { setViewState(v); try { localStorage.setItem("flc-ideas-view", v); } catch {} };
+  const view = "top"; // one table now; the All ideas and Replies views were retired
   const [manager, setManager] = useState("");
   const [service, setService] = useState("");
+  const [addFor, setAddFor] = useState(null); // the client group an idea is being added to
   // Feedback on bad ideas, shared with the team: fed into research prompts, and repeat offenders drop out of the top 3.
   const [feedback, setFeedback] = useState([]);
   const feedbackRef = useRef([]);
   useEffect(() => { fetch("/api/settings?key=idea-feedback").then((r) => r.json()).then((j) => { if (j.shared && Array.isArray(j.value)) { feedbackRef.current = j.value; setFeedback(j.value); } }).catch(() => {}); }, []);
+  // A custom idea goes on the client's first site record (or a new one if they have none yet), top of the queue.
+  function addIdea(g, data) {
+    const c = clients.find((x) => x.id === g.clientId) || { id: g.clientId, name: g.name, manager: g.manager, emails: [], poc: "" };
+    const rec = g.recs[0] || { id: recId(c, (c.websites || [])[0] || "none"), website: host((c.websites || [])[0] || ""), clientId: c.id, name: c.name, manager: c.manager || "", poc: c.poc || "", emails: c.emails || [], ideas: [] };
+    const minP = Math.min(0, ...g.queue.map((i) => (Number.isFinite(i.priority) ? i.priority : 0)));
+    update(rec.id, { ...rec, ideas: [...(rec.ideas || []), customIdea(data, minP - 1)], ideasVersion: rec.ideasVersion || IDEAS_VERSION });
+  }
   function markBad(rec, idea, reason) {
     updateIdea(rec.id, idea.key, { status: "declined", badReason: reason, statusAt: new Date().toISOString() });
     const entry = { at: new Date().toISOString(), client: rec.name, title: idea.title, service: idea.service || serviceFor(idea.title), key: idea.ai ? "" : idea.key, reason };
@@ -250,9 +257,6 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-md border border-zinc-300 bg-white p-0.5 text-sm">
-          {[["top", "Top ideas"], ["clients", "All ideas"], ["replies", "Replies"]].map(([id, label]) => <button key={id} onClick={() => setView(id)} className={`rounded px-3 py-1 ${view === id ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>{label}</button>)}
-        </div>
         <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search clients or ideas" className="w-56 rounded-md border border-zinc-300 px-3 py-1.5 text-sm" />
         {managers.length > 0 && <select value={manager} onChange={(e) => setManager(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm"><option value="">All account managers</option>{managers.map((m) => <option key={m}>{m}</option>)}</select>}
         {view === "replies" && <select value={kind} onChange={(e) => setKind(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm"><option value="">All kinds</option>{Object.entries(IDEA_KINDS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>}
@@ -274,7 +278,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
               {groups.length === 0 && <tr><td colSpan={2} className="p-4 text-zinc-500">No ideas yet. Use Research with Claude above.</td></tr>}
               {groups.map((g) => (
                 <tr key={g.clientId || g.name} className="align-top">
-                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return w ? <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline">{w} <ExternalIcon /></a> : null; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div>{g.top.length < 3 && <button onClick={() => setResearchFor([g.clientId])} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
+                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return w ? <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline">{w} <ExternalIcon /></a> : null; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><button onClick={() => setAddFor(g)} className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button>{g.top.length < 3 && <button onClick={() => setResearchFor([g.clientId])} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
                   <td className="max-w-0 px-3 py-3">
                   <div className="grid snap-x auto-cols-[calc((100%-1.5rem)/3)] grid-flow-col gap-3 overflow-x-auto pb-1">
                   {g.top.length === 0 && <div className="text-xs text-zinc-400">No big ideas yet.</div>}
@@ -337,6 +341,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
 
       {view === "replies" && <IdeaBoard cards={shown.filter((c) => normStatus(c.status) !== "queued").map((c) => ({ ...c, status: normStatus(c.status) }))} filtering={!!(q || kind)} onOpen={(id, key) => setOpen({ id, key })} onMove={(id, key, status) => updateIdea(id, key, { status })} />}
 
+      {addFor && <AddIdeaModal group={addFor} onClose={() => setAddFor(null)} onSave={(data) => { addIdea(addFor, data); setAddFor(null); }} />}
       {researchFor && <ResearchModal feedback={feedback} clients={clients} recs={recs} preset={researchFor} initialManager={manager} onClose={() => setResearchFor(null)} onImport={importResearch} />}
 
       {current && currentIdea && (
@@ -551,6 +556,34 @@ function BadIdea({ idea, onBad }) {
       <input autoFocus value={why} onChange={(e) => setWhy(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && why.trim()) onBad(why.trim()); if (e.key === "Escape") setAsking(false); }} placeholder="Why is it a bad idea? e.g. they already have this, too small for them, not something we offer" className="min-w-0 flex-1 rounded-md border border-red-300 px-2 py-1 text-sm" />
       <button onClick={() => why.trim() && onBad(why.trim())} disabled={!why.trim()} className="rounded-md bg-red-600 px-2.5 py-1 font-medium text-white disabled:opacity-40">Save</button>
       <button onClick={() => setAsking(false)} className="text-zinc-500">Cancel</button>
+    </div>
+  );
+}
+
+function AddIdeaModal({ group, onClose, onSave }) {
+  const [f, setF] = useState({ title: "", service: "Web design", size: "medium", hours: "", value: "", why: "", subject: "", email: "" });
+  const set = (k) => (e) => setF((o) => ({ ...o, [k]: e.target.value }));
+  useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
+  const input = "mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm";
+  const label = "block text-[11px] font-semibold uppercase tracking-wide text-zinc-500";
+  return (
+    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
+      <div className="w-full max-w-xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3"><h3 className="text-lg font-semibold">Add an idea for {group.name}</h3><button onClick={onClose} aria-label="Close" className="ml-auto rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button></div>
+        <div className="space-y-3 px-5 py-4">
+          <label className={label}>Idea<input autoFocus value={f.title} onChange={set("title")} placeholder="e.g. Online booking for consultations" className={input} /></label>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <label className={label}>Service<select value={f.service} onChange={set("service")} className={`${input} bg-white`}>{Object.keys(IDEA_SERVICES).map((k) => <option key={k}>{k}</option>)}</select></label>
+            <label className={label}>Size<select value={f.size} onChange={set("size")} className={`${input} bg-white`}><option value="quick">Quick fix</option><option value="medium">Medium</option><option value="large">Large</option></select></label>
+            <label className={label}>Hours<input type="number" min={0} value={f.hours} onChange={set("hours")} placeholder={f.size === "quick" ? "3" : f.size === "large" ? "40" : "12"} className={input} /></label>
+            <label className={label}>Budget<input value={f.value} onChange={set("value")} placeholder="£3k-£6k" className={input} /></label>
+          </div>
+          <label className={label}>Why it would help them<textarea value={f.why} onChange={set("why")} rows={2} placeholder="One or two sentences; used in the email if you leave the email blank" className={input} /></label>
+          <label className={label}>Email subject<input value={f.subject} onChange={set("subject")} placeholder="An idea for your website" className={input} /></label>
+          <label className={label}>Email (optional)<textarea value={f.email} onChange={set("email")} rows={4} placeholder="Leave blank and it’s written for you in the usual style, ending with the estimate offer" className={input} /></label>
+          <div className="flex justify-end gap-2"><button onClick={onClose} className="rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100">Cancel</button><button onClick={() => f.title.trim() && onSave(f)} disabled={!f.title.trim()} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Add idea</button></div>
+        </div>
+      </div>
     </div>
   );
 }
