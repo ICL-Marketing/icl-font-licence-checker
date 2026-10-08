@@ -461,7 +461,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       if (it.email_body && !l.emailEdited) Object.assign(f, { emailPrevious: l.email, email: it.email_body, subject: it.email_subject || l.subject, emailEdited: false, claudeDraft: true });
       // Fill the lead's fields with what Claude confirmed (shown in orange in the drawer).
       const filled = [];
-      if (it.what_they_do) { f.whatTheyDo = it.what_they_do; filled.push("whatTheyDo"); }
+      if (it.what_they_do) { f.whatTheyDo = it.what_they_do; filled.push("whatTheyDo"); if (!l.tradeOverride) f.tradeOverride = it.what_they_do.toLowerCase().replace(/[^a-z0-9 &'-]/g, "").trim().split(/\s+/).slice(0, 4).join(" "); }
       if (it.location && !/^(national|online|uk|nationwide)$/i.test(it.location.trim())) { f.tradingTown = it.location; filled.push("tradingTown"); }
       if (it.issue_note && l.problem) { f.problemDetail = it.issue_note; filled.push("problemDetail"); }
       if (it.likelihood) { f.likelihood = it.likelihood; filled.push("likelihood"); }

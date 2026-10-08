@@ -128,7 +128,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
     if (alive && !stopRef.current) { st.phase = `Checking licences on ${host(w)}…`; setRun({ ...st }); try { const l = await post({ step: "licence", website: w }); rec.licence = l.licence; } catch {} }
     if (alive && withSearch && !stopRef.current) {
       st.phase = `Searching for ${c.name}…`; setRun({ ...st });
-      try { const s = await post({ step: "seo", website: w, name: c.name, town: prev.townOverride || "", trade: prev.tradeOverride || "", title: site.title, siteDescription: site.siteDescription, siteHeadings: site.siteHeadings, siteBody: site.siteBody }); rec.seo = s.seo || prev.seo || null; rec.searchTown = s.town || ""; rec.searchTrade = s.trade || ""; rec.searchNote = s.skipped || ""; } catch (e) { rec.searchNote = e.message; }
+      try { const s = await post({ step: "seo", website: w, name: c.name, town: prev.townOverride || (/^(national|online|uk|nationwide)$/i.test(prev.ai?.location || "") ? "" : prev.ai?.location || ""), trade: prev.tradeOverride || prev.ai?.what_they_do || "", title: site.title, siteDescription: site.siteDescription, siteHeadings: site.siteHeadings, siteBody: site.siteBody }); rec.seo = s.seo || prev.seo || null; rec.searchTown = s.town || ""; rec.searchTrade = s.trade || ""; rec.searchNote = s.skipped || ""; } catch (e) { rec.searchNote = e.message; }
     }
     // AI research: who they really are and what would help them, from the web plus our findings.
     if (cfg?.ai && withAi && !stopRef.current) {
