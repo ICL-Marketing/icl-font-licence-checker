@@ -439,9 +439,11 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   }, [leads]); // eslint-disable-line react-hooks/exhaustive-deps
   // Claude's checks (run on the user's own Claude plan) applied to each lead: website, contact, verdict, draft.
   function applyLeadCheck(items) {
-    let done = 0; const rescan = []; const doneIds = []; const moved = { skip: 0, back: 0 };
+    let done = 0, left = 0; const rescan = []; const doneIds = []; const moved = { skip: 0, back: 0 };
     for (const it of items) {
       const l = leadsRef.current[it.lead_id]; if (!l) continue;
+      // Only leads still being assessed take Claude's answers. Ready to send and anything in conversation are never touched.
+      if (!["new", "no-contact", "not-pursuing"].includes(l.status) || isFrozen(l)) { left++; continue; }
       const f = { claude: it };
       const site = String(l.website || "").toLowerCase().replace(/^www\./, "");
       if (!it.website_is_theirs && site) {
@@ -491,7 +493,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       // A contact found here moves the lead to To assess (retryContacts does that for every lead it finds an address for).
       if (need.length && !stopRef.current) await retryContacts(need);
     }, 100);
-    return { done, doneIds, rescanned: rescan.length, moved, retry: doneIds.length };
+    return { done, left, doneIds, rescanned: rescan.length, moved, retry: doneIds.length };
   }
   async function checkLicence(l) {
     update(l.id, { checking: true, error: "" });
@@ -1142,7 +1144,7 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
 
         </div></div>
         <div className="shrink-0 flex flex-wrap items-center gap-2 border-t border-zinc-200 bg-white px-5 py-3 text-xs shadow-[0_-6px_12px_-8px_rgba(0,0,0,0.15)]">
-          <button onClick={onClaude} className="inline-flex items-center gap-1 rounded-md border border-orange-300 bg-orange-50 px-2.5 py-1 text-orange-900 hover:bg-orange-100"><SearchIcon className="h-3.5 w-3.5" /> Check with Claude</button>
+          {["new", "no-contact", "not-pursuing"].includes(l.status) && !isFrozen(l) && <button onClick={onClaude} className="inline-flex items-center gap-1 rounded-md border border-orange-300 bg-orange-50 px-2.5 py-1 text-orange-900 hover:bg-orange-100"><SearchIcon className="h-3.5 w-3.5" /> Check with Claude</button>}
           <button onClick={() => onRefresh()} disabled={l.checking} className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2.5 py-1 font-medium text-white disabled:opacity-40"><RefreshIcon className="h-3.5 w-3.5" /> Rescan this lead</button>
           {!l.optedOut
             ? <button onClick={() => { if (confirm("Mark as opted out? The lead moves to Lost and is never chased or emailed from here again.")) onChange({ optedOut: true, optedOutAt: new Date().toISOString(), status: "lost", notesLog: [...(l.notesLog || []), { at: new Date().toISOString(), text: "Asked not to be contacted" }] }); }} className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2.5 py-1 text-red-700 hover:bg-red-50" title="They replied asking not to hear from us">Do not contact</button>
@@ -1188,8 +1190,8 @@ function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
     try {
       const list = parseLeadCheck(reply);
       if (!list.length) { setMsg("No leads found in the reply. Make sure Claude kept the lead_id values."); return; }
-      const { done, doneIds, rescanned, moved } = onApply(list);
-      setMsg(`Updated ${done} lead${done === 1 ? "" : "s"}${moved.back ? `; ${moved.back} moved back to To assess` : ""}${moved.skip ? `; ${moved.skip} moved to Not pursuing` : ""}${rescanned ? `; ${rescanned} rescanning on their correct website` : ""}. The next ${size} are selected.`);
+      const { done, left, doneIds, rescanned, moved } = onApply(list);
+      setMsg(`Updated ${done} lead${done === 1 ? "" : "s"}${left ? `; ${left} left alone (Ready to send or already in conversation)` : ""}${moved.back ? `; ${moved.back} moved back to To assess` : ""}${moved.skip ? `; ${moved.skip} moved to Not pursuing` : ""}${rescanned ? `; ${rescanned} rescanning on their correct website` : ""}. The next ${size} are selected.`);
       setReply(""); nextBatch(size, doneIds);
     } catch (e) { setMsg(e.message); }
   }
