@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail } from "@/lib/clientIdeas";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine } from "@/lib/clientIdeas";
 import { dayGreeting, firstNameOf } from "@/lib/leadsShared";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
@@ -42,6 +42,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
   const [withSearch, setWithSearch] = useState(true);
   const [cfg, setCfg] = useState(null); // { ai, aiUsage }
   const [withAi, setWithAi] = useState(true);
+  const [researchFor, setResearchFor] = useState(null); // null = closed, [] = next batch, [clientId] = that client
   useEffect(() => { fetch("/api/ideas").then((r) => r.json()).then(setCfg).catch(() => {}); }, []);
 
   useEffect(() => {
@@ -115,6 +116,25 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
     st.phase = stopRef.current ? `Stopped: ${st.done} of ${st.total} client sites checked` : `Done: ${st.done} client site${st.done === 1 ? "" : "s"} checked, ${st.found} new idea${st.found === 1 ? "" : "s"}${jobs.length ? "" : " (all checked in the last 30 days; use Re-check all to force)"}`;
     setRun({ ...st }); onRunning?.(false);
   }
+  // Claude's reply (from the user's own Claude plan) -> research + ideas on each client's records.
+  function importResearch(items) {
+    let clientsDone = 0, ideasAdded = 0;
+    for (const it of items) {
+      const c = clients.find((x) => String(x.id) === it.client_id) || clients.find((x) => String(x.id).toLowerCase() === it.client_id.toLowerCase());
+      if (!c) continue;
+      const sites = (c.websites || []).length ? c.websites : ["none"];
+      for (const w of sites) {
+        const id = recId(c, w);
+        const prev = recsRef.current[id] || { website: w === "none" ? "" : host(w) };
+        const rec = { ...prev, clientId: c.id, name: c.name, manager: c.manager || "", poc: c.poc || "", emails: c.emails || [], ai: it, aiError: "" };
+        rec.ideas = ideasFor(rec, prev.ideas || []);
+        ideasAdded += rec.ideas.filter((i) => i.ai && !(prev.ideas || []).some((p) => p.key === i.key)).length;
+        update(id, rec);
+      }
+      clientsDone++;
+    }
+    return { clientsDone, ideasAdded };
+  }
   async function recheckOne(id) {
     const r = recsRef.current[id]; const c = clients.find((x) => x.id === r?.clientId) || { id: r?.clientId, name: r?.name, emails: r?.emails, poc: r?.poc, manager: r?.manager };
     stopRef.current = false; onRunning?.(true);
@@ -160,7 +180,8 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
           <label className="inline-flex items-center gap-1.5 text-sm text-zinc-700" title="One Brave search credit per client site, shared with Website Leads"><input type="checkbox" checked={withSearch} onChange={(e) => setWithSearch(e.target.checked)} disabled={running} /> Include search ranking</label>
           {cfg?.ai
             ? <label className="inline-flex items-center gap-1.5 text-sm text-zinc-700" title="Claude researches each client on the web (what they really do, where, competitors, whether the website on file is theirs) and writes ideas specific to them. Roughly 20-40p per client."><input type="checkbox" checked={withAi} onChange={(e) => setWithAi(e.target.checked)} disabled={running} /> AI research <span className="text-xs text-zinc-400">{cfg.aiUsage?.used || 0} of {cfg.aiUsage?.cap || 0} this month</span></label>
-            : cfg && <span className="text-xs text-amber-700" title="Add ANTHROPIC_API_KEY in Vercel → Settings → Environment Variables, then redeploy">AI research is off: add ANTHROPIC_API_KEY in Vercel to switch it on</span>}
+            : null}
+          <button onClick={() => setResearchFor([])} disabled={!clients.length} title="Free: the app writes a research prompt for a batch of clients, you run it in Claude on your own plan and paste the reply back" className="inline-flex items-center gap-1.5 rounded-md border border-violet-300 bg-violet-50 px-4 py-2 text-sm text-violet-900 hover:bg-violet-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Research with Claude</button>
           <span className="text-xs text-zinc-500">{sitesChecked} of {sitesTotal} client sites checked{noSite ? ` · ${noSite} client${noSite === 1 ? "" : "s"} with no website in Settings` : ""}</span>
         </div>
         {run && (
@@ -183,8 +204,10 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
 
       <IdeaBoard cards={shown} filtering={!!(q || kind)} onOpen={(id, key) => setOpen({ id, key })} onMove={(id, key, status) => updateIdea(id, key, { status })} />
 
+      {researchFor && <ResearchModal clients={clients} recs={recs} preset={researchFor} onClose={() => setResearchFor(null)} onImport={importResearch} />}
+
       {current && currentIdea && (
-        <IdeaDrawer r={current} idea={currentIdea} onClose={() => setOpen(null)} onIdea={(fields) => updateIdea(current.id, currentIdea.key, fields)} onPick={(key) => setOpen({ id: current.id, key })} onRecord={(fields) => update(current.id, fields)} onRecheck={() => recheckOne(current.id)} running={running} />
+        <IdeaDrawer r={current} idea={currentIdea} onClose={() => setOpen(null)} onIdea={(fields) => updateIdea(current.id, currentIdea.key, fields)} onPick={(key) => setOpen({ id: current.id, key })} onRecord={(fields) => update(current.id, fields)} onRecheck={() => recheckOne(current.id)} onResearch={() => setResearchFor([current.clientId])} running={running} />
       )}
     </div>
   );
@@ -226,7 +249,7 @@ function IdeaBoard({ cards, filtering, onOpen, onMove }) {
   );
 }
 
-function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, running }) {
+function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, onResearch, running }) {
   const [copied, setCopied] = useState(false);
   const [to, setTo] = useState((r.emails || [])[0] || "");
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
@@ -267,7 +290,7 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, run
           )}
           {r.ai && (
             <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3 text-sm">
-              <div className="flex items-baseline gap-2"><span className="font-semibold">What we found</span><span className="text-[11px] text-zinc-500">AI research · {new Date(r.ai.researchedAt).toLocaleDateString("en-GB")}{r.ai.cost ? ` · about £${(r.ai.cost * 0.8).toFixed(2)}` : ""}</span></div>
+              <div className="flex items-baseline gap-2"><span className="font-semibold">What we found</span><span className="text-[11px] text-zinc-500">Researched by Claude · {new Date(r.ai.researchedAt).toLocaleDateString("en-GB")}{r.ai.cost ? ` · about £${(r.ai.cost * 0.8).toFixed(2)}` : ""}</span></div>
               <p className="mt-1 text-zinc-700">{r.ai.business_summary}</p>
               <p className="mt-1 text-xs text-zinc-600"><span className="font-medium">Does:</span> {r.ai.what_they_do} · <span className="font-medium">Where:</span> {r.ai.location}{r.ai.competitors?.length ? <> · <span className="font-medium">Competitors:</span> {r.ai.competitors.join(", ")}</> : null}</p>
               {r.ai.sources?.length > 0 && <details className="mt-1 text-xs text-zinc-500"><summary>{r.ai.sources.length} source{r.ai.sources.length === 1 ? "" : "s"}</summary><ul className="mt-1 space-y-0.5">{r.ai.sources.slice(0, 12).map((u) => <li key={u}><a href={u} target="_blank" rel="noreferrer" className="break-all text-blue-700 underline">{u}</a></li>)}</ul></details>}
@@ -322,8 +345,86 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, run
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-zinc-200 bg-white px-5 py-3 text-xs shadow-[0_-6px_12px_-8px_rgba(0,0,0,0.15)]">
           <button onClick={onRecheck} disabled={running || r.checking} className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2.5 py-1 font-medium text-white disabled:opacity-40"><RefreshIcon className="h-3.5 w-3.5" /> Re-check this client</button>
           {r.checking && <span className="inline-flex items-center gap-1 text-blue-700"><SpinnerIcon className="h-3.5 w-3.5" /> Working…</span>}
+          <button onClick={onResearch} className="inline-flex items-center gap-1 rounded-md border border-violet-300 bg-violet-50 px-2.5 py-1 text-violet-900 hover:bg-violet-100"><SearchIcon className="h-3.5 w-3.5" /> Research with Claude</button>
           {r.checkedAt && !r.checking && <span className="text-zinc-500">Checked {new Date(r.checkedAt).toLocaleDateString("en-GB")}</span>}
           <button onClick={() => onIdea({ status: "not-now" })} className="ml-auto rounded-md px-2 py-1 text-zinc-500 hover:text-zinc-900">Not now</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Free research on your own Claude plan: pick clients, copy the prompt into Claude, paste the reply back.
+function ResearchModal({ clients, recs, preset, onClose, onImport }) {
+  const researched = (c) => Object.values(recs).some((r) => r.clientId === c.id && r.ai);
+  const [size, setSize] = useState(5);
+  const [picked, setPicked] = useState(() => (preset.length ? preset : clients.filter((c) => !researched(c)).slice(0, 5).map((c) => c.id)));
+  const [reply, setReply] = useState("");
+  const [msg, setMsg] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [q, setQ] = useState("");
+  useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
+  const items = picked.map((id) => clients.find((c) => c.id === id)).filter(Boolean).map((c) => {
+    const rec = Object.values(recs).find((r) => r.clientId === c.id && r.checkedAt);
+    return { id: c.id, name: c.name, websites: c.websites || [], notes: c.notes || "", findings: findingsLine(rec) };
+  });
+  const prompt = items.length ? researchPrompt(items) : "";
+  async function copy(open) {
+    try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
+    if (open) window.open("https://claude.ai/new", "_blank", "noopener");
+  }
+  function nextBatch(n) { setSize(n); setPicked(clients.filter((c) => !researched(c)).slice(0, n).map((c) => c.id)); }
+  function doImport() {
+    try {
+      const list = parseResearchReply(reply);
+      if (!list.length) { setMsg("No clients found in the reply. Make sure Claude kept the client_id values."); return; }
+      const { clientsDone, ideasAdded } = onImport(list);
+      setMsg(`Added ${ideasAdded} idea${ideasAdded === 1 ? "" : "s"} for ${clientsDone} client${clientsDone === 1 ? "" : "s"}.${clientsDone < list.length ? ` ${list.length - clientsDone} didn't match a client in Settings.` : ""}`);
+      setReply("");
+    } catch (e) { setMsg(e.message); }
+  }
+  const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const list = clients.filter((c) => !q || c.name.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
+      <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3">
+          <h3 className="text-lg font-semibold">Research with Claude</h3>
+          <span className="text-xs text-zinc-500">Free on your Claude plan</span>
+          <button onClick={onClose} aria-label="Close" className="ml-auto rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button>
+        </div>
+        <div className="space-y-4 px-5 py-4 text-sm">
+          <div>
+            <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">1. Pick clients</span>
+              <span className="text-xs text-zinc-500">Next unresearched:</span>
+              {[1, 3, 5, 8].map((n) => <button key={n} onClick={() => nextBatch(n)} className={`rounded-full border px-2 py-0.5 text-xs ${size === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{n}</button>)}
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a client" className="ml-auto w-40 rounded-md border border-zinc-300 px-2 py-0.5 text-xs" />
+            </div>
+            <div className="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
+              {list.map((c) => (
+                <button key={c.id} onClick={() => toggle(c.id)} className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(c.id) ? "border-violet-500 bg-violet-100 text-violet-900" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{c.name}{researched(c) ? " ✓" : ""}</button>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-zinc-500">{picked.length} picked. Around 5 at a time works well; ✓ means already researched.</p>
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">2. Run it in Claude</span>
+              <span className="ml-auto flex gap-2">
+                <button onClick={() => copy(false)} disabled={!prompt} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-40">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy prompt</>}</button>
+                <button onClick={() => copy(true)} disabled={!prompt} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"><ExternalIcon /> Copy and open Claude</button>
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-zinc-500">Paste it into a new chat with web search on. Research mode gives the most thorough answers.</p>
+            <textarea readOnly value={prompt} rows={6} className="mt-1 w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-[11px] text-zinc-600" />
+          </div>
+          <div>
+            <span className="font-semibold">3. Paste Claude’s reply</span>
+            <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={5} placeholder="Paste the whole reply here (the JSON block)" className="mt-1 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" />
+            <div className="mt-1 flex items-center gap-2">
+              <button onClick={doImport} disabled={!reply.trim()} className="rounded-md bg-violet-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">Add ideas</button>
+              {msg && <span className="text-xs text-zinc-700">{msg}</span>}
+            </div>
+          </div>
         </div>
       </div>
     </div>
