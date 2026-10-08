@@ -67,7 +67,7 @@ export default function Home() {
   const [leadsCount, setLeadsCount] = useState(0);
   const [leadsRunning, setLeadsRunning] = useState(false);
   const anyRunning = !!running || launchRunning || postRunning || designRunning || leadsRunning;
-  const [area, setAreaState] = useState("launch"); // "design" | "launch" | "post" | "fonts" | "images"
+  const [area, setAreaState] = useState("leads"); // "leads" | "design" | "launch" | "post" | "fonts" | "images"; opens on the first tab
   const TAB_SLUG = { design: "design", fonts: "fonts", images: "images", launch: "launch", post: "post-launch", leads: "leads" };
   const setArea = (id) => {
     setAreaState(id);

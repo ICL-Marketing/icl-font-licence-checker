@@ -19,7 +19,7 @@ export default function LoginPage() {
       body: JSON.stringify({ password: pw }),
     });
     setBusy(false);
-    if (r.ok) { router.push("/"); router.refresh(); }
+    if (r.ok) { router.push("/?tab=leads"); router.refresh(); }
     else setErr("Wrong password");
   }
 
