@@ -49,7 +49,7 @@ export async function POST(request) {
       if (!lead.problem && any) {
         lead.problem = "Licence risk";
         try { if (!lead.contactsTried) { const ct = await findContacts({ companyNumber: lead.companyNumber, website: lead.website, business: lead.business }); lead.contacts = ct.people; lead.channels = ct.channels; lead.contactsAt = ct.contactsAt; lead.contactsTried = true; const best = ct.people.find((p) => p.email); if (best && !lead.emailAddress) { lead.emailAddress = best.email; lead.contactName = lead.contactName || best.name.split(" ")[0]; } } } catch {}
-        if (!lead.emailAddress) { lead.contactUnverified = true; lead.status = "no-contact"; } lead.problemDetail = [lead.licence.images.length ? `${lead.licence.images.length} watermarked preview image${lead.licence.images.length === 1 ? "" : "s"}` : "", lead.licence.fonts.length ? `${lead.licence.fonts.length} unlicensed font${lead.licence.fonts.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(", "); if (lead.status === "not-pursuing" && /current/i.test(lead.likelihoodWhy || "")) lead.status = "qualified"; }
+        if (!lead.emailAddress) { lead.contactUnverified = true; lead.status = "no-contact"; } lead.problemDetail = [lead.licence.images.length ? `${lead.licence.images.length} watermarked preview image${lead.licence.images.length === 1 ? "" : "s"}` : "", lead.licence.fonts.length ? `${lead.licence.fonts.length} unlicensed font${lead.licence.fonts.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(", "); if (lead.status === "not-pursuing" && /current/i.test(lead.likelihoodWhy || "")) lead.status = "new"; }
       if (lead.problem) { Object.assign(lead, scoreLead(lead)); if (!lead.emailEdited) { const d = draftOutreach({ ...lead, links }); Object.assign(lead, { subject: d.subject, pitch: d.pitch, email: d.email, draftVersion: d.draftVersion }); } }
       return Response.json({ lead });
     }
@@ -69,7 +69,7 @@ export async function POST(request) {
         lead.problemDetail = `${trade.position ? `#${trade.position}` : "Not on page 1"} for "${trade.query}"`;
         try { if (!lead.contactsTried) { const ct = await findContacts({ companyNumber: lead.companyNumber, website: lead.website, business: lead.business }); lead.contacts = ct.people; lead.channels = ct.channels; lead.contactsAt = ct.contactsAt; lead.contactsTried = true; const best = ct.people.find((p) => p.email); if (best && !lead.emailAddress) { lead.emailAddress = best.email; lead.contactName = lead.contactName || best.name.split(" ")[0]; } } } catch {}
         if (!lead.emailAddress) { lead.contactUnverified = true; lead.status = "no-contact"; }
-        else if (lead.status === "not-pursuing" && /current/i.test(lead.likelihoodWhy || "")) lead.status = "qualified";
+        else if (lead.status === "not-pursuing" && /current/i.test(lead.likelihoodWhy || "")) lead.status = "new";
       }
       if (!l.website && seo.foundWebsite) {
         const w = await checkWebsite(seo.foundWebsite);

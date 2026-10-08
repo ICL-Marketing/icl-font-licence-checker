@@ -227,7 +227,7 @@ export async function POST(request) {
       netAssets: l.netAssets ?? "", reChange: l.reChange ?? "", likelihood: l.likelihood, likelihoodWhy: l.likelihoodWhy, background: l.background, pitch: l.pitch,
       caveats: [l.optedOut ? "OPTED OUT: do not contact" : "", l.contactUnverified ? "Contact not verified" : "", l.caveats].filter(Boolean).join("; "), status: STATUS[l.status] || l.status, notes: [l.notes, ...(l.notesLog || []).map((n) => `${new Date(n.at).toLocaleDateString("en-GB")}: ${n.text}`)].filter(Boolean).join("\n"), email: l.email ? `Subject: ${l.subject || ""}\n${/^Hi\b/.test(l.email) ? l.email : fullEmail(l, l.email)}` : "", emailAddress: l.emailAddress || l.emailNote || "",
     }));
-    sheet(wb, "Qualified Leads", [
+    sheet(wb, "Leads", [
       { header: "Business", key: "business", width: 32 }, { header: "Area", key: "area", width: 16 }, { header: "Website", key: "website", width: 28 },
       { header: "Web presence", key: "problem", width: 16 }, { header: "Problem detail", key: "problemDetail", width: 36 }, { header: "CH #", key: "companyNumber", width: 10 },
       { header: "Net assets (£)", key: "netAssets", width: 14 }, { header: "RE change (£)", key: "reChange", width: 14 }, { header: "Likelihood", key: "likelihood", width: 11 },
