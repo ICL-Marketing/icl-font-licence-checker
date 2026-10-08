@@ -112,7 +112,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       // Qualified was folded into To assess.
       for (const l of Object.values(local)) if (l.status === "qualified") { l.status = "new"; l.updatedAt = new Date().toISOString(); }
       // Claude said skip: parked for good, whichever column it was left in.
-      for (const l of Object.values(local)) if (claudeSkip(l) && ["new", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.updatedAt = new Date().toISOString(); }
+      for (const l of Object.values(local)) if (claudeSkip(l) && ["new", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.statusAt = l.updatedAt = new Date().toISOString(); }
+      // Parked earlier only because Claude couldn't confirm the issue, though it said to contact them: bring back.
+      for (const l of Object.values(local)) if (l.status === "not-pursuing" && l.claude?.worth_contacting && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = l.emailAddress ? "new" : "no-contact"; l.contactUnverified = !l.emailAddress; l.statusAt = l.updatedAt = new Date().toISOString(); }
       for (const l of Object.values(local)) if (l.status === "no-contact" && contactExhausted(l)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); }
       // "info", "hello" and the like are inboxes, not people: the email opens "Hi there," instead.
       for (const l of Object.values(local)) if (!isFrozen(l) && l.contactName && !firstNameOf(l.contactName)) { l.contactName = ""; l.updatedAt = new Date().toISOString(); }
@@ -134,7 +136,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const l of Object.values(next)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status) && websiteIsVerified(l)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried) && ["new", "qualified"].includes(l.status)) { l.contactUnverified = true; l.status = parkStatus(l); l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "qualified") { l.status = "new"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
-        for (const l of Object.values(next)) if (claudeSkip(l) && ["new", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (claudeSkip(l) && ["new", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (l.status === "not-pursuing" && l.claude?.worth_contacting && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = l.emailAddress ? "new" : "no-contact"; l.contactUnverified = !l.emailAddress; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "no-contact" && contactExhausted(l)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!isFrozen(l) && l.contactName && !firstNameOf(l.contactName)) { l.contactName = ""; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!isFrozen(l) && l.seo?.searches?.some((x) => x.kind !== "trade")) { l.seo = { ...l.seo, searches: l.seo.searches.filter((x) => x.kind === "trade") }; l.updatedAt = new Date().toISOString(); push(l.id, l); }
@@ -458,7 +461,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       const filled = [];
       if (it.what_they_do) { f.whatTheyDo = it.what_they_do; filled.push("whatTheyDo"); }
       if (it.location && !/^(national|online|uk|nationwide)$/i.test(it.location.trim())) { f.tradingTown = it.location; filled.push("tradingTown"); }
-      if (it.issue_note && it.issue_confirmed && l.problem) { f.problemDetail = it.issue_note; filled.push("problemDetail"); }
+      if (it.issue_note && l.problem) { f.problemDetail = it.issue_note; filled.push("problemDetail"); }
       if (it.likelihood) { f.likelihood = it.likelihood; filled.push("likelihood"); }
       if (it.likelihood_reason || it.reason) { f.likelihoodWhy = it.likelihood_reason || it.reason; filled.push("likelihoodWhy"); }
       if (it.background) { f.background = it.background; filled.push("background"); }
@@ -467,7 +470,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       f.claudeFields = filled;
       // Claude's verdict decides the column, unless a conversation has already started or it was sorted by hand.
       if (!isFrozen(l) && !l.optedOut && ["new", "no-contact", "not-pursuing"].includes(l.status)) {
-        const skip = !(it.worth_contacting && it.issue_confirmed);
+        const skip = !it.worth_contacting;
         const email = f.emailAddress ?? l.emailAddress;
         if (skip) { f.status = "not-pursuing"; moved.skip++; }
         else if (email) { f.status = "new"; f.contactUnverified = false; if (l.status !== "new") moved.back++; }
@@ -634,7 +637,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
 const parkReason = (l) => { const m = `${l.caveats || ""}; ${l.likelihoodWhy || ""}`.split(/;\s*/).find((x) => /under £|already a client|site is current|dormant/i.test(x)); if (m) return m.trim().replace(/\.$/, ""); if (claudeSkip(l)) return "Claude: skip"; if (contactExhausted(l)) return "Verified email not found"; return ""; };
 // First sentence only, no bracketed asides, kept short.
 const oneLine = (t) => { let x = String(t || "").replace(/\s*\([^)]*\)/g, "").replace(/\s+/g, " ").trim(); const m = x.match(/^(.+?[.!?])(\s|$)/); if (m) x = m[1]; return x.length > 170 ? `${x.slice(0, 167).replace(/\s+\S*$/, "")}…` : x; };
-const claudeSkip = (l) => !!l.claude && !(l.claude.worth_contacting && l.claude.issue_confirmed);
+// Only Claude's own verdict parks a lead: an unconfirmed issue is fine when Claude still says to contact them.
+const claudeSkip = (l) => !!l.claude && !l.claude.worth_contacting;
 // Parked for a reason Claude could change (contact, site, issue), not a fact like size, dormancy or being a client.
 const recheckable = (l) => !isFrozen(l) && !l.optedOut && !claudeSkip(l) && (l.status === "no-contact" || (l.status === "not-pursuing" && !/under £|already a client|dormant/i.test(parkReason(l))));
 // The same reason spelled out with the numbers, for the top of the lead page.
@@ -669,7 +673,9 @@ const PLACES = {
   spelthorne: ["Sunbury-on-Thames", "Sunbury", "Shepperton", "Staines-upon-Thames", "Staines", "Ashford", "Walton-on-Thames", "Hersham", "East Molesey", "West Molesey", "Weybridge", "Hanworth"],
 };
 
-const sorted = (list) => list.slice().sort((a, b) => ({ High: 0, Medium: 1, Low: 2 }[a.likelihood] ?? 3) - ({ High: 0, Medium: 1, Low: 2 }[b.likelihood] ?? 3) || (b.netAssets || 0) - (a.netAssets || 0));
+// Anything moved into a column in the last day sits at the top (newest first); the rest by likelihood and size.
+const movedRecently = (l) => { const t = Date.parse(l.statusAt || ""); return Number.isFinite(t) && Date.now() - t < 86400000 ? t : 0; };
+const sorted = (list) => list.slice().sort((a, b) => movedRecently(b) - movedRecently(a) || ({ High: 0, Medium: 1, Low: 2 }[a.likelihood] ?? 3) - ({ High: 0, Medium: 1, Low: 2 }[b.likelihood] ?? 3) || (b.netAssets || 0) - (a.netAssets || 0));
 
 function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn, onOpen, onMove, onClaude }) {
   const [over, setOver] = useState(null);
@@ -701,7 +707,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
                   {l.problem && <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
-                  {l.claude && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${l.claude.worth_contacting && l.claude.issue_confirmed ? "bg-orange-100 text-orange-800" : "bg-red-100 text-red-800"}`} title={l.claude.reason}>{l.claude.worth_contacting && l.claude.issue_confirmed ? "Claude ✓" : "Claude: skip"}</span>}
+                  {l.claude && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${l.claude.worth_contacting ? "bg-orange-100 text-orange-800" : "bg-red-100 text-red-800"}`} title={l.claude.reason}>{l.claude.worth_contacting ? "Claude ✓" : "Claude: skip"}</span>}
                   {l.optedOut && <span className="rounded-full bg-red-600 px-1.5 py-0.5 font-semibold text-white" title={`Asked not to be contacted${l.optedOutAt ? ` on ${new Date(l.optedOutAt).toLocaleDateString("en-GB")}` : ""}`}>Opted out</span>}
                   {l.tradesElsewhere && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800" title={`Website address: ${l.tradingAddress}`}>Trades elsewhere</span>}
                   {!websiteIsVerified(l) && !isFrozen(l) && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="The website was matched on its name only. Open the lead and confirm it is theirs before anything goes out.">Confirm website</span>}
@@ -970,7 +976,7 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
             </p>
           )}
           {l.claude && (() => {
-            const c = l.claude, ok = c.worth_contacting && c.issue_confirmed;
+            const c = l.claude, ok = c.worth_contacting;
             const row = (label, text) => text ? <div className="flex gap-1.5"><span className="w-14 shrink-0 text-zinc-500">{label}</span><span className="min-w-0">{text}</span></div> : null;
             return (
               <div className={`rounded-lg border px-3 py-2 text-xs ${ok ? "border-green-200 bg-green-50 text-green-950" : "border-red-200 bg-red-50 text-red-950"}`}>
