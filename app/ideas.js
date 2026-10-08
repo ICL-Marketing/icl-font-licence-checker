@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick } from "@/lib/clientIdeas";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas } from "@/lib/clientIdeas";
 import { dayGreeting, firstNameOf } from "@/lib/leadsShared";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
@@ -43,7 +43,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
   const [cfg, setCfg] = useState(null); // { ai, aiUsage }
   const [withAi, setWithAi] = useState(true);
   const [researchFor, setResearchFor] = useState(null);
-  const [view, setViewState] = useState(() => { try { return localStorage.getItem("flc-ideas-view") || "month"; } catch { return "month"; } });
+  const [view, setViewState] = useState(() => { try { const v = localStorage.getItem("flc-ideas-view"); return v && v !== "month" ? v : "top"; } catch { return "top"; } });
   const setView = (v) => { setViewState(v); try { localStorage.setItem("flc-ideas-view", v); } catch {} };
   const [manager, setManager] = useState(""); // null = closed, [] = next batch, [clientId] = that client
   useEffect(() => { fetch("/api/ideas").then((r) => r.json()).then(setCfg).catch(() => {}); }, []);
@@ -191,11 +191,10 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
   // Group by client for the monthly send-out.
   const byClient = new Map();
   for (const r of Object.values(recs)) { const k = r.clientId || r.name; if (!byClient.has(k)) byClient.set(k, { clientId: r.clientId, name: r.name, manager: r.manager || "", recs: [] }); byClient.get(k).recs.push(r); }
-  const groups = [...byClient.values()].map((g) => { const queue = clientQueue(g.recs); return { ...g, queue, pick: monthlyPick(queue, month) }; })
+  const groups = [...byClient.values()].map((g) => { const queue = clientQueue(g.recs); return { ...g, queue, top: topIdeas(queue), pick: monthlyPick(queue, month) }; })
     .filter((g) => g.queue.length && (!manager || g.manager === manager) && (!q || `${g.name} ${g.manager} ${g.queue.map((i) => i.title).join(" ")}`.toLowerCase().includes(q)))
-    .sort((a, b) => (a.pick.sent ? 1 : 0) - (b.pick.sent ? 1 : 0) || a.name.localeCompare(b.name));
-  const dueCount = groups.filter((g) => g.pick.next).length;
-  const sentCount = groups.filter((g) => g.pick.sent).length;
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const dueCount = groups.reduce((n, g) => n + g.top.filter((i) => i.status === "queued").length, 0);
   const managers = [...new Set([...byClient.values()].map((g) => g.manager).filter(Boolean))].sort();
   useEffect(() => { onCount?.(dueCount); }, [dueCount, onCount]);
   const sitesTotal = clients.reduce((n, c) => n + (c.websites || []).length, 0);
@@ -232,42 +231,48 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <div className="inline-flex rounded-md border border-zinc-300 bg-white p-0.5 text-sm">
-          {[["month", `This month`], ["clients", "By client"], ["replies", "Replies"]].map(([id, label]) => <button key={id} onClick={() => setView(id)} className={`rounded px-3 py-1 ${view === id ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>{label}</button>)}
+          {[["top", "Top ideas"], ["clients", "All ideas"], ["replies", "Replies"]].map(([id, label]) => <button key={id} onClick={() => setView(id)} className={`rounded px-3 py-1 ${view === id ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>{label}</button>)}
         </div>
         <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search clients or ideas" className="w-56 rounded-md border border-zinc-300 px-3 py-1.5 text-sm" />
         {managers.length > 0 && <select value={manager} onChange={(e) => setManager(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm"><option value="">All account managers</option>{managers.map((m) => <option key={m}>{m}</option>)}</select>}
         {view === "replies" && <select value={kind} onChange={(e) => setKind(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm"><option value="">All kinds</option>{Object.entries(IDEA_KINDS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>}
       </div>
 
-      {view === "month" && (
-        <div className="mt-3">
-          <div className="flex flex-wrap items-baseline gap-2 text-sm"><span className="font-semibold">{monthName(month)} send-out</span><span className="text-zinc-500">{sentCount} of {sentCount + dueCount} clients sent · one suggestion each, top of their queue</span></div>
-          <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-zinc-100"><div className="h-full bg-emerald-500 transition-all" style={{ width: `${sentCount + dueCount ? Math.round((sentCount / (sentCount + dueCount)) * 100) : 0}%` }} /></div>
-          <div className="mt-3 divide-y divide-zinc-100 rounded-xl border border-zinc-200 bg-white">
-            {groups.length === 0 && <p className="p-4 text-sm text-zinc-500">No ideas yet. Use Find ideas or Research with Claude above.</p>}
-            {groups.map((g) => {
-              const it = g.pick.sent || g.pick.next; const queued = g.queue.filter((i) => i.status === "queued").length;
-              return (
-                <div key={g.clientId || g.name} className={`flex flex-wrap items-center gap-3 px-4 py-3 ${g.pick.sent ? "bg-emerald-50/40" : ""}`}>
-                  <div className="w-56 shrink-0"><div className="font-medium">{g.name}</div><div className="text-[11px] text-zinc-500">{g.manager || "No account manager"} · {queued} in queue</div></div>
-                  {it ? (
-                    <button onClick={() => setOpen({ id: it.recId, key: it.key })} className="min-w-0 flex-1 text-left">
-                      <div className="flex flex-wrap items-center gap-1.5 text-sm"><span className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold text-white ${IDEA_KINDS[it.kind]?.tone || "bg-zinc-500"}`}>{IDEA_KINDS[it.kind]?.label}</span>{it.ai && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[11px] font-semibold text-violet-800">AI</span>}<span className="font-medium text-zinc-900">{it.title}</span></div>
-                    </button>
-                  ) : <div className="flex-1 text-sm text-zinc-500">Queue empty: research this client again for new ideas.</div>}
-                  <div className="flex shrink-0 items-center gap-2 text-xs">
-                    {g.pick.sent
-                      ? <><span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800">Sent {new Date(g.pick.sent.sentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span><button onClick={() => undoSent(g.pick.sent.recId, g.pick.sent.key)} className="text-zinc-400 underline hover:text-zinc-700">Undo</button></>
-                      : it && <>
-                        {(() => { const r = g.recs.find((x) => x.id === it.recId) || g.recs[0]; const to = (r?.emails || [])[0] || ""; const href = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(to)}&subject=${encodeURIComponent(it.subject || "")}&body=${encodeURIComponent(ideaEmail(r, it, to))}`; return <a href={href} target="_blank" rel="noopener" title={to ? `Opens Outlook with the email to ${to} filled in` : "No email for this client in Settings; Outlook opens with the To field empty"} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 hover:bg-zinc-100"><MailIcon className="h-3.5 w-3.5" /> Open in Outlook</a>; })()}
-                        <button onClick={() => markSent(it.recId, it.key)} className="rounded-md bg-emerald-700 px-2.5 py-1 font-medium text-white hover:bg-emerald-800">Mark sent</button>
-                        <button onClick={() => skip(g.clientId, it)} title="Move this idea to the back of the client's queue; the next one comes up" className="rounded-md px-2 py-1 text-zinc-500 hover:text-zinc-900">Skip</button>
-                      </>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+      {view === "top" && (
+        <div className="mt-3 overflow-x-auto rounded-xl border border-zinc-200 bg-white">
+          <table className="w-full min-w-[900px] text-sm">
+            <thead><tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500"><th className="w-52 px-4 py-2 font-semibold">Client</th>{[1, 2, 3].map((n) => <th key={n} className="px-3 py-2 font-semibold">Idea {n}</th>)}</tr></thead>
+            <tbody className="divide-y divide-zinc-100">
+              {groups.length === 0 && <tr><td colSpan={4} className="p-4 text-zinc-500">No ideas yet. Use Research with Claude above.</td></tr>}
+              {groups.map((g) => (
+                <tr key={g.clientId || g.name} className="align-top">
+                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div><div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div>{g.top.length < 3 && <button onClick={() => setResearchFor([g.clientId])} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
+                  {[0, 1, 2].map((n) => {
+                    const it = g.top[n];
+                    if (!it) return <td key={n} className="px-3 py-3 text-xs text-zinc-300">—</td>;
+                    const r = g.recs.find((x) => x.id === it.recId) || g.recs[0]; const to = (r?.emails || [])[0] || "";
+                    const href = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(to)}&subject=${encodeURIComponent(it.subject || "")}&body=${encodeURIComponent(ideaEmail(r, it, to))}`;
+                    return (
+                      <td key={n} className="px-3 py-3">
+                        <div className="flex flex-wrap items-center gap-1 text-[11px]">
+                          <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${IDEA_KINDS[it.kind]?.tone || "bg-zinc-500"}`}>{IDEA_KINDS[it.kind]?.label}</span>
+                          {it.size === "large" && <span className="rounded-full bg-zinc-900 px-1.5 py-0.5 font-semibold text-white">Large</span>}
+                          {it.value && <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 font-semibold text-emerald-800" title="Rough budget, for us only">{it.value}</span>}
+                          {it.ai && <span className="rounded-full bg-orange-100 px-1.5 py-0.5 font-semibold text-orange-800">Claude</span>}
+                        </div>
+                        <button onClick={() => setOpen({ id: it.recId, key: it.key })} className="mt-1 block text-left font-medium leading-snug hover:underline">{it.title}</button>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                          {it.status === "queued"
+                            ? <><a href={href} target="_blank" rel="noopener" title={to ? `Opens Outlook with the email to ${to}` : "No email for this client in Settings"} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100"><MailIcon className="h-3 w-3" /> Outlook</a><button onClick={() => markSent(it.recId, it.key)} className="rounded-md bg-emerald-700 px-2 py-0.5 font-medium text-white hover:bg-emerald-800">Mark sent</button></>
+                            : <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700">{IDEA_STATUSES.find(([id]) => id === it.status)?.[1]}{it.sentAt ? ` ${new Date(it.sentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : ""}</span>}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -364,6 +369,8 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, onR
             <h3 className="text-lg font-semibold">{r.name}</h3>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
               <span className={`rounded-full px-2 py-0.5 font-semibold text-white ${IDEA_KINDS[idea.kind]?.tone || "bg-zinc-500"}`}>{IDEA_KINDS[idea.kind]?.label || idea.kind}</span>
+              {idea.size && <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-700">{idea.size[0].toUpperCase() + idea.size.slice(1)} project</span>}
+              {idea.value && <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800" title="Rough budget, for us only; never in the email">{idea.value}</span>}
               {site && <a href={site} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700">{r.website} <ExternalIcon /></a>}
               {r.manager && <span className="text-zinc-500">Account manager: {r.manager}</span>}
             </div>
