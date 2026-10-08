@@ -114,6 +114,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       // Claude said skip: parked for good, whichever column it was left in.
       for (const l of Object.values(local)) if (claudeSkip(l) && ["new", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.statusAt = l.updatedAt = new Date().toISOString(); }
       // Parked earlier only because Claude couldn't confirm the issue, though it said to contact them: bring back.
+      for (const l of Object.values(local)) if (l.status === "not-pursuing" && websiteUnknown(l) && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.websiteNeeded = true; l.statusAt = l.updatedAt = new Date().toISOString(); }
       for (const l of Object.values(local)) if (l.status === "not-pursuing" && l.claude?.worth_contacting && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = l.emailAddress ? "new" : "no-contact"; l.contactUnverified = !l.emailAddress; l.statusAt = l.updatedAt = new Date().toISOString(); }
       for (const l of Object.values(local)) if (l.status === "no-contact" && contactExhausted(l)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); }
       // "info", "hello" and the like are inboxes, not people: the email opens "Hi there," instead.
@@ -137,6 +138,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const l of Object.values(next)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried) && ["new", "qualified"].includes(l.status)) { l.contactUnverified = true; l.status = parkStatus(l); l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "qualified") { l.status = "new"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (claudeSkip(l) && ["new", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (l.status === "not-pursuing" && websiteUnknown(l) && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.websiteNeeded = true; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "not-pursuing" && l.claude?.worth_contacting && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = l.emailAddress ? "new" : "no-contact"; l.contactUnverified = !l.emailAddress; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "no-contact" && contactExhausted(l)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!isFrozen(l) && l.contactName && !firstNameOf(l.contactName)) { l.contactName = ""; l.updatedAt = new Date().toISOString(); push(l.id, l); }
@@ -442,7 +444,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       if (!it.website_is_theirs && site) {
         f.rejectedSites = [...new Set([...(l.rejectedSites || []), site])];
         if (it.correct_website && it.correct_website !== site) { f.website = it.correct_website; f.websiteConfirmed = true; f.websiteVerified = "checked by Claude"; f.websiteEvidence = it.website_evidence; rescan.push(l.id); }
-        else { f.website = ""; f.websiteConfirmed = false; f.websiteVerified = ""; f.problem = "No website"; f.problemDetail = `${site} belongs to a different business; Claude found no site for them`; }
+        else { f.website = ""; f.websiteConfirmed = false; f.websiteVerified = ""; f.problem = "No website"; f.problemDetail = `${site} belongs to a different business; Claude couldn't find their real site`; f.websiteNeeded = true; }
         if (l.emailAddress && site && l.emailAddress.endsWith("@" + site)) { f.emailAddress = ""; f.contactName = ""; }
       } else if (!l.website && it.correct_website) { f.website = it.correct_website; f.websiteConfirmed = true; f.websiteVerified = "checked by Claude"; f.websiteEvidence = it.website_evidence; rescan.push(l.id); }
       else if (l.website && !websiteIsVerified(l)) { f.websiteVerified = "checked by Claude"; f.websiteEvidence = it.website_evidence; f.websiteDoubt = ""; }
@@ -470,7 +472,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       f.claudeFields = filled;
       // Claude's verdict decides the column, unless a conversation has already started or it was sorted by hand.
       if (!isFrozen(l) && !l.optedOut && ["new", "no-contact", "not-pursuing"].includes(l.status)) {
-        const skip = !it.worth_contacting;
+        const skip = !it.worth_contacting && !f.websiteNeeded && !(it.website_is_theirs === false && !it.correct_website);
         const email = f.emailAddress ?? l.emailAddress;
         if (skip) { f.status = "not-pursuing"; moved.skip++; }
         else if (email) { f.status = "new"; f.contactUnverified = false; if (l.status !== "new") moved.back++; }
@@ -638,7 +640,9 @@ const parkReason = (l) => { const m = `${l.caveats || ""}; ${l.likelihoodWhy || 
 // First sentence only, no bracketed asides, kept short.
 const oneLine = (t) => { let x = String(t || "").replace(/\s*\([^)]*\)/g, "").replace(/\s+/g, " ").trim(); const m = x.match(/^(.+?[.!?])(\s|$)/); if (m) x = m[1]; return x.length > 170 ? `${x.slice(0, 167).replace(/\s+\S*$/, "")}…` : x; };
 // Only Claude's own verdict parks a lead: an unconfirmed issue is fine when Claude still says to contact them.
-const claudeSkip = (l) => !!l.claude && !l.claude.worth_contacting;
+// Claude couldn't find their real website: that's for us to look up, not a reason to park the lead.
+const websiteUnknown = (l) => !!l.claude && l.claude.website_is_theirs === false && !l.claude.correct_website && !l.website;
+const claudeSkip = (l) => !!l.claude && !l.claude.worth_contacting && !websiteUnknown(l) && !l.websiteNeeded;
 // Parked for a reason Claude could change (contact, site, issue), not a fact like size, dormancy or being a client.
 const recheckable = (l) => !isFrozen(l) && !l.optedOut && !claudeSkip(l) && (l.status === "no-contact" || (l.status === "not-pursuing" && !/under £|already a client|dormant/i.test(parkReason(l))));
 // The same reason spelled out with the numbers, for the top of the lead page.
@@ -709,7 +713,8 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
                   {l.problem && <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
-                  {l.claude && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${l.claude.worth_contacting ? "bg-orange-100 text-orange-800" : "bg-red-100 text-red-800"}`} title={l.claude.reason}>{l.claude.worth_contacting ? "Claude ✓" : "Claude: skip"}</span>}
+                  {l.websiteNeeded && !l.website && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="Claude couldn't find their real website. Open the lead to paste it in, or confirm they have none.">Find website</span>}
+                  {l.claude && !l.websiteNeeded && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${l.claude.worth_contacting ? "bg-orange-100 text-orange-800" : "bg-red-100 text-red-800"}`} title={l.claude.reason}>{l.claude.worth_contacting ? "Claude ✓" : "Claude: skip"}</span>}
                   {l.optedOut && <span className="rounded-full bg-red-600 px-1.5 py-0.5 font-semibold text-white" title={`Asked not to be contacted${l.optedOutAt ? ` on ${new Date(l.optedOutAt).toLocaleDateString("en-GB")}` : ""}`}>Opted out</span>}
                   {l.tradesElsewhere && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800" title={`Website address: ${l.tradingAddress}`}>Trades elsewhere</span>}
                   {!websiteIsVerified(l) && !isFrozen(l) && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="The website was matched on its name only. Open the lead and confirm it is theirs before anything goes out.">Confirm website</span>}
@@ -917,7 +922,7 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
     if (!host || (!force && host === String(l.website || "").toLowerCase() && websiteIsVerified(l))) return;
     if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(host)) return;
     const fromOld = (e) => e && l.website && e.endsWith("@" + String(l.website).replace(/^www\./, "")) && host !== String(l.website).toLowerCase();
-    onChange({ website: host, websiteConfirmed: true, websiteVerified: "confirmed by you", websiteEvidence: "confirmed by you", websiteDoubt: "", siteUrl: "", ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}), ...(fromOld(l.emailAddress) ? { emailAddress: "", contactName: "" } : {}), caveats: String(l.caveats || "").split("; ").filter((x) => x && !/no website|not found by name|confirm the website/i.test(x)).join("; ") });
+    onChange({ website: host, websiteNeeded: false, websiteConfirmed: true, websiteVerified: "confirmed by you", websiteEvidence: "confirmed by you", websiteDoubt: "", siteUrl: "", ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}), ...(fromOld(l.emailAddress) ? { emailAddress: "", contactName: "" } : {}), caveats: String(l.caveats || "").split("; ").filter((x) => x && !/no website|not found by name|confirm the website/i.test(x)).join("; ") });
     setTimeout(() => onRefresh(), 50);
   }
   // Wrong website: remember it as rejected, drop everything that came from it, rescan without it.
@@ -976,6 +981,15 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
               {l.siteDescription && <span className="block text-zinc-500">“{l.siteDescription}”</span>}
               {l.tradingAddress && <span className={`block ${l.tradesElsewhere ? "font-medium text-red-700" : "text-zinc-500"}`}>Trades from {l.tradingAddress}{l.tradesElsewhere ? " — outside our area; only the registered office is local" : ""}</span>}
             </p>
+          )}
+          {l.websiteNeeded && !l.website && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border-2 border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <span><span className="font-semibold">Find their website.</span> Claude couldn’t find it. Search for them, then paste the address into the website box above: the lead is rescanned straight away.</span>
+              <span className="ml-auto flex gap-2">
+                <a href={`https://www.google.com/search?q=${encodeURIComponent(`${l.business.replace(/\s+(ltd|limited)\.?$/i, "")} ${l.tradingTown || l.area || ""}`)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white px-2 py-1 text-xs hover:bg-amber-100">Search Google <ExternalIcon /></a>
+                <button onClick={() => onChange({ websiteNeeded: false, problem: "No website", problemDetail: "Checked by hand: they have no website" })} className="rounded-md bg-zinc-900 px-2 py-1 text-xs font-medium text-white">They have no website</button>
+              </span>
+            </div>
           )}
           {l.claude && (() => {
             const c = l.claude, ok = c.worth_contacting;
