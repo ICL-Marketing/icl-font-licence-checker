@@ -403,6 +403,9 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onBad }) {
         <div className="flex shrink-0 items-start gap-2 border-b border-zinc-200 px-5 py-3">
           <div className="min-w-0 flex-1">
             <h3 className="text-lg font-semibold">{r.name}</h3>
+            {(() => { const first = (t) => { const x = String(t || "").replace(/\s*\([^)]*\)/g, "").replace(/\s+/g, " ").trim(); const m = x.match(/^(.+?[.!?])(\s|$)/); const y = m ? m[1] : x; return y.length > 180 ? `${y.slice(0, 177).replace(/\s+\S*$/, "")}…` : y; };
+              const line = first(r.ai?.business_summary) || [r.ai?.what_they_do, r.ai?.location].filter(Boolean).join(", ") || first(r.siteDescription) || first(r.title);
+              return line ? <p className="mt-0.5 text-sm text-zinc-600">{line}</p> : null; })()}
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
               {(() => { const sv = idea.service || serviceFor(idea.title); return <span className={`rounded-full px-2 py-0.5 font-semibold text-white ${IDEA_SERVICES[sv] || "bg-zinc-500"}`}>{sv}</span>; })()}
               {isQuickFix(idea) ? <span className="rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-800">Quick fix</span> : idea.size && <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-700">{idea.size[0].toUpperCase() + idea.size.slice(1)} project</span>}
@@ -423,7 +426,7 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onBad }) {
             <div className="font-semibold">{idea.title}</div>
             <p className="mt-0.5 text-sm text-zinc-600">{idea.why}</p>
             {idea.resolved && <p className="mt-1 text-xs text-emerald-700">No longer found on the site at the last check.</p>}
-            {idea.evidenceUrl && <a href={idea.evidenceUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-blue-700 underline">See what we found <ExternalIcon /></a>}
+            {idea.evidenceUrl && <a href={idea.evidenceUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-blue-700 underline">{/google\.[a-z.]+\/search/.test(idea.evidenceUrl) ? "Check this search on Google" : "See what we found"} <ExternalIcon /></a>}
           </div>
           <div className="rounded-lg border border-zinc-200 p-3">
             <div className="flex flex-wrap items-center gap-2">
