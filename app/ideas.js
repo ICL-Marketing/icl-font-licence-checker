@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas } from "@/lib/clientIdeas";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor } from "@/lib/clientIdeas";
 import { dayGreeting, firstNameOf } from "@/lib/leadsShared";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
@@ -45,7 +45,20 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
   const [researchFor, setResearchFor] = useState(null);
   const [view, setViewState] = useState(() => { try { const v = localStorage.getItem("flc-ideas-view"); return v && v !== "month" ? v : "top"; } catch { return "top"; } });
   const setView = (v) => { setViewState(v); try { localStorage.setItem("flc-ideas-view", v); } catch {} };
-  const [manager, setManager] = useState(""); // null = closed, [] = next batch, [clientId] = that client
+  const [manager, setManager] = useState("");
+  const [service, setService] = useState("");
+  // Feedback on bad ideas, shared with the team: fed into research prompts, and repeat offenders drop out of the top 3.
+  const [feedback, setFeedback] = useState([]);
+  const feedbackRef = useRef([]);
+  useEffect(() => { fetch("/api/settings?key=idea-feedback").then((r) => r.json()).then((j) => { if (j.shared && Array.isArray(j.value)) { feedbackRef.current = j.value; setFeedback(j.value); } }).catch(() => {}); }, []);
+  function markBad(rec, idea, reason) {
+    updateIdea(rec.id, idea.key, { status: "declined", badReason: reason, statusAt: new Date().toISOString() });
+    const entry = { at: new Date().toISOString(), client: rec.name, title: idea.title, service: idea.service || serviceFor(idea.title), key: idea.ai ? "" : idea.key, reason };
+    const next = [entry, ...feedbackRef.current].slice(0, 200);
+    feedbackRef.current = next; setFeedback(next);
+    fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "idea-feedback", value: next }) }).catch(() => {});
+  }
+  const badRuleKeys = new Set(Object.entries(feedback.reduce((m, f) => { if (f.key) m[f.key] = (m[f.key] || 0) + 1; return m; }, {})).filter(([, n]) => n >= 2).map(([k]) => k)); // null = closed, [] = next batch, [clientId] = that client
   useEffect(() => { fetch("/api/ideas").then((r) => r.json()).then(setCfg).catch(() => {}); }, []);
 
   useEffect(() => {
@@ -191,9 +204,16 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
   // Group by client for the monthly send-out.
   const byClient = new Map();
   for (const r of Object.values(recs)) { const k = r.clientId || r.name; if (!byClient.has(k)) byClient.set(k, { clientId: r.clientId, name: r.name, manager: r.manager || "", recs: [] }); byClient.get(k).recs.push(r); }
-  const groups = [...byClient.values()].map((g) => { const queue = clientQueue(g.recs); return { ...g, queue, top: topIdeas(queue), pick: monthlyPick(queue, month) }; })
+  const groups = [...byClient.values()].map((g) => { const queue = clientQueue(g.recs); return { ...g, queue, top: topIdeas(queue.filter((i) => !badRuleKeys.has(i.key)), 50, service), pick: monthlyPick(queue, month) }; })
     .filter((g) => g.queue.length && (!manager || g.manager === manager) && (!q || `${g.name} ${g.manager} ${g.queue.map((i) => i.title).join(" ")}`.toLowerCase().includes(q)))
+    .filter((g) => !service || g.top.length)
     .sort((a, b) => a.name.localeCompare(b.name));
+  // Service chips: how many big ideas of each type are in play (respecting the manager and search filters).
+  const serviceCounts = {};
+  for (const g of [...byClient.values()]) {
+    if (manager && g.manager !== manager) continue;
+    for (const i of topIdeas(clientQueue(g.recs).filter((x) => !badRuleKeys.has(x.key)), 99)) { const k = i.service || serviceFor(i.title); serviceCounts[k] = (serviceCounts[k] || 0) + 1; }
+  }
   const dueCount = groups.reduce((n, g) => n + g.top.filter((i) => i.status === "queued").length, 0);
   const managers = [...new Set([...byClient.values()].map((g) => g.manager).filter(Boolean))].sort();
   useEffect(() => { onCount?.(dueCount); }, [dueCount, onCount]);
@@ -239,26 +259,35 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
       </div>
 
       {view === "top" && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <button onClick={() => setService("")} className={`rounded-full border px-3 py-1 text-xs font-medium ${!service ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>All services</button>
+          {Object.keys(IDEA_SERVICES).filter((k) => serviceCounts[k]).map((k) => (
+            <button key={k} onClick={() => setService(service === k ? "" : k)} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${service === k ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}><span className={`h-2 w-2 rounded-full ${IDEA_SERVICES[k]}`} />{k}<span className="opacity-60">{serviceCounts[k]}</span></button>
+          ))}
+        </div>
+      )}
+      {view === "top" && (
         <div className="mt-3 overflow-x-auto rounded-xl border border-zinc-200 bg-white">
           <table className="w-full min-w-[900px] text-sm">
-            <thead><tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500"><th className="w-52 px-4 py-2 font-semibold">Client</th>{[1, 2, 3].map((n) => <th key={n} className="px-3 py-2 font-semibold">Idea {n}</th>)}</tr></thead>
+            <thead><tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500"><th className="w-52 px-4 py-2 font-semibold">Client</th><th className="px-3 py-2 font-semibold">{service ? `${service} ideas` : "Ideas"}, best first <span className="normal-case tracking-normal text-zinc-400">· scroll sideways for more</span></th></tr></thead>
             <tbody className="divide-y divide-zinc-100">
-              {groups.length === 0 && <tr><td colSpan={4} className="p-4 text-zinc-500">No ideas yet. Use Research with Claude above.</td></tr>}
+              {groups.length === 0 && <tr><td colSpan={2} className="p-4 text-zinc-500">No ideas yet. Use Research with Claude above.</td></tr>}
               {groups.map((g) => (
                 <tr key={g.clientId || g.name} className="align-top">
-                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div><div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div>{g.top.length < 3 && <button onClick={() => setResearchFor([g.clientId])} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
-                  {[0, 1, 2].map((n) => {
-                    const it = g.top[n];
-                    if (!it) return <td key={n} className="px-3 py-3 text-xs text-zinc-300">—</td>;
+                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div><div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-0.5 text-[11px] text-zinc-400">{g.top.length} big idea{g.top.length === 1 ? "" : "s"}</div>{g.top.length < 3 && <button onClick={() => setResearchFor([g.clientId])} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
+                  <td className="max-w-0 px-3 py-3">
+                  <div className="grid snap-x auto-cols-[calc((100%-1.5rem)/3)] grid-flow-col gap-3 overflow-x-auto pb-1">
+                  {g.top.length === 0 && <div className="text-xs text-zinc-400">No big ideas yet.</div>}
+                  {g.top.map((it, n) => {
                     const r = g.recs.find((x) => x.id === it.recId) || g.recs[0]; const to = (r?.emails || [])[0] || "";
                     const href = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(to)}&subject=${encodeURIComponent(it.subject || "")}&body=${encodeURIComponent(ideaEmail(r, it, to))}`;
                     return (
-                      <td key={n} className="px-3 py-3">
+                      <div key={`${it.recId}|${it.key}`} className="snap-start rounded-lg border border-zinc-200 p-2.5">
                         <div className="flex flex-wrap items-center gap-1 text-[11px]">
-                          <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${IDEA_KINDS[it.kind]?.tone || "bg-zinc-500"}`}>{IDEA_KINDS[it.kind]?.label}</span>
+                          {(() => { const sv = it.service || serviceFor(it.title); return <button onClick={() => setService(service === sv ? "" : sv)} title={`Show only ${sv} ideas`} className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${IDEA_SERVICES[sv] || "bg-zinc-500"}`}>{sv}</button>; })()}
                           {it.size === "large" && <span className="rounded-full bg-zinc-900 px-1.5 py-0.5 font-semibold text-white">Large</span>}
                           {it.value && <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 font-semibold text-emerald-800" title="Rough budget, for us only">{it.value}</span>}
-                          {it.ai && <span className="rounded-full bg-orange-100 px-1.5 py-0.5 font-semibold text-orange-800">Claude</span>}
+                          {it.likely && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${it.likely === "High" ? "bg-green-600 text-white" : it.likely === "Medium" ? "bg-amber-100 text-amber-800" : "bg-zinc-100 text-zinc-600"}`} title="How likely they are to say yes">{it.likely === "High" ? "Likely yes" : `${it.likely} chance`}</span>}
                         </div>
                         <button onClick={() => setOpen({ id: it.recId, key: it.key })} className="mt-1 block text-left font-medium leading-snug hover:underline">{it.title}</button>
                         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
@@ -266,9 +295,11 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
                             ? <><a href={href} target="_blank" rel="noopener" title={to ? `Opens Outlook with the email to ${to}` : "No email for this client in Settings"} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100"><MailIcon className="h-3 w-3" /> Outlook</a><button onClick={() => markSent(it.recId, it.key)} className="rounded-md bg-emerald-700 px-2 py-0.5 font-medium text-white hover:bg-emerald-800">Mark sent</button></>
                             : <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700">{IDEA_STATUSES.find(([id]) => id === it.status)?.[1]}{it.sentAt ? ` ${new Date(it.sentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : ""}</span>}
                         </div>
-                      </td>
+                      </div>
                     );
                   })}
+                  </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -305,10 +336,10 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
 
       {view === "replies" && <IdeaBoard cards={shown.filter((c) => normStatus(c.status) !== "queued").map((c) => ({ ...c, status: normStatus(c.status) }))} filtering={!!(q || kind)} onOpen={(id, key) => setOpen({ id, key })} onMove={(id, key, status) => updateIdea(id, key, { status })} />}
 
-      {researchFor && <ResearchModal clients={clients} recs={recs} preset={researchFor} initialManager={manager} onClose={() => setResearchFor(null)} onImport={importResearch} />}
+      {researchFor && <ResearchModal feedback={feedback} clients={clients} recs={recs} preset={researchFor} initialManager={manager} onClose={() => setResearchFor(null)} onImport={importResearch} />}
 
       {current && currentIdea && (
-        <IdeaDrawer r={current} idea={currentIdea} onClose={() => setOpen(null)} onIdea={(fields) => updateIdea(current.id, currentIdea.key, fields)} onPick={(key) => setOpen({ id: current.id, key })} onRecord={(fields) => update(current.id, fields)} onRecheck={() => recheckOne(current.id)} onResearch={() => setResearchFor([current.clientId])} running={running} />
+        <IdeaDrawer r={current} idea={currentIdea} onClose={() => setOpen(null)} onIdea={(fields) => updateIdea(current.id, currentIdea.key, fields)} onBad={(reason) => { markBad(current, currentIdea, reason); setOpen(null); }} />
       )}
     </div>
   );
@@ -350,7 +381,7 @@ function IdeaBoard({ cards, filtering, onOpen, onMove }) {
   );
 }
 
-function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, onResearch, running }) {
+function IdeaDrawer({ r, idea, onClose, onIdea, onBad }) {
   const [copied, setCopied] = useState(false);
   const [to, setTo] = useState((r.emails || [])[0] || "");
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
@@ -359,7 +390,6 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, onR
   async function copy() { try { await navigator.clipboard.writeText(`Subject: ${idea.subject || ""}\n\n${full}`); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {} }
   const pocFirst = firstNameOf(String(r.poc || "").split(/\n|,/)[0]);
   const greeting = `${full.split("\n\n")[0]}\n\n${dayGreeting()}`;
-  const others = (r.ideas || []).filter((i) => i.key !== idea.key);
   const site = r.website ? `https://${r.website}` : "";
   return (
     <div className="fixed inset-0 z-30 flex justify-end bg-black/30" onClick={onClose}>
@@ -368,7 +398,7 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, onR
           <div className="min-w-0 flex-1">
             <h3 className="text-lg font-semibold">{r.name}</h3>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-              <span className={`rounded-full px-2 py-0.5 font-semibold text-white ${IDEA_KINDS[idea.kind]?.tone || "bg-zinc-500"}`}>{IDEA_KINDS[idea.kind]?.label || idea.kind}</span>
+              {(() => { const sv = idea.service || serviceFor(idea.title); return <span className={`rounded-full px-2 py-0.5 font-semibold text-white ${IDEA_SERVICES[sv] || "bg-zinc-500"}`}>{sv}</span>; })()}
               {idea.size && <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-700">{idea.size[0].toUpperCase() + idea.size.slice(1)} project</span>}
               {idea.value && <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800" title="Rough budget, for us only; never in the email">{idea.value}</span>}
               {site && <a href={site} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700">{r.website} <ExternalIcon /></a>}
@@ -388,26 +418,6 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, onR
             {idea.resolved && <p className="mt-1 text-xs text-emerald-700">No longer found on the site at the last check.</p>}
             {idea.evidenceUrl && <a href={idea.evidenceUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-blue-700 underline">See what we found <ExternalIcon /></a>}
           </div>
-          {r.ai && r.ai.website_is_theirs === false && (
-            <div className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">The website on file may not be theirs.</span> {r.ai.website_evidence} {r.ai.correct_website ? <>Their site looks like <a href={`https://${r.ai.correct_website}`} target="_blank" rel="noreferrer" className="underline">{r.ai.correct_website}</a>.</> : "No website found for them."} Update it in <Link href="/settings?section=clients" className="underline">Settings → Clients</Link>, then re-check. The automatic site checks are hidden until then.</div>
-          )}
-          {r.ai && (
-            <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3 text-sm">
-              <div className="flex items-baseline gap-2"><span className="font-semibold">What we found</span><span className="text-[11px] text-zinc-500">Researched by Claude · {new Date(r.ai.researchedAt).toLocaleDateString("en-GB")}{r.ai.cost ? ` · about £${(r.ai.cost * 0.8).toFixed(2)}` : ""}</span></div>
-              <p className="mt-1 text-zinc-700">{r.ai.business_summary}</p>
-              <p className="mt-1 text-xs text-zinc-600"><span className="font-medium">Does:</span> {r.ai.what_they_do} · <span className="font-medium">Where:</span> {r.ai.location}{r.ai.competitors?.length ? <> · <span className="font-medium">Competitors:</span> {r.ai.competitors.join(", ")}</> : null}</p>
-              {r.ai.sources?.length > 0 && <details className="mt-1 text-xs text-zinc-500"><summary>{r.ai.sources.length} source{r.ai.sources.length === 1 ? "" : "s"}</summary><ul className="mt-1 space-y-0.5">{r.ai.sources.slice(0, 12).map((u) => <li key={u}><a href={u} target="_blank" rel="noreferrer" className="break-all text-blue-700 underline">{u}</a></li>)}</ul></details>}
-            </div>
-          )}
-          {r.aiError && <p className="text-xs text-red-700">AI research: {r.aiError}</p>}
-
-          {others.length > 0 && (
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Other ideas for {r.name}</div>
-              <div className="mt-1 flex flex-wrap gap-1.5">{others.map((i) => <button key={i.key} onClick={() => onPick(i.key)} className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100">{i.title} <span className="text-zinc-400">· {IDEA_STATUSES.find(([id]) => id === normStatus(i.status))?.[1]}</span></button>)}</div>
-            </div>
-          )}
-
           <div className="rounded-lg border border-zinc-200 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold">Email</span>
@@ -435,25 +445,10 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, onR
           <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Notes</div>
             <AutoTextarea value={idea.notes || ""} onChange={(e) => onIdea({ notes: e.target.value })} minRows={2} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
 
-          <div className="rounded-lg border border-zinc-200 p-3 text-sm">
-            <div className="font-semibold">Search ranking</div>
-            {r.seo?.searches?.find((x) => x.kind === "trade")
-              ? (() => { const t = r.seo.searches.find((x) => x.kind === "trade"); return <p className="mt-1 text-zinc-700">“{t.query}”: <span className="font-semibold">{t.error ? t.error : t.position ? `#${t.position}` : "not on page 1"}</span>{t.ahead?.length ? <span className="text-zinc-500"> · behind {t.ahead.join(", ")}</span> : null} <a href={`https://www.google.com/search?q=${encodeURIComponent(t.query)}`} target="_blank" rel="noreferrer" className="text-xs text-blue-700 underline">check on Google</a></p>; })()
-              : <p className="mt-1 text-xs text-zinc-500">{r.searchNote || "Not searched yet."}</p>}
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
-              <label className="inline-flex items-center gap-1">searching for <input key={`t:${r.id}:${r.tradeOverride || r.searchTrade || ""}`} defaultValue={r.tradeOverride || r.searchTrade || ""} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (r.tradeOverride || r.searchTrade || "")) onRecord({ tradeOverride: v }); }} placeholder="e.g. trophy shop" className="w-40 rounded border border-zinc-300 px-1.5 py-0.5" /></label>
-              <label className="inline-flex items-center gap-1">in <input key={`w:${r.id}:${r.townOverride || r.searchTown || ""}`} defaultValue={r.townOverride || r.searchTown || ""} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (r.townOverride || r.searchTown || "")) onRecord({ townOverride: v }); }} placeholder="town" className="w-32 rounded border border-zinc-300 px-1.5 py-0.5" /></label>
-              <span className="text-zinc-400">used on the next re-check</span>
-            </div>
-          </div>
         </div></div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-zinc-200 bg-white px-5 py-3 text-xs shadow-[0_-6px_12px_-8px_rgba(0,0,0,0.15)]">
-          <button onClick={onRecheck} disabled={running || r.checking} className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2.5 py-1 font-medium text-white disabled:opacity-40"><RefreshIcon className="h-3.5 w-3.5" /> Re-check this client</button>
-          {r.checking && <span className="inline-flex items-center gap-1 text-blue-700"><SpinnerIcon className="h-3.5 w-3.5" /> Working…</span>}
-          <button onClick={onResearch} className="inline-flex items-center gap-1 rounded-md border border-violet-300 bg-violet-50 px-2.5 py-1 text-violet-900 hover:bg-violet-100"><SearchIcon className="h-3.5 w-3.5" /> Research with Claude</button>
-          {r.checkedAt && !r.checking && <span className="text-zinc-500">Checked {new Date(r.checkedAt).toLocaleDateString("en-GB")}</span>}
-          <button onClick={() => onIdea({ status: "declined" })} className="ml-auto rounded-md px-2 py-1 text-zinc-500 hover:text-zinc-900">Not for them</button>
+          <BadIdea idea={idea} onBad={(reason) => onBad(reason)} />
         </div>
       </div>
     </div>
@@ -461,7 +456,7 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, onR
 }
 
 // Free research on your own Claude plan: pick clients, copy the prompt into Claude, paste the reply back.
-function ResearchModal({ clients, recs, preset, initialManager = "", onClose, onImport }) {
+function ResearchModal({ feedback = [], clients, recs, preset, initialManager = "", onClose, onImport }) {
   const researched = (c) => Object.values(recs).some((r) => r.clientId === c.id && r.ai);
   // Account managers can work through just their own clients.
   const [mgr, setMgr] = useState(initialManager);
@@ -478,7 +473,7 @@ function ResearchModal({ clients, recs, preset, initialManager = "", onClose, on
     const rec = Object.values(recs).find((r) => r.clientId === c.id && r.checkedAt);
     return { id: c.id, name: c.name, websites: c.websites || [], notes: c.notes || "", findings: findingsLine(rec) };
   });
-  const prompt = items.length ? researchPrompt(items) : "";
+  const prompt = items.length ? researchPrompt(items, feedback) : "";
   async function copy(open) {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
     if (open) window.open("https://claude.ai/new", "_blank", "noopener");
@@ -539,6 +534,21 @@ function ResearchModal({ clients, recs, preset, initialManager = "", onClose, on
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// "Bad idea": park it with a reason; the reason teaches future research what to avoid.
+function BadIdea({ idea, onBad }) {
+  const [asking, setAsking] = useState(false);
+  const [why, setWhy] = useState("");
+  if (idea.badReason) return <span className="ml-auto text-xs text-red-700">Marked a bad idea: {idea.badReason}</span>;
+  if (!asking) return <button onClick={() => setAsking(true)} className="ml-auto inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2.5 py-1 text-red-700 hover:bg-red-50">Bad idea</button>;
+  return (
+    <div className="flex w-full flex-wrap items-center gap-2">
+      <input autoFocus value={why} onChange={(e) => setWhy(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && why.trim()) onBad(why.trim()); if (e.key === "Escape") setAsking(false); }} placeholder="Why is it a bad idea? e.g. they already have this, too small for them, not something we offer" className="min-w-0 flex-1 rounded-md border border-red-300 px-2 py-1 text-sm" />
+      <button onClick={() => why.trim() && onBad(why.trim())} disabled={!why.trim()} className="rounded-md bg-red-600 px-2.5 py-1 font-medium text-white disabled:opacity-40">Save</button>
+      <button onClick={() => setAsking(false)} className="text-zinc-500">Cancel</button>
     </div>
   );
 }
