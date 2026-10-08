@@ -1,7 +1,8 @@
+import { researchClient, researchConfigured, researchCost, RESEARCH_CAP } from "@/lib/clientResearch";
 import { checkWebsite, fetchPage, licenceRisks, seoCheck, siteAddress, townFromAddress, tradeFromSite, applyTradingAddress } from "@/lib/leads";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 50;
+export const maxDuration = 60;
 
 const clean = (w) => String(w || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "");
 
@@ -41,12 +42,32 @@ async function signals(host) {
   };
 }
 
+export async function GET() {
+  let used = 0;
+  try { const { counterGet } = await import("@/lib/store"); used = await counterGet(`ai-research:${new Date().toISOString().slice(0, 7)}`); } catch {}
+  return Response.json({ ai: researchConfigured(), aiUsage: { used, cap: RESEARCH_CAP } });
+}
+
 // Steps, one short request each (the browser drives the queue):
 //   check   {website}            -> site check + homepage signals
 //   licence {website}            -> font and stock image licence risks
 //   seo     {website, name, ...} -> where they rank for their trade in their town (one search credit)
 export async function POST(request) {
   const b = await request.json().catch(() => ({}));
+  if (b.step === "research") {
+    // Claude researches the client on the web and proposes ideas (one research run = roughly 20-40p).
+    if (!researchConfigured()) return Response.json({ error: "AI research is not set up. Add ANTHROPIC_API_KEY in Vercel." }, { status: 400 });
+    const { counterGet, counterIncr } = await import("@/lib/store");
+    const month = `ai-research:${new Date().toISOString().slice(0, 7)}`;
+    if ((await counterGet(month)) >= RESEARCH_CAP) return Response.json({ error: `Monthly AI research cap reached (${RESEARCH_CAP}). Raise CLIENT_IDEAS_AI_CAP in Vercel for more.` }, { status: 429 });
+    try {
+      const r = await researchClient({ name: String(b.name || ""), websites: (b.websites || []).map(clean).filter(Boolean), notes: String(b.notes || "").slice(0, 600), findings: b.findings || null, quick: !!b.quick });
+      await counterIncr(month, 40 * 86400);
+      return Response.json({ research: { ...r, cost: Math.round(researchCost(r.usage, r.model) * 100) / 100 } });
+    } catch (e) {
+      return Response.json({ error: String(e?.message || e) }, { status: 502 });
+    }
+  }
   const host = clean(b.website);
   if (!host) return Response.json({ error: "website required" }, { status: 400 });
   try {

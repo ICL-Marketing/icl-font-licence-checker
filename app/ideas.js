@@ -40,6 +40,9 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
   const [filter, setFilter] = useState("");
   const [kind, setKind] = useState("");
   const [withSearch, setWithSearch] = useState(true);
+  const [cfg, setCfg] = useState(null); // { ai, aiUsage }
+  const [withAi, setWithAi] = useState(true);
+  useEffect(() => { fetch("/api/ideas").then((r) => r.json()).then(setCfg).catch(() => {}); }, []);
 
   useEffect(() => {
     const local = load();
@@ -78,6 +81,21 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
     if (alive && withSearch && !stopRef.current) {
       st.phase = `Searching for ${c.name}…`; setRun({ ...st });
       try { const s = await post({ step: "seo", website: w, name: c.name, town: prev.townOverride || "", trade: prev.tradeOverride || "", title: site.title, siteDescription: site.siteDescription, siteHeadings: site.siteHeadings, siteBody: site.siteBody }); rec.seo = s.seo || prev.seo || null; rec.searchTown = s.town || ""; rec.searchTrade = s.trade || ""; rec.searchNote = s.skipped || ""; } catch (e) { rec.searchNote = e.message; }
+    }
+    // AI research: who they really are and what would help them, from the web plus our findings.
+    if (cfg?.ai && withAi && !stopRef.current) {
+      st.phase = `Researching ${c.name} with AI…`; setRun({ ...st });
+      const t = rec.seo?.searches?.find((x) => x.kind === "trade");
+      const findings = { problem: rec.problem || "", detail: rec.problemDetail || "", platform: rec.platform || "", footerYear: rec.year || 0, signals: rec.signals || null,
+        licence: rec.licence ? { fonts: [...(rec.licence.fonts || []), ...(rec.licence.possibleFonts || [])].map((f) => `${f.family}: ${f.label}`), stockImages: (rec.licence.images || []).length } : null,
+        search: t ? `${t.query}: ${t.position ? `#${t.position}` : "not on page 1"}` : "" };
+      const ask = (quick) => fetch("/api/ideas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ step: "research", name: c.name, websites: c.websites || [], notes: c.notes || "", findings, quick }) }).then((r) => r.json());
+      try {
+        let j = await ask(false);
+        if (j.error && /too long|did not finish/i.test(j.error) && !stopRef.current) j = await ask(true);
+        if (j.research) { rec.ai = j.research; rec.aiError = ""; } else rec.aiError = j.error || "AI research failed";
+      } catch (e) { rec.aiError = e.message; }
+      fetch("/api/ideas").then((r) => r.json()).then(setCfg).catch(() => {});
     }
     rec.ideas = ideasFor(rec, prev.ideas || []);
     update(id, rec);
@@ -140,6 +158,9 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
             : <button onClick={() => checkAll(false)} disabled={!sitesTotal} title="Checks every client website not checked in the last 30 days" className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find ideas</button>}
           <button onClick={() => checkAll(true)} disabled={running || !sitesTotal} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Re-check all</button>
           <label className="inline-flex items-center gap-1.5 text-sm text-zinc-700" title="One Brave search credit per client site, shared with Website Leads"><input type="checkbox" checked={withSearch} onChange={(e) => setWithSearch(e.target.checked)} disabled={running} /> Include search ranking</label>
+          {cfg?.ai
+            ? <label className="inline-flex items-center gap-1.5 text-sm text-zinc-700" title="Claude researches each client on the web (what they really do, where, competitors, whether the website on file is theirs) and writes ideas specific to them. Roughly 20-40p per client."><input type="checkbox" checked={withAi} onChange={(e) => setWithAi(e.target.checked)} disabled={running} /> AI research <span className="text-xs text-zinc-400">{cfg.aiUsage?.used || 0} of {cfg.aiUsage?.cap || 0} this month</span></label>
+            : cfg && <span className="text-xs text-amber-700" title="Add ANTHROPIC_API_KEY in Vercel → Settings → Environment Variables, then redeploy">AI research is off: add ANTHROPIC_API_KEY in Vercel to switch it on</span>}
           <span className="text-xs text-zinc-500">{sitesChecked} of {sitesTotal} client sites checked{noSite ? ` · ${noSite} client${noSite === 1 ? "" : "s"} with no website in Settings` : ""}</span>
         </div>
         {run && (
@@ -189,6 +210,7 @@ function IdeaBoard({ cards, filtering, onOpen, onMove }) {
                   <div className="font-medium">{c.client}</div>
                   <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px]">
                     <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${IDEA_KINDS[c.kind]?.tone || "bg-zinc-500"}`}>{IDEA_KINDS[c.kind]?.label || c.kind}</span>
+                    {c.ai && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 font-semibold text-violet-800" title="From AI research on this client">AI</span>}
                     {c.resolved && <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 font-semibold text-emerald-800" title="No longer found on the site">Fixed on site</span>}
                   </div>
                   <div className="mt-1 text-zinc-700">{c.title}</div>
@@ -238,7 +260,20 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onPick, onRecord, onRecheck, run
             <div className="font-semibold">{idea.title}</div>
             <p className="mt-0.5 text-sm text-zinc-600">{idea.why}</p>
             {idea.resolved && <p className="mt-1 text-xs text-emerald-700">No longer found on the site at the last check.</p>}
+            {idea.evidenceUrl && <a href={idea.evidenceUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-blue-700 underline">See what we found <ExternalIcon /></a>}
           </div>
+          {r.ai && r.ai.website_is_theirs === false && (
+            <div className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">The website on file may not be theirs.</span> {r.ai.website_evidence} {r.ai.correct_website ? <>Their site looks like <a href={`https://${r.ai.correct_website}`} target="_blank" rel="noreferrer" className="underline">{r.ai.correct_website}</a>.</> : "No website found for them."} Update it in <Link href="/settings?section=clients" className="underline">Settings → Clients</Link>, then re-check. The automatic site checks are hidden until then.</div>
+          )}
+          {r.ai && (
+            <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3 text-sm">
+              <div className="flex items-baseline gap-2"><span className="font-semibold">What we found</span><span className="text-[11px] text-zinc-500">AI research · {new Date(r.ai.researchedAt).toLocaleDateString("en-GB")}{r.ai.cost ? ` · about £${(r.ai.cost * 0.8).toFixed(2)}` : ""}</span></div>
+              <p className="mt-1 text-zinc-700">{r.ai.business_summary}</p>
+              <p className="mt-1 text-xs text-zinc-600"><span className="font-medium">Does:</span> {r.ai.what_they_do} · <span className="font-medium">Where:</span> {r.ai.location}{r.ai.competitors?.length ? <> · <span className="font-medium">Competitors:</span> {r.ai.competitors.join(", ")}</> : null}</p>
+              {r.ai.sources?.length > 0 && <details className="mt-1 text-xs text-zinc-500"><summary>{r.ai.sources.length} source{r.ai.sources.length === 1 ? "" : "s"}</summary><ul className="mt-1 space-y-0.5">{r.ai.sources.slice(0, 12).map((u) => <li key={u}><a href={u} target="_blank" rel="noreferrer" className="break-all text-blue-700 underline">{u}</a></li>)}</ul></details>}
+            </div>
+          )}
+          {r.aiError && <p className="text-xs text-red-700">AI research: {r.aiError}</p>}
 
           {others.length > 0 && (
             <div>
