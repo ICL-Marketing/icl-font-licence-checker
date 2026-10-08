@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor } from "@/lib/clientIdeas";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix } from "@/lib/clientIdeas";
 import { dayGreeting, firstNameOf } from "@/lib/leadsShared";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
@@ -274,7 +274,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
               {groups.length === 0 && <tr><td colSpan={2} className="p-4 text-zinc-500">No ideas yet. Use Research with Claude above.</td></tr>}
               {groups.map((g) => (
                 <tr key={g.clientId || g.name} className="align-top">
-                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div><div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div>{g.top.length < 3 && <button onClick={() => setResearchFor([g.clientId])} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
+                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return w ? <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline">{w} <ExternalIcon /></a> : null; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div>{g.top.length < 3 && <button onClick={() => setResearchFor([g.clientId])} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
                   <td className="max-w-0 px-3 py-3">
                   <div className="grid snap-x auto-cols-[calc((100%-1.5rem)/3)] grid-flow-col gap-3 overflow-x-auto pb-1">
                   {g.top.length === 0 && <div className="text-xs text-zinc-400">No big ideas yet.</div>}
@@ -282,15 +282,16 @@ export default function IdeasArea({ clients = [], onRunning, onCount }) {
                     const r = g.recs.find((x) => x.id === it.recId) || g.recs[0]; const to = (r?.emails || [])[0] || "";
                     const href = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(to)}&subject=${encodeURIComponent(it.subject || "")}&body=${encodeURIComponent(ideaEmail(r, it, to))}`;
                     return (
-                      <div key={`${it.recId}|${it.key}`} className="snap-start rounded-lg border border-zinc-200 p-2.5">
+                      <div key={`${it.recId}|${it.key}`} onClick={() => setOpen({ id: it.recId, key: it.key })} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setOpen({ id: it.recId, key: it.key }); }} className="cursor-pointer snap-start rounded-lg border border-zinc-200 p-2.5 hover:border-zinc-400 hover:bg-zinc-50">
                         <div className="flex flex-wrap items-center gap-1 text-[11px]">
-                          {(() => { const sv = it.service || serviceFor(it.title); return <button onClick={() => setService(service === sv ? "" : sv)} title={`Show only ${sv} ideas`} className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${IDEA_SERVICES[sv] || "bg-zinc-500"}`}>{sv}</button>; })()}
-                          {it.size === "large" && <span className="rounded-full bg-zinc-900 px-1.5 py-0.5 font-semibold text-white">Large</span>}
+                          {(() => { const sv = it.service || serviceFor(it.title); return <button onClick={(e) => { e.stopPropagation(); setService(service === sv ? "" : sv); }} title={`Show only ${sv} ideas`} className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${IDEA_SERVICES[sv] || "bg-zinc-500"}`}>{sv}</button>; })()}
+                          {isQuickFix(it) ? <span className="rounded-full bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-800">Quick fix</span> : it.size === "large" && <span className="rounded-full bg-zinc-900 px-1.5 py-0.5 font-semibold text-white">Large</span>}
+                          <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 font-semibold text-zinc-700" title={it.hours ? "Estimated hours to deliver" : "Rough guess; research again for Claude's estimate"}>~{hoursFor(it)} hr{hoursFor(it) === 1 ? "" : "s"}</span>
                           {it.value && <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 font-semibold text-emerald-800" title="Rough budget, for us only">{it.value}</span>}
                           {it.likely && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${it.likely === "High" ? "bg-green-600 text-white" : it.likely === "Medium" ? "bg-amber-100 text-amber-800" : "bg-zinc-100 text-zinc-600"}`} title="How likely they are to say yes">{it.likely === "High" ? "Likely yes" : `${it.likely} chance`}</span>}
                         </div>
-                        <button onClick={() => setOpen({ id: it.recId, key: it.key })} className="mt-1 block text-left font-medium leading-snug hover:underline">{it.title}</button>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                        <div className="mt-1 font-medium leading-snug">{it.title}</div>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs" onClick={(e) => e.stopPropagation()}>
                           {it.status === "queued"
                             ? <><a href={href} target="_blank" rel="noopener" title={to ? `Opens Outlook with the email to ${to}` : "No email for this client in Settings"} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100"><MailIcon className="h-3 w-3" /> Outlook</a><button onClick={() => markSent(it.recId, it.key)} className="rounded-md bg-emerald-700 px-2 py-0.5 font-medium text-white hover:bg-emerald-800">Mark sent</button></>
                             : <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700">{IDEA_STATUSES.find(([id]) => id === it.status)?.[1]}{it.sentAt ? ` ${new Date(it.sentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : ""}</span>}
@@ -399,7 +400,8 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onBad }) {
             <h3 className="text-lg font-semibold">{r.name}</h3>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
               {(() => { const sv = idea.service || serviceFor(idea.title); return <span className={`rounded-full px-2 py-0.5 font-semibold text-white ${IDEA_SERVICES[sv] || "bg-zinc-500"}`}>{sv}</span>; })()}
-              {idea.size && <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-700">{idea.size[0].toUpperCase() + idea.size.slice(1)} project</span>}
+              {isQuickFix(idea) ? <span className="rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-800">Quick fix</span> : idea.size && <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-700">{idea.size[0].toUpperCase() + idea.size.slice(1)} project</span>}
+              <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-700" title="Estimated hours to deliver">~{hoursFor(idea)} hr{hoursFor(idea) === 1 ? "" : "s"}</span>
               {idea.value && <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800" title="Rough budget, for us only; never in the email">{idea.value}</span>}
               {site && <a href={site} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700">{r.website} <ExternalIcon /></a>}
               {r.manager && <span className="text-zinc-500">Account manager: {r.manager}</span>}
