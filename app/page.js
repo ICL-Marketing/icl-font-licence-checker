@@ -97,8 +97,12 @@ export default function Home() {
   useEffect(() => {
     const t = setTimeout(() => setClients(loadClients()), 0);
     pullSetting("email-edits", EDITS_KEY); // team's edited email wording
-    fetch("/api/clients").then((r) => r.json()).then((j) => { if (j.shared && Array.isArray(j.clients) && j.clients.length) setClients(normaliseClients(j.clients)); }).catch(() => {});
-    return () => clearTimeout(t);
+    // Settings often opens in another tab, so pick up client edits whenever this tab comes back.
+    const pull = () => fetch("/api/clients").then((r) => r.json()).then((j) => { if (j.shared && Array.isArray(j.clients) && j.clients.length) setClients(normaliseClients(j.clients)); }).catch(() => {});
+    pull();
+    const onShow = () => { if (document.visibilityState === "visible") pull(); };
+    window.addEventListener("focus", pull); document.addEventListener("visibilitychange", onShow);
+    return () => { clearTimeout(t); window.removeEventListener("focus", pull); document.removeEventListener("visibilitychange", onShow); };
   }, []);
   const stopRef = useRef(false);
   const cancelledRef = useRef(new Set());

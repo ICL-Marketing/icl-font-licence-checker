@@ -510,8 +510,8 @@ function ResearchModal({ feedback = [], clients, recs, preset, initialManager = 
     } catch (e) { setMsg(e.message); }
   }
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
-  // Researched clients are hidden from the picker; search still finds them for a re-run.
-  const list = clients.filter((c) => mine(c) && (q ? c.name.toLowerCase().includes(q.toLowerCase()) : !researched(c) || picked.includes(c.id)));
+  // Researched clients are hidden from the picker; search looks across every account manager and finds them for a re-run.
+  const list = clients.filter((c) => (q ? c.name.toLowerCase().includes(q.toLowerCase()) : mine(c) && (!researched(c) || picked.includes(c.id))));
   const doneCount = clients.filter((c) => mine(c) && researched(c)).length;
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
@@ -530,6 +530,7 @@ function ResearchModal({ feedback = [], clients, recs, preset, initialManager = 
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a client" className={`${mgrs.length ? "" : "ml-auto "}w-40 rounded-md border border-zinc-300 px-2 py-0.5 text-xs`} />
             </div>
             <div className="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
+              {q && !list.length && <span className="text-xs text-zinc-500">No client called “{q}”. Add it in Settings → Clients and press Save, then come back to this tab.</span>}
               {list.map((c) => (
                 <button key={c.id} onClick={() => toggle(c.id)} className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(c.id) ? "border-violet-500 bg-violet-100 text-violet-900" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{c.name}{researched(c) ? " ✓" : ""}</button>
               ))}
