@@ -867,7 +867,7 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjec
               </span>
               {(l.tradingTown || l.area) && <span className={`inline-flex items-center gap-1 text-xs ${l.tradesElsewhere ? "text-red-700" : "text-zinc-600"}`} title={l.tradingAddress ? `Address on their website: ${l.tradingAddress}${l.area && l.tradingTown && l.tradingTown !== l.area ? ` (registered office: ${l.area})` : ""}` : `Registered office: ${l.address || l.area}`}><PinIcon /> {l.tradingTown || l.area}{l.tradingTown && l.area && l.tradingTown.toLowerCase() !== l.area.toLowerCase() ? <span className="text-zinc-400"> · registered in {l.area}</span> : null}</span>}
               {l.companyNumber && <a href={`https://find-and-update.company-information.service.gov.uk/company/${l.companyNumber}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700 underline">Companies House {l.companyNumber} <ExternalIcon /></a>}
-              {l.website && <button onClick={rejectWebsite} title="This website belongs to a different business. It is dropped, remembered as wrong, and the lead is rescanned without it." className="rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[11px] text-red-800 hover:bg-red-100">Not their website</button>}
+              {l.website && !websiteIsVerified(l) && (l.websiteDoubt || isFrozen(l)) && <button onClick={rejectWebsite} title="This website belongs to a different business. It is dropped, remembered as wrong, and the lead is rescanned without it." className="rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[11px] text-red-800 hover:bg-red-100">Not their website</button>}
             </div>
             {l.websiteDoubt && l.website && <div className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">Check the website.</span> {l.websiteDoubt}</div>}
             {l.website && !websiteIsVerified(l) && !l.websiteDoubt && !isFrozen(l) && (
@@ -880,7 +880,7 @@ function LeadDrawer({ l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjec
                 </span>
               </div>
             )}
-            {l.website && websiteIsVerified(l) && l.websiteVerified && <div className="text-[11px] text-emerald-700">Website verified: {l.websiteVerified}</div>}
+            {l.website && websiteIsVerified(l) && l.websiteVerified && <div className="text-[11px] text-emerald-700">Website verified: {l.websiteVerified} <button onClick={rejectWebsite} title="This website belongs to a different business. It is dropped, remembered as wrong, and the lead is rescanned without it." className="ml-1 text-zinc-400 underline hover:text-red-700">not their website?</button></div>}
           </div>
           <select value={l.status || "new"} onChange={(e) => onChange({ status: e.target.value })} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm">
             {LEAD_STATUSES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
