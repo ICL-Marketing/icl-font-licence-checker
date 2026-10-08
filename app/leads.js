@@ -105,7 +105,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       // Dormant companies scored before the rule existed: Low, parked, with the reason.
       for (const l of Object.values(local)) if (/dormant/i.test(l.caveats || "") && (l.likelihood !== "Low" || !/dormant/i.test(l.likelihoodWhy || ""))) { l.likelihood = "Low"; l.likelihoodWhy = "Filed as dormant at Companies House, so not trading through this company; nothing to sell to"; if (["new", "qualified", "no-contact"].includes(l.status)) l.status = "not-pursuing"; l.updatedAt = new Date().toISOString(); }
       // A lead with nothing to pitch (site current, no licence risk) does not belong in an open column.
-      for (const l of Object.values(local)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status) && websiteIsVerified(l)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); }
+      for (const l of Object.values(local)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status) && websiteIsVerified(l) && !(l.websiteConfirmed && !l.claude)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); }
       // Open leads with no verified email address are parked, whatever column they were in.
       for (const l of Object.values(local)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried) && ["new", "qualified"].includes(l.status)) { l.contactUnverified = true; l.status = parkStatus(l); l.updatedAt = new Date().toISOString(); }
       // Contact not verified, and every route tried: nothing more to do, so park it.
@@ -134,7 +134,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const [id, l] of Object.entries(j.results || {})) { if (!next[id] || String(l.updatedAt || "") >= String(next[id].updatedAt || "")) next[id] = l; }
         for (const l of Object.values(next)) if (l.email && !l.email.includes("\n\n")) l.email = l.email.trim().replace(/\n+/g, "\n\n");
         for (const l of Object.values(next)) if (/dormant/i.test(l.caveats || "") && (l.likelihood !== "Low" || !/dormant/i.test(l.likelihoodWhy || ""))) { l.likelihood = "Low"; l.likelihoodWhy = "Filed as dormant at Companies House, so not trading through this company; nothing to sell to"; if (["new", "qualified", "no-contact"].includes(l.status)) l.status = "not-pursuing"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
-        for (const l of Object.values(next)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status) && websiteIsVerified(l)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status) && websiteIsVerified(l) && !(l.websiteConfirmed && !l.claude)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried) && ["new", "qualified"].includes(l.status)) { l.contactUnverified = true; l.status = parkStatus(l); l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "qualified") { l.status = "new"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (claudeSkip(l) && ["new", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
@@ -347,7 +347,10 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       try {
         let { lead } = await post({ step: "refresh", lead: l, knownSites });
         if (lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
-        if (websiteIsVerified(lead) && lead.problem && ["High", "Medium"].includes(lead.likelihood) && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site" && ["new", "qualified", "contacted", "replied", "meeting"].includes(lead.status)) { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = { ...r.lead, status: !lead.problem && r.lead.problem ? r.lead.status : lead.status }; } catch {} }
+        if (websiteIsVerified(lead) && (lead.problem ? ["High", "Medium"].includes(lead.likelihood) : lead.websiteConfirmed) && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site" && ["new", "qualified", "contacted", "replied", "meeting", "not-pursuing"].includes(lead.status) && !isFrozen(lead)) { try { st.phase = `Searching for ${lead.business}…`; setRun({ ...st }); const r = await post({ step: "seo", lead }); if (r.lead) lead = { ...r.lead, status: !lead.problem && r.lead.problem ? r.lead.status : lead.status }; } catch {} }
+        // A site you confirmed with nothing found yet is not parked: Claude decides. Claude's location beats the footer address.
+        if (lead.websiteConfirmed && !lead.problem && !lead.claude && lead.status === "not-pursuing" && !l.optedOut) { lead.status = "new"; lead.likelihood = ""; lead.likelihoodWhy = "Site looks current; check with Claude for another angle"; lead.statusAt = new Date().toISOString(); }
+        if (lead.claude?.location && !/^(national|online|uk|nationwide)$/i.test(lead.claude.location)) { lead.tradingTown = lead.claude.location; lead.tradesElsewhere = false; }
         update(id, lead); st.found++;
         setPendingRescan((prev) => { const n = new Set(prev); n.delete(id); return n; });
       }
@@ -462,7 +465,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       // Fill the lead's fields with what Claude confirmed (shown in orange in the drawer).
       const filled = [];
       if (it.what_they_do) { f.whatTheyDo = it.what_they_do; filled.push("whatTheyDo"); if (!l.tradeOverride) f.tradeOverride = it.what_they_do.toLowerCase().replace(/[^a-z0-9 &'-]/g, "").trim().split(/\s+/).slice(0, 4).join(" "); }
-      if (it.location && !/^(national|online|uk|nationwide)$/i.test(it.location.trim())) { f.tradingTown = it.location; filled.push("tradingTown"); }
+      if (it.location && !/^(national|online|uk|nationwide)$/i.test(it.location.trim())) { f.tradingTown = it.location; f.tradesElsewhere = false; filled.push("tradingTown"); }
       if (it.issue_note && l.problem) { f.problemDetail = it.issue_note; filled.push("problemDetail"); }
       if (it.likelihood) { f.likelihood = it.likelihood; filled.push("likelihood"); }
       if (it.likelihood_reason || it.reason) { f.likelihoodWhy = it.likelihood_reason || it.reason; filled.push("likelihoodWhy"); }
@@ -922,7 +925,7 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
     if (!host || (!force && host === String(l.website || "").toLowerCase() && websiteIsVerified(l))) return;
     if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(host)) return;
     const fromOld = (e) => e && l.website && e.endsWith("@" + String(l.website).replace(/^www\./, "")) && host !== String(l.website).toLowerCase();
-    onChange({ website: host, websiteNeeded: false, websiteConfirmed: true, websiteVerified: "confirmed by you", websiteEvidence: "confirmed by you", websiteDoubt: "", siteUrl: "", ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}), ...(fromOld(l.emailAddress) ? { emailAddress: "", contactName: "" } : {}), caveats: String(l.caveats || "").split("; ").filter((x) => x && !/no website|not found by name|confirm the website/i.test(x)).join("; ") });
+    onChange({ website: host, websiteNeeded: false, claude: null, claudeFields: [], status: ["not-pursuing", "no-contact"].includes(l.status) && !l.optedOut ? "new" : l.status, websiteConfirmed: true, websiteVerified: "confirmed by you", websiteEvidence: "confirmed by you", websiteDoubt: "", siteUrl: "", ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}), ...(fromOld(l.emailAddress) ? { emailAddress: "", contactName: "" } : {}), caveats: String(l.caveats || "").split("; ").filter((x) => x && !/no website|not found by name|confirm the website/i.test(x)).join("; ") });
     setTimeout(() => onRefresh(), 50);
   }
   // Wrong website: remember it as rejected, drop everything that came from it, rescan without it.
