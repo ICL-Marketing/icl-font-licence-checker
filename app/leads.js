@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, findLeadsPrompt, parseFoundLeads, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 
 // Website leads: local businesses whose site is letting them down, found
@@ -17,6 +17,22 @@ const SEEN_DAYS = 90;
 const loadSeen = () => { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || "{}") || {}; } catch { return {}; } };
 const saveSeen = (v) => { try { localStorage.setItem(SEEN_KEY, JSON.stringify(v)); } catch {} };
 const loadScan = () => { try { return JSON.parse(localStorage.getItem(SCAN_KEY) || "null"); } catch { return null; } };
+// Rebrand / new-director checks already run, so a long patch is worked through over several sessions.
+const TRIG_KEY = "flc-leads-triggers";
+const loadTrig = () => { try { return JSON.parse(localStorage.getItem(TRIG_KEY) || "{}") || {}; } catch { return {}; } };
+const saveTrig = (v) => { try { localStorage.setItem(TRIG_KEY, JSON.stringify(v)); } catch {} };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const slug = (s) => String(s || "").toLowerCase().replace(/\b(ltd|limited|llp|plc)\b/g, "").replace(/[^a-z0-9]+/g, "");
+// Where a lead came from, when it is not the plain Companies House sweep.
+export const LEAD_SOURCES = [
+  ["all", "All companies", "Every active company in the area (Companies House)"],
+  ["triggers", "Rebrands & new directors", "Companies in the area that changed name, or took on a new director or owner, in the last 6 months"],
+  ["new", "New businesses", "Companies set up in the area in the last 90 days"],
+  ["jobs", "Hiring for marketing", "Local firms advertising marketing or digital jobs in the last 30 days (Adzuna)"],
+  ["maps", "Google Maps", "Businesses listed on Google Maps in the area, sole traders included"],
+  ["claude", "Ask Claude (free)", "Claude searches the web for local businesses with weak or missing websites"],
+];
+const TRIGGER_TAG = { rebrand: "Rebrand", director: "New director", owner: "New owner", new: "New business", jobs: "Hiring", maps: "Google Maps", claude: "Claude find" };
 const saveScan = (v) => { try { if (v) localStorage.setItem(SCAN_KEY, JSON.stringify(v)); else localStorage.removeItem(SCAN_KEY); } catch {} };
 const load = () => { try { const v = JSON.parse(localStorage.getItem(KEY) || "null"); return v && typeof v === "object" ? v : null; } catch { return null; } };
 const save = (v) => { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch {} };
@@ -90,6 +106,11 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   }
   const [pending, setPending] = useState(null); // interrupted scan found on load
   const [open, setOpen] = useState(null);
+  const [leadSource, setLeadSourceState] = useState(() => { try { return localStorage.getItem("flc-leads-source") || "all"; } catch { return "all"; } });
+  const setLeadSource = (v) => { setLeadSourceState(v); try { localStorage.setItem("flc-leads-source", v); } catch {} };
+  const [mapsWhat, setMapsWhatState] = useState(() => { try { return localStorage.getItem("flc-leads-maps") || ""; } catch { return ""; } });
+  const setMapsWhat = (v) => { setMapsWhatState(v); try { localStorage.setItem("flc-leads-maps", v); } catch {} };
+  const [findClaude, setFindClaude] = useState(false);
   const [claudeFor, setClaudeFor] = useState(null); // null closed, [] next batch, [id] one lead
   const [filter, setFilter] = useState("");
   const [showProblem, setShowProblem] = useState("");
@@ -239,6 +260,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
 
   // Find new leads: every town around Richmond, every trade, then enrich each new candidate.
   async function findLeads(resume = null) {
+    const mode = resume?.mode || leadSource;
+    if (!resume && mode === "claude") { setFindClaude(true); return; }
+    if (!resume && ["jobs", "maps"].includes(mode)) return findOutside(mode);
     stopRef.current = false;
     onRunning?.(true);
     setPending(null);
@@ -249,6 +273,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     let skipped = 0;
     const knownSites = clients.flatMap((c) => c.websites || []).map((w) => String(w).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""));
     const st = resume ? { kind: "find", phase: "Continuing…", done: resume.done || 0, total: resume.total || 0, found: resume.found || 0, errors: [] } : { kind: "find", phase: "Searching Companies House…", done: 0, total: 0, found: 0, errors: [] };
+    const since = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
     const floor = resume ? resume.minAssets : minAssets;
     setRun({ ...st });
     try {
@@ -258,22 +283,30 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           if (stopRef.current) break;
           let start = 0;
           for (let page = 0; page < 5; page++) {
-            let j; try { j = await post({ step: "search", place: pl, startIndex: start, areas: [], postcodes: areaPostcodes }); } catch (e) { if (stopRef.current) break; throw e; }
-            for (const c of j.candidates) { if (known.has(c.companyNumber)) continue; known.add(c.companyNumber); if (seenRecently(c.companyNumber)) { skipped++; continue; } candidates.push(c); }
+            let j; try { j = await post({ step: "search", place: pl, startIndex: start, areas: [], postcodes: areaPostcodes, ...(mode === "new" ? { incorporatedFrom: since, minAgeYears: 0 } : {}) }); } catch (e) { if (stopRef.current) break; throw e; }
+            for (const c of j.candidates) {
+              // Rebrand checks look at companies already on the board too: a new name or new people is a reason to go back.
+              if (mode === "triggers") { if (!candidates.some((x) => x.companyNumber === c.companyNumber)) candidates.push(c); continue; }
+              if (known.has(c.companyNumber)) continue; known.add(c.companyNumber); if (seenRecently(c.companyNumber)) { skipped++; continue; }
+              candidates.push(mode === "new" ? { ...c, source: "New business", triggerKind: "new", trigger: `Set up on ${new Date(c.incorporated).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`, triggerAt: c.incorporated } : c);
+            }
             start += 100;
             st.phase = `Searching ${pl}… ${candidates.length} new companies${skipped ? `, ${skipped} already checked` : ""}`; setRun({ ...st });
             if (start >= j.total || j.scanned < 100) break;
           }
         }
         st.total = candidates.length;
+        if (mode === "triggers") candidates = await triggerFilter(candidates, st);
       }
       while (candidates.length) {
         if (stopRef.current) break;
         const c = candidates[0];
-        saveScan({ kind: "find", queue: candidates, done: st.done, total: st.total, found: st.found, minAssets: floor });
+        saveScan({ kind: "find", mode, queue: candidates, done: st.done, total: st.total, found: st.found, minAssets: floor });
         st.phase = `Checking ${c.name}…`; setRun({ ...st });
+        const why = c.trigger ? { source: c.source, trigger: c.trigger, triggerKind: c.triggerKind, triggerAt: c.triggerAt } : {};
         try {
           let { lead } = await post({ step: "enrich", company: c, knownSites, minAssets: floor });
+          lead = { ...lead, ...why };
           const tooSmall = lead.netAssets !== null && lead.netAssets !== undefined && lead.netAssets < floor;
           // Licence sweep only for sites we might pitch (not parked/dead, not too small).
           if (!tooSmall && lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
@@ -285,7 +318,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         candidates = candidates.slice(1);
         setRun({ ...st });
       }
-      if (candidates.length) saveScan({ kind: "find", queue: candidates, done: st.done, total: st.total, found: st.found, minAssets: floor }); else saveScan(null);
+      if (candidates.length) saveScan({ kind: "find", mode, queue: candidates, done: st.done, total: st.total, found: st.found, minAssets: floor }); else saveScan(null);
       pushSeen();
       st.phase = stopRef.current ? `Stopped with ${candidates.length} companies still to check.` : `Done: ${st.found} new lead${st.found === 1 ? "" : "s"} from ${st.done} companies checked${st.parked ? `, ${st.parked} parked` : ""}${skipped ? `, ${skipped} skipped as already checked in the last ${SEEN_DAYS} days` : ""}.`;
       setRun({ ...st });
@@ -295,6 +328,111 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       st.phase = `Stopped: ${e.message}`; setRun({ ...st });
       setPending(loadScan());
     } finally { onRunning?.(false); }
+  }
+
+  // Rebrands and new directors/owners: one Companies House call per company, paced at 2 a second
+  // (their limit is 600 per 5 minutes). Results are remembered for 14 days, so Stop and carry on later.
+  async function triggerFilter(list, st) {
+    const cache = loadTrig();
+    const fresh = (n) => cache[n] && Date.now() - cache[n].at < 14 * 86400000;
+    const todo = list.filter((c) => !fresh(c.companyNumber));
+    st.total = todo.length; st.done = 0;
+    for (let i = 0; i < todo.length; i += 6) {
+      if (stopRef.current) break;
+      const batch = todo.slice(i, i + 6), t0 = Date.now();
+      const hits = list.filter((c) => fresh(c.companyNumber) && cache[c.companyNumber].t.length).length;
+      st.phase = `Looking for rebrands and new directors… ${hits} found so far`; setRun({ ...st });
+      let j;
+      try { j = await post({ step: "triggers", companyNumbers: batch.map((c) => c.companyNumber), months: 6 }); }
+      catch (e) {
+        if (stopRef.current) break;
+        if (/rate limit/i.test(e.message)) { st.phase = "Companies House limit reached: pausing for a minute…"; setRun({ ...st }); await sleep(60000); i -= 6; continue; }
+        throw e;
+      }
+      for (const c of batch) cache[c.companyNumber] = { at: Date.now(), t: j.triggers?.[c.companyNumber] || [] };
+      saveTrig(cache);
+      st.done = Math.min(i + 6, todo.length); setRun({ ...st });
+      const wait = 3000 - (Date.now() - t0); if (wait > 0) await sleep(wait);
+    }
+    const out = [];
+    for (const c of list) {
+      const t = fresh(c.companyNumber) ? cache[c.companyNumber].t[0] : null;
+      if (!t) continue;
+      const why = { source: "Rebrand / new people", trigger: t.text, triggerKind: t.kind, triggerAt: t.date };
+      const have = leadsRef.current[c.companyNumber];
+      // Already on the board: tag it with the news rather than checking it again.
+      if (have) { if (have.triggerAt !== t.date && !isFrozen(have)) update(have.id, { trigger: t.text, triggerKind: t.kind, triggerAt: t.date }); continue; }
+      out.push({ ...c, ...why });
+    }
+    st.done = 0; st.total = out.length;
+    return out;
+  }
+
+  // Businesses found outside the Companies House sweep: Google Maps, job ads, Claude.
+  async function findOutside(mode, items = null) {
+    stopRef.current = false;
+    onRunning?.(true);
+    setPending(null);
+    const area = areaRef.current;
+    const st = { kind: "find", phase: mode === "maps" ? "Searching Google Maps…" : mode === "jobs" ? "Searching job ads…" : "Adding Claude's finds…", done: 0, total: 0, found: 0, errors: [] };
+    setRun({ ...st });
+    const knownSites = clients.flatMap((c) => c.websites || []).map((w) => String(w).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""));
+    const all = Object.values(leadsRef.current);
+    const haveName = new Set(all.map((l) => slug(l.business)));
+    const haveSite = new Set(all.map((l) => String(l.website || "").toLowerCase()).filter(Boolean));
+    const outcodes = new Set((area?.outcodes || []).map((x) => String(x).toUpperCase()));
+    const inPatch = (pc) => !pc || !outcodes.size || outcodes.has(String(pc).toUpperCase().trim().split(/\s+/)[0]);
+    const isNew = (x) => !haveName.has(slug(x.name)) && !(x.website && haveSite.has(String(x.website).toLowerCase())) && !(x.companyNumber && leadsRef.current[x.companyNumber]);
+    try {
+      let list = items || [];
+      if (mode === "maps") {
+        const what = mapsWhat.trim();
+        if (!what) throw new Error("Type what kind of business to look for, e.g. plumbers.");
+        const places = (area?.places?.length ? area.places : areaCentres).slice(0, 25);
+        const seen = new Set();
+        for (const pl of places) {
+          if (stopRef.current) break;
+          st.phase = `Searching Google Maps for ${what} in ${pl}… ${list.length} found`; setRun({ ...st });
+          const j = await post({ step: "places", query: what, place: pl });
+          if (j.usage) setCfg((c) => (c ? { ...c, placesUsage: j.usage } : c));
+          for (const x of j.items || []) {
+            if (seen.has(x.placeId) || !inPatch(x.postcode)) continue; seen.add(x.placeId);
+            list.push({ id: `gm:${x.placeId}`, name: x.name, address: x.address, postcode: x.postcode, town: x.town, website: x.website, websiteEvidence: x.website ? "listed on their Google Business profile" : "", source: "Google Maps", triggerKind: "maps", trigger: x.website ? `${x.type || "Business"} on Google Maps${x.reviews ? ` · ${x.rating}★ from ${x.reviews} reviews` : ""}` : "On Google Maps with no website", google: { rating: x.rating, reviews: x.reviews, mapsUrl: x.mapsUrl, phone: x.phone, type: x.type }, trade: what.replace(/s$/, "") });
+          }
+        }
+      } else if (mode === "jobs") {
+        const km = Math.round((areaMiles || 10) * 1.609);
+        const by = new Map();
+        for (const pl of areaCentres) {
+          for (let page = 1; page <= 3; page++) {
+            if (stopRef.current) break;
+            st.phase = `Searching job ads near ${pl}… ${by.size} firms hiring`; setRun({ ...st });
+            const j = await post({ step: "jobs", place: pl, km, page });
+            for (const c of j.companies || []) { const k = slug(c.name); if (!by.has(k)) by.set(k, { ...c, jobs: [] }); by.get(k).jobs.push(...c.jobs); }
+            if (!j.more) break;
+          }
+        }
+        list = [...by.values()].map((c) => ({ id: `job:${slug(c.name)}`, name: c.name, town: c.town, source: "Hiring", triggerKind: "jobs", trigger: `Hiring: ${c.jobs[0].title}${c.jobs.length > 1 ? ` (+${c.jobs.length - 1} more)` : ""}`, triggerAt: c.jobs[0].posted, jobs: c.jobs.slice(0, 5) }));
+      }
+      const before = list.length;
+      list = list.filter(isNew);
+      st.total = list.length; st.phase = `${list.length} new to check${before > list.length ? ` (${before - list.length} already on the board)` : ""}…`; setRun({ ...st });
+      for (const x of list) {
+        if (stopRef.current) break;
+        st.phase = `Checking ${x.name}…`; setRun({ ...st });
+        try {
+          const { lead } = await post({ step: "enrich-outside", item: x, knownSites, minAssets });
+          // Matched to a company already on the board: just tag it.
+          const have = leadsRef.current[lead.id];
+          if (have) { if (!isFrozen(have)) update(have.id, { trigger: lead.trigger, triggerKind: lead.triggerKind, triggerAt: lead.triggerAt, ...(lead.google ? { google: lead.google } : {}), ...(lead.jobs ? { jobs: lead.jobs } : {}) }); }
+          else { update(lead.id, lead); if (["new", "no-contact"].includes(lead.status)) st.found++; else st.parked = (st.parked || 0) + 1; }
+        } catch (e) { if (stopRef.current) break; st.errors.push(`${x.name}: ${e.message}`); }
+        st.done++; setRun({ ...st });
+      }
+      st.phase = stopRef.current ? "Stopped." : `Done: ${st.found} new lead${st.found === 1 ? "" : "s"} from ${st.done} checked${st.parked ? `, ${st.parked} parked` : ""}.`;
+      setRun({ ...st });
+    } catch (e) { st.phase = `Stopped: ${e.message}`; setRun({ ...st }); }
+    finally { onRunning?.(false); }
   }
 
   // Explicit: spend one Hunter credit on this lead now, whatever the free routes found.
@@ -574,9 +712,13 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
             {!running && pending && (
               <button onClick={continueScan} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white"><PlayIcon className="h-4 w-4" /> Continue {pending.kind === "refresh" ? "rescan" : "scan"} ({(pending.queue || pending.ids || []).length} left)</button>
             )}
+            <select value={leadSource} onChange={(e) => setLeadSource(e.target.value)} disabled={running} title={(LEAD_SOURCES.find((x) => x[0] === leadSource) || [])[2]} className="rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm disabled:opacity-40">
+              {LEAD_SOURCES.map(([k, label]) => <option key={k} value={k}>{label}{k === "jobs" && cfg && !cfg.jobs ? " (connect Adzuna)" : k === "maps" && cfg && !cfg.places ? " (connect Google)" : ""}</option>)}
+            </select>
+            {leadSource === "maps" && <input value={mapsWhat} onChange={(e) => setMapsWhat(e.target.value)} disabled={running} placeholder="e.g. plumbers" title="What kind of business to look for on Google Maps" className="w-32 rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm" />}
             {running
               ? <button onClick={stopNow} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
-              : <button onClick={() => findLeads()} disabled={cfg?.configured === false} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find leads</button>}
+              : <button onClick={() => findLeads()} disabled={cfg?.configured === false} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> {leadSource === "claude" ? "Ask Claude" : "Find leads"}</button>}
             <button onClick={() => refreshLeads(list.filter((l) => !["won", "lost", "not-pursuing", "ready"].includes(l.status)).map((l) => l.id))} disabled={running || !list.length} title="Re-run the website, search, accounts and contact checks on every open lead with the latest rules (Ready to send, Won, Lost and Not pursuing are skipped). Statuses and notes are kept." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Rescan all leads</button>
             {(() => { const due = list.filter((l) => !isFrozen(l) && (l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified && !contactExhausted(l))) && l.contactsStamp !== contactsStamp(cfg)); return due.length > 0 && (
               <button onClick={() => retryContacts(due.map((l) => l.id))} disabled={running} title="The contact finder has improved since these were parked (or Hunter.io was connected). Look again; any that now have an address come back to the board." className="inline-flex items-center justify-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-900 hover:bg-red-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Retry contacts ({due.length}{(() => { const h = cfg?.hunter ? due.filter((l) => l.likelihood === "High" && !l.hunterTried && l.website).length : 0; return h ? `, ${h} High via Hunter` : ""; })()})</button>
@@ -584,6 +726,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
             <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
           </div>
         </div>
+        {leadSource === "maps" && cfg?.places && <p className="mt-2 text-xs text-zinc-500">Google Maps searches this month: <span className="font-semibold">{cfg.placesUsage?.used || 0}</span> of {cfg.placesUsage?.cap || 900} free. One search per town in the area.</p>}
+        {leadSource === "jobs" && <p className="mt-2 text-xs text-zinc-500"><a href="https://www.adzuna.co.uk" target="_blank" rel="noreferrer" className="underline">Jobs by Adzuna</a>. Recruitment agencies are left out.</p>}
         {cfg?.hunter && cfg.hunterUsage?.cap > 0 && (
           <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
             {cfg?.hunter && cfg.hunterUsage?.cap > 0 && <span title="One Hunter credit per lead, spent only on High leads where the site and Companies House gave no address, and only when Hunter holds named people. Medium and Low leads and background lookups never use one.">Hunter.io credits used this month: <span className={cfg.hunterUsage.used >= cfg.hunterUsage.cap ? "font-semibold text-red-700" : "font-semibold"}>{cfg.hunterUsage.used}</span> of {cfg.hunterUsage.cap}. Spent only on High leads the free routes couldn&apos;t find an address for.</span>}
@@ -621,6 +765,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           <button onClick={() => { if (confirm(`Delete ${selected.size} lead${selected.size === 1 ? "" : "s"}?`)) removeMany([...selected]); }} className="ml-auto inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50"><TrashIcon className="h-3.5 w-3.5" /> Delete</button>
         </div>
       )}
+      {findClaude && <FindLeadsModal area={areaCentres.join(", ")} miles={areaMiles} exclude={list.slice(-80).map((l) => l.business)} onClose={() => setFindClaude(false)} onAdd={(items) => { setFindClaude(false); findOutside("claude", items.map((x) => ({ id: `cl:${slug(x.name)}${slug(x.town)}`, name: x.name, companyNumber: x.companyNumber, website: x.website, websiteEvidence: x.website ? "checked by Claude" : "", town: x.town, postcode: x.postcode, whatTheyDo: x.whatTheyDo, issue: x.issue, why: x.why, contact: x.contact, source: "Claude", triggerKind: "claude", trigger: x.why }))); }} />}
       {claudeFor && <LeadCheckModal leads={list} preset={claudeFor.ids} column={claudeFor.col} onClose={() => setClaudeFor(null)} onApply={applyLeadCheck} />}
       <Board onClaude={(col) => setClaudeFor({ col, ids: [] })} leads={visible} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status }); }} />
@@ -707,6 +852,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
                   {l.problem && <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
+                  {TRIGGER_TAG[l.triggerKind] && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 font-semibold text-violet-800" title={l.trigger}>{TRIGGER_TAG[l.triggerKind]}</span>}
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
                   {l.websiteNeeded && !l.website && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="Claude couldn't find their real website. Open the lead to paste it in, or confirm they have none.">Find website</span>}
                   {l.claude && !l.websiteNeeded && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${l.claude.worth_contacting ? "bg-orange-100 text-orange-800" : "bg-red-100 text-red-800"}`} title={l.claude.reason}>{l.claude.worth_contacting ? "Claude ✓" : "Claude: skip"}</span>}
@@ -1099,6 +1245,14 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
             </div>
           )}
 
+          {l.trigger && (
+            <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-950">
+              <span className="font-semibold">{TRIGGER_TAG[l.triggerKind] || l.source}:</span> {l.trigger}
+              {l.google?.mapsUrl && <> · <a href={l.google.mapsUrl} target="_blank" rel="noreferrer" className="text-blue-700 underline">Google Maps</a></>}
+              {l.google?.phone && <> · {l.google.phone}</>}
+              {(l.jobs || []).length > 0 && <div className="mt-1 space-y-0.5">{l.jobs.map((j, n) => <div key={n}><a href={j.url} target="_blank" rel="noreferrer" className="text-blue-700 underline">{j.title}</a>{j.posted ? ` · ${new Date(j.posted).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : ""}</div>)}</div>}
+            </div>
+          )}
           {l.optedOut && <div className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">Do not contact.</span> They asked not to hear from us{l.optedOutAt ? ` on ${new Date(l.optedOutAt).toLocaleDateString("en-GB")}` : ""}. The record is kept so nobody emails them again by accident.</div>}
           {!l.optedOut && l.status === "contacted" && daysSince(l) >= followUp.chaseDays && <FollowUp l={l} onChange={onChange} />}
           {l.autoMoved && <p className="text-xs text-zinc-500">Moved automatically: {l.autoMoved}.</p>}
@@ -1247,6 +1401,59 @@ function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
               <button onClick={doApply} disabled={!reply.trim()} className="rounded-md bg-orange-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">Update leads</button>
               {msg && <span className="text-xs text-zinc-700">{msg}</span>}
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Free lead finding on your own Claude plan: copy a prompt, paste the JSON back, each find gets the usual checks.
+function FindLeadsModal({ area, miles, exclude, onClose, onAdd }) {
+  const [what, setWhat] = useState("");
+  const [count, setCount] = useState(10);
+  const [reply, setReply] = useState("");
+  const [msg, setMsg] = useState("");
+  const [copied, setCopied] = useState(false);
+  useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
+  const prompt = findLeadsPrompt({ what: what.trim(), area: `${area} (within about ${miles} miles)`, count, exclude });
+  async function copy(open) {
+    try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
+    if (open) window.open("https://claude.ai/new", "_blank", "noopener");
+  }
+  function add() {
+    try { const items = parseFoundLeads(reply); if (!items.length) { setMsg("No businesses found in that reply."); return; } onAdd(items); }
+    catch (e) { setMsg(e.message); }
+  }
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3">
+          <h2 className="text-lg font-semibold">Find leads with Claude</h2><span className="text-xs text-zinc-500">Free on your Claude plan</span>
+          <button onClick={onClose} aria-label="Close" className="ml-auto rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button>
+        </div>
+        <div className="space-y-4 px-5 py-4 text-sm">
+          <div>
+            <div className="font-semibold">1. What to look for</div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input value={what} onChange={(e) => setWhat(e.target.value)} placeholder="Any business, or e.g. restaurants, builders" className="min-w-[14rem] flex-1 rounded-md border border-zinc-300 px-2 py-1" />
+              <span className="text-xs text-zinc-500">How many:</span>
+              {[5, 10, 20].map((n) => <button key={n} onClick={() => setCount(n)} className={`rounded-full border px-2 py-0.5 text-xs ${count === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{n}</button>)}
+            </div>
+            <p className="mt-1 text-[11px] text-zinc-500">Around {area}. Businesses already on the board are left out.</p>
+          </div>
+          <div>
+            <div className="flex items-center gap-2"><span className="font-semibold">2. Run it in Claude</span>
+              <button onClick={() => copy(false)} className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100">{copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />} Copy prompt</button>
+              <button onClick={() => copy(true)} className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2.5 py-1 text-xs font-medium text-white"><ExternalIcon className="h-3.5 w-3.5" /> Copy and open Claude</button>
+            </div>
+            <p className="mt-1 text-[11px] text-zinc-500">Paste it into a new chat with web search on.</p>
+          </div>
+          <div>
+            <div className="font-semibold">3. Paste Claude&apos;s reply</div>
+            <textarea value={reply} onChange={(e) => { setReply(e.target.value); setMsg(""); }} rows={6} placeholder="Paste the whole reply here (the JSON block)" className="mt-2 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" />
+            {msg && <p className="mt-1 text-xs text-red-700">{msg}</p>}
+            <button onClick={add} disabled={!reply.trim()} className="mt-2 rounded-md bg-violet-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Check and add leads</button>
           </div>
         </div>
       </div>

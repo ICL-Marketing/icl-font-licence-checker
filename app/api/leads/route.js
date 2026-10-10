@@ -1,3 +1,4 @@
+import { leadTriggers, jobsSearch, jobsConfigured, placesSearch, placesConfigured, placesUsage, leadsEnrichOutside } from "@/lib/leads";
 import { areaFor, setPatchOutcodes, siteAddress, townFromAddress, verifyWebsite, websiteIsVerified, searchUsage, hunterUsage, applyTradingAddress, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,9 @@ export async function GET(request) {
   let usage = { used: 0, cap: 0 }, hunter = { used: 0, cap: 0, configured: false };
   try { usage = await searchUsage(); } catch {}
   try { hunter = await hunterUsage(); } catch {}
-  return Response.json({ configured: leadsConfigured(), brave: Boolean(process.env.BRAVE_SEARCH_KEY || process.env.BRAVE_API_KEY), hunter: Boolean(process.env.HUNTER_API_KEY), hunterUsage: hunter, usage, areas: Object.fromEntries(Object.entries(AREA_PRESETS).map(([k, v]) => [k, v.label])), sectors: Object.fromEntries(Object.entries(SECTOR_PRESETS).map(([k, v]) => [k, v.label])) });
+  let places = { used: 0, cap: 0 };
+  try { if (placesConfigured()) places = await placesUsage(); } catch {}
+  return Response.json({ jobs: jobsConfigured(), places: placesConfigured(), placesUsage: places, configured: leadsConfigured(), brave: Boolean(process.env.BRAVE_SEARCH_KEY || process.env.BRAVE_API_KEY), hunter: Boolean(process.env.HUNTER_API_KEY), hunterUsage: hunter, usage, areas: Object.fromEntries(Object.entries(AREA_PRESETS).map(([k, v]) => [k, v.label])), sectors: Object.fromEntries(Object.entries(SECTOR_PRESETS).map(([k, v]) => [k, v.label])) });
 }
 
 // Steps, each one short request:
@@ -127,12 +130,27 @@ export async function POST(request) {
       // property shells, dormant, too young) before anything is enriched.
       const sics = [...new Set((Array.isArray(b.sectors) ? b.sectors : []).flatMap((k) => SECTOR_PRESETS[k]?.sics || []))];
       if (!place) return Response.json({ error: "place required" }, { status: 400 });
-      const { items, total } = await leadsSearch({ place, sics, startIndex: Number(b.startIndex) || 0, size: 100 });
-      const minAge = Number(b.minAgeYears) || 2;
+      const { items, total } = await leadsSearch({ place, sics, startIndex: Number(b.startIndex) || 0, size: 100, incorporatedFrom: /^\d{4}-\d{2}-\d{2}$/.test(b.incorporatedFrom || "") ? b.incorporatedFrom : "" });
+      const minAge = b.minAgeYears === 0 ? 0 : Number(b.minAgeYears) || 2;
       const keys = Array.isArray(b.areas) && b.areas.length ? b.areas : Object.keys(AREA_PRESETS);
       const postcodes = Array.isArray(b.postcodes) && b.postcodes.length ? b.postcodes.map((x) => String(x).toUpperCase()) : [...new Set(keys.flatMap((k) => AREA_PRESETS[k]?.postcodes || []))];
       const town = "";
       return Response.json({ total, candidates: items.filter((c) => worthEnriching(c, { minAgeYears: minAge }) && inArea(c, { postcodes, town })), scanned: items.length });
+    }
+    if (b.step === "triggers") {
+      // Rebrands and new directors/owners, a handful of companies per request.
+      const nums = (Array.isArray(b.companyNumbers) ? b.companyNumbers : []).slice(0, 6).map(String);
+      const months = Math.max(1, Math.min(24, Number(b.months) || 6));
+      const out = {};
+      await Promise.all(nums.map(async (n) => { out[n] = await leadTriggers(n, { months }); }));
+      return Response.json({ triggers: out });
+    }
+    if (b.step === "jobs") return Response.json(await jobsSearch({ place: String(b.place || "").slice(0, 60), km: Number(b.km) || 15, page: Number(b.page) || 1 }));
+    if (b.step === "places") return Response.json({ ...(await placesSearch({ query: String(b.query || "").slice(0, 80), place: String(b.place || "").slice(0, 60), pageToken: String(b.pageToken || "") })), usage: await placesUsage().catch(() => null) });
+    if (b.step === "enrich-outside") {
+      if (!b.item?.name) return Response.json({ error: "item required" }, { status: 400 });
+      const lead = await leadsEnrichOutside({ ...b.item, links }, { minAssets: Number(b.minAssets) || 0, knownSites: new Set((Array.isArray(b.knownSites) ? b.knownSites : []).map((s) => String(s).toLowerCase().replace(/^www\./, ""))) });
+      return Response.json({ lead });
     }
     if (b.step === "enrich") {
       if (!b.company?.companyNumber) return Response.json({ error: "company required" }, { status: 400 });

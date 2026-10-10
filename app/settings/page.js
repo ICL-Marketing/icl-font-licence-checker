@@ -174,6 +174,36 @@ export default function Settings() {
                 </>}
           </section>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+            <h2 className="font-semibold">Google Maps (lead source)</h2>
+            <p className="mb-3 text-sm text-zinc-500">Finds local businesses on Google Maps, sole traders included, with their website, phone and reviews. Google gives 1,000 of these searches free each month; the app stops at 900 so it never bills.</p>
+            {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.places
+              ? <StatusRow ok label="Google Maps connected" detail="pick Google Maps next to Find leads" />
+              : <>
+                  <StatusRow ok={false} label="Not connected" />
+                  <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-700">
+                    <li>At <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" className="text-blue-700 underline">console.cloud.google.com</a> create (or pick) a project and add a billing account (Google requires one, even for the free allowance).</li>
+                    <li>APIs &amp; Services → Library → enable <b>Places API (New)</b>.</li>
+                    <li>APIs &amp; Services → Credentials → <b>Create credentials → API key</b>. Restrict it to Places API (New).</li>
+                    <li>Optional safety net: Quotas → Places API (New) → Text Search requests per day → set to 40.</li>
+                    <li>In Vercel add <code>GOOGLE_PLACES_API_KEY</code>, then Redeploy.</li>
+                  </ol>
+                </>}
+          </section>
+          <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+            <h2 className="font-semibold">Job ads (Adzuna, lead source)</h2>
+            <p className="mb-3 text-sm text-zinc-500">Finds local firms advertising marketing or digital jobs: growing, with budget, and thinking about how they look online. Free.</p>
+            {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.adzuna
+              ? <StatusRow ok label="Adzuna connected" detail="pick Hiring for marketing next to Find leads" />
+              : <>
+                  <StatusRow ok={false} label="Not connected" />
+                  <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-700">
+                    <li>Register free at <a href="https://developer.adzuna.com/signup" target="_blank" rel="noreferrer" className="text-blue-700 underline">developer.adzuna.com</a>.</li>
+                    <li>Open <b>Dashboard → API Access Details</b> and copy the Application ID and Application Key.</li>
+                    <li>In Vercel add <code>ADZUNA_APP_ID</code> and <code>ADZUNA_APP_KEY</code>, then Redeploy.</li>
+                  </ol>
+                </>}
+          </section>
+          <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
             <h2 className="font-semibold">Contact finder (Hunter.io)</h2>
             <p className="mb-3 text-sm text-zinc-500">Finds named people at each company with their role and a scored email address, marketing managers included, so far fewer leads end up as &quot;contact not verified&quot;. Free for 25 lookups a month; the Starter plan (about £30 a month) covers 500. One lookup per lead, only for leads worth pitching, cached 60 days.</p>
             {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.hunter
