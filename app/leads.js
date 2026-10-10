@@ -876,8 +876,9 @@ const PLACES = {
 };
 
 // Anything moved into a column in the last day sits at the top (newest first); the rest by likelihood and size.
-const movedRecently = (l) => { const t = Date.parse(l.statusAt || ""); return Number.isFinite(t) && Date.now() - t < 86400000 ? t : 0; };
-const sorted = (list) => list.slice().sort((a, b) => movedRecently(b) - movedRecently(a) || ({ High: 0, Medium: 1, Low: 2 }[a.likelihood] ?? 3) - ({ High: 0, Medium: 1, Low: 2 }[b.likelihood] ?? 3) || (b.netAssets || 0) - (a.netAssets || 0));
+// Newest arrival in the column first (moved or added), then likelihood and size for ties.
+const arrived = (l) => Date.parse(l.statusAt || l.addedAt || "") || 0;
+const sorted = (list) => list.slice().sort((a, b) => arrived(b) - arrived(a) || ({ High: 0, Medium: 1, Low: 2 }[a.likelihood] ?? 3) - ({ High: 0, Medium: 1, Low: 2 }[b.likelihood] ?? 3) || (b.netAssets || 0) - (a.netAssets || 0));
 
 function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn, onOpen, onMove, onClaude, onReview, onFindSites }) {
   const [over, setOver] = useState(null);
@@ -898,7 +899,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
           <div className="px-1 pb-2 text-[11px] font-normal text-zinc-500">{c.hint}</div>
           {(() => { const n = c.items.filter((l) => !l.website && siteSearchable(l) && !l.sitesCheckedAt).length; return n > 0 && <button onClick={onFindSites} title="Free on your Claude plan: Claude searches for each company's real website, or confirms they don't have one" className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100">Find websites with Claude ({n})</button>; })()}
           {(c.id === "new" || c.id === "no-contact") && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.id)} title="Go through these one at a time: look at the site, pick the issue and approach, then draft the email with Claude" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
-          {(c.id === "new" || c.id === "no-contact" || c.id === "not-pursuing") && (() => { const todo = c.items.filter((l) => !l.claude && (c.id === "new" || recheckable(l))).length; return c.items.length > 0 && <button onClick={() => onClaude(c.id)} title={c.id === "new" ? "Free on your Claude plan: Claude checks the website, the issue and the best contact for a batch of leads" : "Claude re-checks parked leads: anything worth pursuing with a published email moves back to To assess (size, dormant and existing clients are left out)"} className="mx-1 mb-2 inline-flex items-center justify-center gap-1 rounded-md border border-orange-300 bg-orange-50 px-2 py-1 text-[11px] font-medium text-orange-900 hover:bg-orange-100"><SearchIcon className="h-3 w-3" /> {c.id === "new" ? "Check" : "Re-check"} with Claude ({todo} to check)</button>; })()}
+          {(c.id === "new" || c.id === "no-contact" || c.id === "not-pursuing") && (() => { const todo = c.items.filter((l) => !l.claude && (c.id === "new" || recheckable(l))).length; return c.items.length > 0 && <button onClick={() => onClaude(c.id)} title={c.id === "new" ? "Free on your Claude plan: Claude checks the website, the issue and the best contact for a batch of leads" : "Claude re-checks parked leads: anything worth pursuing with a published email moves back to To assess (size, dormant and existing clients are left out)"} className="mx-1 mb-2 inline-flex items-center justify-center gap-1 rounded-md border border-orange-300 bg-orange-50 px-2 py-1 text-[11px] font-medium text-orange-900 hover:bg-orange-100"><SearchIcon className="h-3 w-3" /> {c.id === "new" ? "Check" : "Re-check"} with Claude ({todo ? `${todo} new of ${c.items.length}` : `all ${c.items.length}`})</button>; })()}
           <div className="flex flex-1 flex-col gap-2">
             {c.items.slice(0, shown[c.id] || 60).map((l) => (
               <div key={l.id} draggable onDragStart={(e) => { e.dataTransfer.setData("text/lead", l.id); e.dataTransfer.effectAllowed = "move"; }} onClick={() => onOpen(l.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") onOpen(l.id); }}
@@ -1425,7 +1426,7 @@ function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
   }));
   const prompt = items.length ? leadCheckPrompt(items) : "";
   async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); }
-  const nextBatch = (n, alsoDone = [], cl = col) => { setSize(n); setPicked(poolFor(cl).filter((l) => !l.claude && !alsoDone.includes(l.id)).slice(0, n).map((l) => l.id)); };
+  const nextBatch = (n, alsoDone = [], cl = col) => { setSize(n); const all = poolFor(cl).filter((l) => !alsoDone.includes(l.id)); setPicked((n === "all" ? [...all.filter((l) => !l.claude), ...all.filter((l) => l.claude)] : all.filter((l) => !l.claude).slice(0, n)).map((l) => l.id)); };
   function doApply() {
     try {
       const list = parseLeadCheck(reply);
@@ -1449,6 +1450,7 @@ function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
             <div className="mb-2 inline-flex rounded-md border border-zinc-300 bg-white p-0.5 text-xs">{CHECK_COLUMNS.map(([id, label]) => <button key={id} onClick={() => { setCol(id); nextBatch(size, [], id); }} className={`rounded px-2.5 py-1 ${col === id ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>{label} ({poolFor(id).filter((l) => !l.claude).length})</button>)}</div>
             <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">1. Pick leads</span><span className="text-xs text-zinc-500">Next unchecked:</span>
               {[1, 3, 5, 8].map((n) => <button key={n} onClick={() => nextBatch(n)} className={`rounded-full border px-2 py-0.5 text-xs ${size === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{n}</button>)}
+              <button onClick={() => nextBatch("all")} title="Everything in this column, unchecked first; already-checked leads are checked again" className={`rounded-full border px-2 py-0.5 text-xs ${size === "all" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>All ({pool.length})</button>
             </div>
             <div className="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
               {pool.map((l) => <button key={l.id} onClick={() => toggle(l.id)} className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(l.id) ? "border-orange-500 bg-orange-100 text-orange-900" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{l.business}{l.claude ? " ✓" : ""}</button>)}
@@ -1719,7 +1721,7 @@ function FindSitesModal({ leads, preset, onClose, onApply }) {
             <div className="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
               {pool.map((l) => <button key={l.id} onClick={() => toggle(l.id)} className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(l.id) ? "border-amber-500 bg-amber-100 text-amber-900" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{l.business}{l.sitesCheckedAt ? " ✓" : ""}</button>)}
             </div>
-            <p className="mt-1 text-[11px] text-zinc-500">{picked.length} picked · {pool.filter((l) => !l.sitesCheckedAt).length} still to search · ✓ searched before. Biggest companies first.</p>
+            <p className="mt-1 text-[11px] text-zinc-500">{picked.length} picked · {pool.filter((l) => !l.sitesCheckedAt).length} still to search · ✓ searched before. Newest first.</p>
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">2. Run it in Claude</span>
