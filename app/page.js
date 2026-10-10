@@ -361,18 +361,31 @@ export default function Home() {
         <h1 className="text-2xl font-semibold">Website Checker</h1>
         <nav className="ml-auto flex flex-wrap items-center justify-end gap-x-5 gap-y-1" aria-label="Sections">
           <ClaudeInbox />
-          {[["leads", "Website Leads", leadsCount || null], ["ideas", "Client Ideas", ideasCount || null],
-            ["design", "Design Checks", designCount || null],
-            ["launch", "Launch Checks", launchCount || null],
-            ["post", "Post Launch Checks", postCount || null],
-            ["fonts", "Font Licenses", fontRows.length ? fontCounts.PROBLEM + fontCounts.CHECK : null],
-            ["images", "Image Licenses", imgRows.length ? imgPaidSites : null]].map(([id, label, n]) => (
-            <button key={id} onClick={() => setArea(id)} aria-current={area === id ? "page" : undefined}
-              className={`whitespace-nowrap py-1 text-sm ${area === id ? "font-semibold text-zinc-900 underline decoration-2 underline-offset-[6px]" : "text-zinc-500 hover:text-zinc-900"}`}>
-              {label}{n != null && <span className="ml-1 text-xs text-zinc-400">{n}</span>}
-              {(running === id || (id === "launch" && launchRunning) || (id === "post" && postRunning) || (id === "design" && designRunning) || (id === "leads" && leadsRunning) || (id === "ideas" && ideasRunning)) && <span className="ml-2 inline-block align-middle text-blue-600" title="Scanning"><SpinnerIcon /></span>}
-            </button>
-          ))}
+          {(() => {
+            const tabs = [["leads", "Website Leads", leadsCount || null], ["ideas", "Client Ideas", ideasCount || null],
+              ["design", "Design Checks", designCount || null],
+              ["launch", "Launch Checks", launchCount || null],
+              ["post", "Post Launch Checks", postCount || null],
+              ["fonts", "Font Licenses", fontRows.length ? fontCounts.PROBLEM + fontCounts.CHECK : null],
+              ["images", "Image Licenses", imgRows.length ? imgPaidSites : null]];
+            const busy = (id) => running === id || (id === "launch" && launchRunning) || (id === "post" && postRunning) || (id === "design" && designRunning) || (id === "leads" && leadsRunning) || (id === "ideas" && ideasRunning);
+            const tab = ([id, label, n]) => (
+              <button key={id} onClick={(e) => { setArea(id); e.currentTarget.closest("details")?.removeAttribute("open"); }} aria-current={area === id ? "page" : undefined}
+                className={`whitespace-nowrap py-1 text-left text-sm ${area === id ? "font-semibold text-zinc-900 underline decoration-2 underline-offset-[6px]" : "text-zinc-500 hover:text-zinc-900"}`}>
+                {label}{n != null && <span className="ml-1 text-xs text-zinc-400">{n}</span>}
+                {busy(id) && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500 align-middle" />}
+              </button>
+            );
+            // Sales only needs the first two; the website-build checks sit under More tools.
+            const main = tabs.slice(0, 2), more = tabs.slice(2), inMore = more.find((t) => t[0] === area);
+            return <>
+              {main.map(tab)}
+              <details className="relative">
+                <summary className={`cursor-pointer list-none whitespace-nowrap py-1 text-sm ${inMore ? "font-semibold text-zinc-900" : "text-zinc-500 hover:text-zinc-900"}`}>{inMore ? inMore[1] : "More tools"} ▾{more.some((t) => busy(t[0])) && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500 align-middle" />}</summary>
+                <div className="absolute right-0 z-30 mt-1 flex w-52 flex-col gap-1 rounded-lg border border-zinc-200 bg-white p-3 shadow-lg">{more.map(tab)}</div>
+              </details>
+            </>;
+          })()}
         </nav>
         <Link href="/settings" aria-label="Settings" title={anyRunning ? "A scan is running: Settings opens in a new tab so it carries on" : "Settings"}
           target={anyRunning ? "_blank" : undefined}

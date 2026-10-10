@@ -129,6 +129,16 @@ export default function Settings() {
           )}
         </section>
       )}
+      {section === "leads" && (
+        <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+          <h2 className="font-semibold">Lead maintenance</h2>
+          <p className="mb-3 text-sm text-zinc-500">Occasional jobs for whoever looks after Website Leads. Each one opens the board and runs there; keep that tab open until it finishes.</p>
+          <div className="space-y-3 text-sm">
+            <div className="flex flex-wrap items-center gap-3"><Link href="/?tab=leads&admin=rescan" className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-white">Rescan all open leads</Link><span className="text-zinc-500">Re-runs the website, accounts and contact checks on every open lead with the latest rules. Ready to send, Won, Lost and Not pursuing are skipped; statuses and notes are kept.</span></div>
+            <div className="flex flex-wrap items-center gap-3"><Link href="/?tab=leads&admin=contacts" className="rounded-md border border-zinc-300 px-3 py-1.5 font-medium hover:bg-zinc-100">Retry contacts</Link><span className="text-zinc-500">Looks for an email address again on every lead in Contact not verified. Any that now have one move back to To assess.</span></div>
+          </div>
+        </section>
+      )}
       {section === "connections" && (
         <>
           {status && !allGood && (
@@ -253,7 +263,7 @@ export default function Settings() {
   );
 }
 
-const SECTIONS = [["team", "Team"], ["clients", "Clients"], ["archived", "Archived checks"], ["connections", "Connections"]];
+const SECTIONS = [["team", "Team"], ["clients", "Clients"], ["leads", "Lead maintenance"], ["archived", "Archived checks"], ["connections", "Connections"]];
 
 function StatusRow({ ok, label, detail }) {
   return (

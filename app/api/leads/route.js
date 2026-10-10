@@ -1,4 +1,4 @@
-import { leadTriggers, jobsSearch, jobsConfigured, placesSearch, placesConfigured, placesUsage, leadsEnrichOutside } from "@/lib/leads";
+import { obviousDomain, leadTriggers, jobsSearch, jobsConfigured, placesSearch, placesConfigured, placesUsage, leadsEnrichOutside } from "@/lib/leads";
 import { areaFor, setPatchOutcodes, siteAddress, townFromAddress, verifyWebsite, websiteIsVerified, searchUsage, hunterUsage, applyTradingAddress, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
 
 export const dynamic = "force-dynamic";
@@ -137,6 +137,7 @@ export async function POST(request) {
       const town = "";
       return Response.json({ total, candidates: items.filter((c) => worthEnriching(c, { minAgeYears: minAge }) && inArea(c, { postcodes, town })), scanned: items.length });
     }
+    if (b.step === "domain-check") return Response.json({ domain: await obviousDomain(String(b.name || "").slice(0, 120)) });
     if (b.step === "triggers") {
       // Rebrands and new directors/owners, a handful of companies per request.
       const nums = (Array.isArray(b.companyNumbers) ? b.companyNumbers : []).slice(0, 6).map(String);
