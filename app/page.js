@@ -11,6 +11,7 @@ import LeadsArea from "@/app/leads";
 import IdeasArea from "@/app/ideas";
 import { DEFAULT_SITES } from "@/data/sites";
 import { loadClients, saveClients } from "@/app/clients";
+import { ClaudeInbox } from "@/app/claudeInbox";
 import { scanFonts as scanFontsShared, scanImages as scanImagesShared } from "@/app/scans";
 import { clientForSite, normaliseClients } from "@/lib/clients";
 import { buildFontEmail, buildImageEmail, isFreeLib, segmentsToText, segmentsToHtml } from "@/lib/email";
@@ -359,6 +360,7 @@ export default function Home() {
       <header className="flex flex-wrap items-center gap-x-6 gap-y-2">
         <h1 className="text-2xl font-semibold">Website Checker</h1>
         <nav className="ml-auto flex flex-wrap items-center justify-end gap-x-5 gap-y-1" aria-label="Sections">
+          <ClaudeInbox />
           {[["leads", "Website Leads", leadsCount || null], ["ideas", "Client Ideas", ideasCount || null],
             ["design", "Design Checks", designCount || null],
             ["launch", "Launch Checks", launchCount || null],

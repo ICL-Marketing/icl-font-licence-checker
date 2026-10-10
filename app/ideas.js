@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
+import { useClaudeHandler, markSent, sentIds, PasteHint } from "@/app/claudeInbox";
 import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea } from "@/lib/clientIdeas";
 import { dayGreeting, firstNameOf } from "@/lib/leadsShared";
 
@@ -182,6 +183,13 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     }
     return { clientsDone, ideasAdded, doneIds };
   }
+  // Research replies pasted into the one "Paste from Claude" box land here.
+  useClaudeHandler("client-research", (text) => {
+    const list = parseResearchReply(text);
+    if (!list.length) throw new Error("No clients in that reply. Make sure Claude kept the client_id values.");
+    const r = importResearch(list);
+    return `${r.ideasAdded} idea${r.ideasAdded === 1 ? "" : "s"} added for ${r.clientsDone} client${r.clientsDone === 1 ? "" : "s"}${r.clientsDone < list.length ? `; ${list.length - r.clientsDone} didn't match a client in Settings` : ""}.`;
+  });
   async function recheckOne(id) {
     const r = recsRef.current[id]; const c = clients.find((x) => x.id === r?.clientId) || { id: r?.clientId, name: r?.name, emails: r?.emails, poc: r?.poc, manager: r?.manager };
     stopRef.current = false; onRunning?.(true);
@@ -483,8 +491,6 @@ function ResearchModal({ feedback = [], clients, recs, preset, initialManager = 
   const mine = (c, m = mgr) => !m || c.manager === m;
   const [size, setSize] = useState(5);
   const [picked, setPicked] = useState(() => (preset.length ? preset : clients.filter((c) => mine(c) && !researched(c)).slice(0, 5).map((c) => c.id)));
-  const [reply, setReply] = useState("");
-  const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState(false);
   const [q, setQ] = useState("");
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
@@ -497,18 +503,10 @@ function ResearchModal({ feedback = [], clients, recs, preset, initialManager = 
   async function copy(open) {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
     if (open) window.open("https://claude.ai/new", "_blank", "noopener");
+    // Sent to Claude: move straight on to the next batch so several can run at once.
+    markSent("client-research", picked); nextBatch(size, picked);
   }
-  function nextBatch(n, alsoDone = [], m = mgr) { setSize(n); setPicked(clients.filter((c) => mine(c, m) && !researched(c) && !alsoDone.includes(c.id)).slice(0, n).map((c) => c.id)); }
-  function doImport() {
-    try {
-      const list = parseResearchReply(reply);
-      if (!list.length) { setMsg("No clients found in the reply. Make sure Claude kept the client_id values."); return; }
-      const { clientsDone, ideasAdded, doneIds } = onImport(list);
-      setMsg(`Added ${ideasAdded} idea${ideasAdded === 1 ? "" : "s"} for ${clientsDone} client${clientsDone === 1 ? "" : "s"}.${clientsDone < list.length ? ` ${list.length - clientsDone} didn't match a client in Settings.` : ""} The next ${size} are selected.`);
-      setReply("");
-      nextBatch(size, doneIds);
-    } catch (e) { setMsg(e.message); }
-  }
+  function nextBatch(n, alsoDone = [], m = mgr) { setSize(n); const waiting = sentIds("client-research"); setPicked(clients.filter((c) => mine(c, m) && !researched(c) && !alsoDone.includes(c.id) && !waiting.has(c.id)).slice(0, n).map((c) => c.id)); }
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   // Researched clients are hidden from the picker; search looks across every account manager and finds them for a re-run.
   const list = clients.filter((c) => (q ? c.name.toLowerCase().includes(q.toLowerCase()) : mine(c) && (!researched(c) || picked.includes(c.id))));
@@ -548,12 +546,8 @@ function ResearchModal({ feedback = [], clients, recs, preset, initialManager = 
             <textarea readOnly value={prompt} rows={6} className="mt-1 w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-[11px] text-zinc-600" />
           </div>
           <div>
-            <span className="font-semibold">3. Paste Claude’s reply</span>
-            <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={5} placeholder="Paste the whole reply here (the JSON block)" className="mt-1 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" />
-            <div className="mt-1 flex items-center gap-2">
-              <button onClick={doImport} disabled={!reply.trim()} className="rounded-md bg-violet-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">Add ideas</button>
-              {msg && <span className="text-xs text-zinc-700">{msg}</span>}
-            </div>
+            <span className="font-semibold">3. Paste the reply</span>
+            <PasteHint className="mt-1" />
           </div>
         </div>
       </div>

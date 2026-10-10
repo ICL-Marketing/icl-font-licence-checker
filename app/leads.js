@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
 import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, MAPS_TYPES, findSitesPrompt, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
+import { useClaudeHandler, markSent, sentIds, PasteHint } from "@/app/claudeInbox";
 
 // Website leads: local businesses whose site is letting them down, found
 // through Companies House and worked through a pipeline board.
@@ -673,6 +674,32 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     }, 100);
     return { found, none, unsure, left, ids: list.map((x) => x.lead_id) };
   }
+  // Replies pasted into the one "Paste from Claude" box land here, whichever prompt they came from.
+  useClaudeHandler("lead-check", (text) => {
+    const list = parseLeadCheck(text);
+    if (!list.length) throw new Error("No leads in that reply. Make sure Claude kept the lead_id values.");
+    const r = applyLeadCheck(list);
+    return [`${r.done} lead${r.done === 1 ? "" : "s"} updated`, r.left && `${r.left} left alone (Ready to send or in conversation)`, r.moved.back && `${r.moved.back} back to To assess`, r.moved.skip && `${r.moved.skip} to Not pursuing`, r.rescanned && `${r.rescanned} rescanning on a new website`].filter(Boolean).join(" · ");
+  });
+  useClaudeHandler("find-sites", (text) => {
+    const r = applySites(parseSitesReply(text));
+    return [r.found && `${r.found} website${r.found === 1 ? "" : "s"} found (rescanning)`, r.none && `${r.none} confirmed with no website`, r.unsure && `${r.unsure} unsure (noted on the lead)`, r.left && `${r.left} left alone`].filter(Boolean).join(" · ") || "Nothing to update.";
+  });
+  useClaudeHandler("find-leads", (text) => {
+    const items = parseFoundLeads(text);
+    if (!items.length) throw new Error("No businesses in that reply.");
+    if (running) throw new Error("A scan is running. Paste this again when it finishes.");
+    findOutside("claude", items.map((x) => ({ id: `cl:${slug(x.name)}${slug(x.town)}`, name: x.name, companyNumber: x.companyNumber, website: x.website, websiteEvidence: x.website ? "checked by Claude" : "", town: x.town, postcode: x.postcode, whatTheyDo: x.whatTheyDo, issue: x.issue, why: x.why, contact: x.contact, source: "Claude", triggerKind: "claude", trigger: x.why })));
+    return `Checking ${items.length} business${items.length === 1 ? "" : "es"}: they appear on the board as each one is done.`;
+  });
+  useClaudeHandler("draft", (text) => {
+    const d = parseDraftReply(text);
+    let id = ""; try { const m = String(text).match(/"lead_id"\s*:\s*"([^"]+)"/); id = m ? m[1] : ""; } catch {}
+    const l = leadsRef.current[id] || (open ? leadsRef.current[open] : null);
+    if (!l) throw new Error("Couldn't tell which lead this draft is for. Open the lead, then paste again.");
+    update(l.id, { subject: d.subject || l.subject, email: d.body, emailEdited: true, emailPrevious: l.email && l.email !== d.body ? l.email : l.emailPrevious, review: { ...(l.review || {}), step: 3, drafted: new Date().toISOString() } });
+    return `Draft added to ${l.business}.`;
+  });
   async function checkLicence(l) {
     update(l.id, { checking: true, error: "" });
     try { const { lead } = await post({ step: "licence", lead: l }); update(l.id, { ...lead, checking: false, error: lead.licence?.error || "" }); }
@@ -820,7 +847,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           <button onClick={() => { if (confirm(`Delete ${selected.size} lead${selected.size === 1 ? "" : "s"}?`)) removeMany([...selected]); }} className="ml-auto inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50"><TrashIcon className="h-3.5 w-3.5" /> Delete</button>
         </div>
       )}
-      {findClaude && <FindLeadsModal area={areaCentres.join(", ")} miles={areaMiles} exclude={list.slice(-80).map((l) => l.business)} onClose={() => setFindClaude(false)} onAdd={(items) => { setFindClaude(false); findOutside("claude", items.map((x) => ({ id: `cl:${slug(x.name)}${slug(x.town)}`, name: x.name, companyNumber: x.companyNumber, website: x.website, websiteEvidence: x.website ? "checked by Claude" : "", town: x.town, postcode: x.postcode, whatTheyDo: x.whatTheyDo, issue: x.issue, why: x.why, contact: x.contact, source: "Claude", triggerKind: "claude", trigger: x.why }))); }} />}
+      {findClaude && <FindLeadsModal area={areaCentres.join(", ")} miles={areaMiles} exclude={list.slice(-80).map((l) => l.business)} onClose={() => setFindClaude(false)} />}
       {sitesFor && <FindSitesModal leads={list} preset={sitesFor.ids} onClose={() => setSitesFor(null)} onApply={applySites} />}
       {claudeFor && <LeadCheckModal leads={list} preset={claudeFor.ids} column={claudeFor.col} onClose={() => setClaudeFor(null)} onApply={applyLeadCheck} />}
       <Board onFindSites={() => setSitesFor({ ids: [] })} onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} onClaude={(col) => setClaudeFor({ col, ids: [] })} leads={visible} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
@@ -1414,7 +1441,6 @@ function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
   const pool = poolFor(col);
   const [size, setSize] = useState(5);
   const [picked, setPicked] = useState(() => (preset.length ? preset : poolFor(column).filter((l) => !l.claude).slice(0, 5).map((l) => l.id)));
-  const [reply, setReply] = useState("");
   const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState(false);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
@@ -1425,17 +1451,9 @@ function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
     parked: l.status === "not-pursuing" ? parkExplain(l) : l.status === "no-contact" ? "No verified email address found yet" : "",
   }));
   const prompt = items.length ? leadCheckPrompt(items) : "";
-  async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); }
-  const nextBatch = (n, alsoDone = [], cl = col) => { setSize(n); const all = poolFor(cl).filter((l) => !alsoDone.includes(l.id)); setPicked((n === "all" ? [...all.filter((l) => !l.claude), ...all.filter((l) => l.claude)] : all.filter((l) => !l.claude).slice(0, n)).map((l) => l.id)); };
-  function doApply() {
-    try {
-      const list = parseLeadCheck(reply);
-      if (!list.length) { setMsg("No leads found in the reply. Make sure Claude kept the lead_id values."); return; }
-      const { done, left, doneIds, rescanned, moved } = onApply(list);
-      setMsg(`Updated ${done} lead${done === 1 ? "" : "s"}${left ? `; ${left} left alone (Ready to send or already in conversation)` : ""}${moved.back ? `; ${moved.back} moved back to To assess` : ""}${moved.skip ? `; ${moved.skip} moved to Not pursuing` : ""}${rescanned ? `; ${rescanned} rescanning on their correct website` : ""}. The next ${size} are selected.`);
-      setReply(""); nextBatch(size, doneIds);
-    } catch (e) { setMsg(e.message); }
-  }
+  async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("lead-check", picked); setSent(sentIds("lead-check")); if (size !== "all") nextBatch(size, picked); }
+  const [sent, setSent] = useState(() => sentIds("lead-check"));
+  const nextBatch = (n, alsoDone = [], cl = col) => { setSize(n); const waiting = sentIds("lead-check"); const all = poolFor(cl).filter((l) => !alsoDone.includes(l.id) && (n === "all" || !waiting.has(l.id))); setPicked((n === "all" ? [...all.filter((l) => !l.claude), ...all.filter((l) => l.claude)] : all.filter((l) => !l.claude).slice(0, n)).map((l) => l.id)); };
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
@@ -1470,12 +1488,8 @@ function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
             <textarea readOnly value={prompt} rows={6} className="mt-1 w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-[11px] text-zinc-600" />
           </div>
           <div>
-            <span className="font-semibold">3. Paste Claude’s reply</span>
-            <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={5} placeholder="Paste the whole reply here (the JSON block)" className="mt-1 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" />
-            <div className="mt-1 flex items-center gap-2">
-              <button onClick={doApply} disabled={!reply.trim()} className="rounded-md bg-orange-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">Update leads</button>
-              {msg && <span className="text-xs text-zinc-700">{msg}</span>}
-            </div>
+            <span className="font-semibold">3. Paste the reply</span>
+            <PasteHint className="mt-1" />
           </div>
         </div>
       </div>
@@ -1484,10 +1498,9 @@ function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
 }
 
 // Free lead finding on your own Claude plan: copy a prompt, paste the JSON back, each find gets the usual checks.
-function FindLeadsModal({ area, miles, exclude, onClose, onAdd }) {
+function FindLeadsModal({ area, miles, exclude, onClose }) {
   const [what, setWhat] = useState("");
   const [count, setCount] = useState(10);
-  const [reply, setReply] = useState("");
   const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState(false);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
@@ -1495,10 +1508,6 @@ function FindLeadsModal({ area, miles, exclude, onClose, onAdd }) {
   async function copy(open) {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
     if (open) window.open("https://claude.ai/new", "_blank", "noopener");
-  }
-  function add() {
-    try { const items = parseFoundLeads(reply); if (!items.length) { setMsg("No businesses found in that reply."); return; } onAdd(items); }
-    catch (e) { setMsg(e.message); }
   }
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
@@ -1525,10 +1534,8 @@ function FindLeadsModal({ area, miles, exclude, onClose, onAdd }) {
             <p className="mt-1 text-[11px] text-zinc-500">Paste it into a new chat with web search on.</p>
           </div>
           <div>
-            <div className="font-semibold">3. Paste Claude&apos;s reply</div>
-            <textarea value={reply} onChange={(e) => { setReply(e.target.value); setMsg(""); }} rows={6} placeholder="Paste the whole reply here (the JSON block)" className="mt-2 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" />
-            {msg && <p className="mt-1 text-xs text-red-700">{msg}</p>}
-            <button onClick={add} disabled={!reply.trim()} className="mt-2 rounded-md bg-violet-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Check and add leads</button>
+            <div className="font-semibold">3. Paste the reply</div>
+            <PasteHint className="mt-1" />
           </div>
         </div>
       </div>
@@ -1542,7 +1549,6 @@ function ReviewSteps({ l, onChange, issues, person, subjects, commitWebsite, rej
   const step = r.step || 1;
   const setR = (patch, extra = {}) => onChange({ review: { ...r, ...patch }, ...extra });
   const [own, setOwn] = useState("");
-  const [reply, setReply] = useState("");
   const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState(false);
   const site = l.siteUrl || (l.website ? `${l.problem === "Broken SSL" ? "http" : "https"}://${l.website}` : "");
@@ -1567,10 +1573,6 @@ function ReviewSteps({ l, onChange, issues, person, subjects, commitWebsite, rej
   async function copy(open) {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
     if (open) window.open("https://claude.ai/new", "_blank", "noopener");
-  }
-  function useDraft() {
-    try { const d = parseDraftReply(reply); setR({ drafted: new Date().toISOString() }, { subject: d.subject || l.subject, email: d.body, emailEdited: true, emailPrevious: l.email && l.email !== d.body ? l.email : l.emailPrevious }); setReply(""); setMsg("Draft added below. Tweak it if you like."); }
-    catch (e) { setMsg(e.message); }
   }
   const greeting = `${first ? `Hi ${first},` : "Hi there,"}\n\n${dayGreeting()}`;
   return (
@@ -1656,8 +1658,7 @@ function ReviewSteps({ l, onChange, issues, person, subjects, commitWebsite, rej
               <button onClick={() => copy(false)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100">{copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />} Copy prompt</button>
               {lead.issue && <button onClick={() => { const d = draftFor(l, person, lead.issue, subjects); onChange({ subject: d.subject, email: d.body, issueId: d.issueId, emailEdited: false }); setMsg("Our template is in. Or ask Claude for a version that uses your notes."); }} className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100">Use our template instead</button>}
             </div>
-            <textarea value={reply} onChange={(e) => { setReply(e.target.value); setMsg(""); }} rows={3} placeholder="Paste Claude's reply here" className="w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" />
-            {reply.trim() && <button onClick={useDraft} className="rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white">Use this draft</button>}
+            <PasteHint />
             {msg && <p className="text-xs text-zinc-600">{msg}</p>}
             <div>
               <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} placeholder="Subject" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm font-medium" />
@@ -1684,7 +1685,6 @@ function FindSitesModal({ leads, preset, onClose, onApply }) {
   const pool = sorted(leads.filter((l) => !l.website && siteSearchable(l))).sort((a, b) => (a.sitesCheckedAt ? 1 : 0) - (b.sitesCheckedAt ? 1 : 0));
   const [size, setSize] = useState(5);
   const [picked, setPicked] = useState(() => (preset.length ? preset : pool.filter((l) => !l.sitesCheckedAt).slice(0, 5).map((l) => l.id)));
-  const [reply, setReply] = useState("");
   const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState(false);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
@@ -1694,18 +1694,10 @@ function FindSitesModal({ leads, preset, onClose, onApply }) {
     rejected: (l.rejectedSites || []).join(", "),
   }));
   const prompt = items.length ? findSitesPrompt(items) : "";
-  async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); }
-  const nextBatch = (n, done = []) => { setSize(n); setPicked(pool.filter((l) => !l.sitesCheckedAt && !done.includes(l.id)).slice(0, n).map((l) => l.id)); };
+  // Copying sends the batch to Claude and moves straight on to the next one, so several can run at once.
+  async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("find-sites", picked); nextBatch(size, picked); }
+  const nextBatch = (n, done = []) => { setSize(n); const waiting = sentIds("find-sites"); setPicked(pool.filter((l) => !l.sitesCheckedAt && !done.includes(l.id) && !waiting.has(l.id)).slice(0, n).map((l) => l.id)); };
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
-  function doApply() {
-    try {
-      const list = parseSitesReply(reply);
-      if (!list.length) { setMsg("No leads found in the reply. Make sure Claude kept the lead_id values."); return; }
-      const r = onApply(list);
-      setMsg([r.found && `${r.found} website${r.found === 1 ? "" : "s"} found (rescanning now)`, r.none && `${r.none} confirmed with no website`, r.unsure && `${r.unsure} unsure (noted on the lead)`, r.left && `${r.left} left alone`].filter(Boolean).join(" · ") || "Nothing to update.");
-      setReply(""); nextBatch(size, r.ids);
-    } catch (e) { setMsg(e.message); }
-  }
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
       <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -1733,13 +1725,8 @@ function FindSitesModal({ leads, preset, onClose, onApply }) {
             <p className="mt-1 text-xs text-zinc-500">Paste it into a new chat with web search on.</p>
           </div>
           <div>
-            <span className="font-semibold">3. Paste Claude’s reply</span>
-            <textarea value={reply} onChange={(e) => { setReply(e.target.value); setMsg(""); }} rows={5} placeholder="Paste the whole reply here (the JSON block)" className="mt-1 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" />
-            <div className="mt-1 flex items-center gap-2">
-              <button onClick={doApply} disabled={!reply.trim()} className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">Update leads</button>
-              {msg && <span className="text-xs text-zinc-700">{msg}</span>}
-            </div>
-            <p className="mt-1 text-[11px] text-zinc-500">A site Claude can tie to the company becomes their website and the lead is rescanned. “No website” is recorded as confirmed. Low-confidence guesses are only noted.</p>
+            <span className="font-semibold">3. Paste the reply</span>
+            <PasteHint className="mt-1" />
           </div>
         </div>
       </div>
