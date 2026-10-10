@@ -1,5 +1,5 @@
 import { researchClient, researchConfigured, researchCost, RESEARCH_CAP } from "@/lib/clientResearch";
-import { checkWebsite, fetchPage, licenceRisks, seoCheck, siteAddress, townFromAddress, tradeFromSite, applyTradingAddress } from "@/lib/leads";
+import { builtSignals, checkWebsite, fetchPage, licenceRisks, seoCheck, siteAddress, townFromAddress, tradeFromSite, applyTradingAddress } from "@/lib/leads";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -73,8 +73,8 @@ export async function POST(request) {
   try {
     if (b.step === "check") {
       const w = await checkWebsite(host);
-      const sg = w.problem === "Dead/broken site" || w.problem === "Parked domain" ? null : await signals(host).catch(() => null);
-      return Response.json({ website: host, problem: w.problem || "", problemDetail: w.detail || "", platform: w.platform || "", year: w.year || 0, title: w.title || "", siteDescription: w.description || "", siteHeadings: w.headings || "", siteBody: (w.bodyText || "").slice(0, 1500), signals: sg, checkedAt: new Date().toISOString() });
+      const [sg, built] = await Promise.all([w.problem === "Dead/broken site" || w.problem === "Parked domain" ? null : signals(host).catch(() => null), builtSignals(host).catch(() => null)]);
+      return Response.json({ built, website: host, problem: w.problem || "", problemDetail: w.detail || "", platform: w.platform || "", year: w.year || 0, title: w.title || "", siteDescription: w.description || "", siteHeadings: w.headings || "", siteBody: (w.bodyText || "").slice(0, 1500), signals: sg, checkedAt: new Date().toISOString() });
     }
     if (b.step === "licence") return Response.json({ licence: await licenceRisks(host) });
     if (b.step === "seo") {

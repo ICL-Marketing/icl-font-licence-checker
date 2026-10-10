@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint } from "@/app/claudeInbox";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, greetingFor, IDEA_GREETING, internalTasks } from "@/lib/clientIdeas";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, greetingFor, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, BUILT_LABEL } from "@/lib/clientIdeas";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
 // Each client site is checked for free (site health, licences, homepage gaps) plus one search
@@ -91,6 +91,8 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     }).catch(() => {});
   }, []);
 
+  // One field on a client in Settings (e.g. who built their site), saved for the whole team.
+  const setClientField = (id, fields) => onClientsChange?.(clients.map((c) => (c.id === id ? { ...c, ...fields } : c)));
   const update = (id, fields) => {
     const prev = recsRef.current[id] || {};
     const r = { ...prev, ...fields, id, updatedAt: new Date().toISOString() };
@@ -219,6 +221,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   // Group by client for the monthly send-out.
   const byClient = new Map();
   for (const r of liveRecs) { const k = r.clientId || r.name; if (!byClient.has(k)) byClient.set(k, { clientId: r.clientId, name: r.name, manager: r.manager || "", recs: [] }); byClient.get(k).recs.push(r); }
+  const iclIps = iclServerIps(Object.values(recs));
   const groups = [...byClient.values()].map((g) => { const queue = clientQueue(g.recs); return { ...g, queue, top: topIdeas(queue.filter((i) => !badRuleKeys.has(i.key) && (!minHours || hoursFor(i) > minHours) && (service !== "★" || i.starred)), 50, service === "★" ? "" : service), pick: monthlyPick(queue, month) }; })
     .filter((g) => g.queue.length && (!manager || g.manager === manager) && (!q || `${g.name} ${g.manager} ${g.queue.map((i) => i.title).join(" ")}`.toLowerCase().includes(q)))
     .filter((g) => !service || g.top.length)
@@ -298,7 +301,12 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
               {groups.length === 0 && <tr><td colSpan={2} className="p-4 text-zinc-500">No ideas yet. Use Research with Claude above.</td></tr>}
               {groups.map((g) => (
                 <tr key={g.clientId || g.name} className="align-top">
-                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return w ? <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline">{w} <ExternalIcon /></a> : null; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button></div>{g.top.length < 3 && <button onClick={() => openClaude({ job: "client-research", preset: [g.clientId] })} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
+                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => {
+                    const c = clients.find((x) => x.id === g.clientId); const bb = builtByFor(c || { name: g.name }, g.recs, iclIps);
+                    const tone = bb.value === "not" ? "bg-zinc-200 text-zinc-700" : bb.value === "unsure" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800";
+                    const nextVal = { icl: "not", not: "unsure", unsure: "icl" }[bb.value];
+                    return <div className="mt-1 flex flex-wrap items-center gap-1"><button onClick={() => c && setClientField(c.id, { builtBy: nextVal })} disabled={!c} title={`${bb.why}. Click to change (ICL → Not ICL → Unsure).`} className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${tone}`}>{BUILT_LABEL[bb.value]}{bb.manual ? "" : " · auto"}</button>{bb.unsure && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800" title={bb.why}>Unsure, please check</span>}{bb.manual && <button onClick={() => setClientField(c.id, { builtBy: "" })} className="text-[10px] text-zinc-400 underline" title="Go back to the automatic check">auto</button>}</div>;
+                  })()}{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return w ? <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline">{w} <ExternalIcon /></a> : null; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button></div>{g.top.length < 3 && <button onClick={() => openClaude({ job: "client-research", preset: [g.clientId] })} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
                   <td className="max-w-0 px-3 py-3">
                   <div className="grid snap-x auto-cols-[calc((100%-2.25rem)/3.2)] grid-flow-col gap-3 overflow-x-auto pb-1">
                   {g.top.length === 0 && <div className="text-xs text-zinc-400">No big ideas yet.</div>}
