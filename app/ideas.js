@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, websiteFromEmails, findWebsitesPrompt, parseWebsitesReply } from "@/lib/clientIdeas";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea } from "@/lib/clientIdeas";
 import { dayGreeting, firstNameOf } from "@/lib/leadsShared";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
@@ -45,14 +45,10 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   const view = "top"; // one table now; the All ideas and Replies views were retired
   const [manager, setManager] = useState("");
   const [service, setService] = useState("");
+  // Only ideas big enough to be worth pitching: over this many hours (0 = any size).
+  const [minHours, setMinHoursState] = useState(() => { try { return Number(localStorage.getItem("flc-ideas-min-hours") || 0) || 0; } catch { return 0; } });
+  const setMinHours = (v) => { setMinHoursState(v); try { localStorage.setItem("flc-ideas-min-hours", String(v)); } catch {} };
   const [addFor, setAddFor] = useState(null); // the client group an idea is being added to
-  const [findSites, setFindSites] = useState(false);
-  const missingSites = clients.filter((c) => !(c.websites || []).length);
-  function setWebsites(pairs) { // [{ clientId, website }]
-    if (!onClientsChange) return;
-    const byId = new Map(pairs.map((p) => [p.clientId, p.website]));
-    onClientsChange(clients.map((c) => (byId.get(c.id) ? { ...c, websites: [...new Set([...(c.websites || []), byId.get(c.id)])] } : c)));
-  }
   // Feedback on bad ideas, shared with the team: fed into research prompts, and repeat offenders drop out of the top 3.
   const [feedback, setFeedback] = useState([]);
   const feedbackRef = useRef([]);
@@ -215,7 +211,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   // Group by client for the monthly send-out.
   const byClient = new Map();
   for (const r of liveRecs) { const k = r.clientId || r.name; if (!byClient.has(k)) byClient.set(k, { clientId: r.clientId, name: r.name, manager: r.manager || "", recs: [] }); byClient.get(k).recs.push(r); }
-  const groups = [...byClient.values()].map((g) => { const queue = clientQueue(g.recs); return { ...g, queue, top: topIdeas(queue.filter((i) => !badRuleKeys.has(i.key) && (service !== "★" || i.starred)), 50, service === "★" ? "" : service), pick: monthlyPick(queue, month) }; })
+  const groups = [...byClient.values()].map((g) => { const queue = clientQueue(g.recs); return { ...g, queue, top: topIdeas(queue.filter((i) => !badRuleKeys.has(i.key) && (!minHours || hoursFor(i) > minHours) && (service !== "★" || i.starred)), 50, service === "★" ? "" : service), pick: monthlyPick(queue, month) }; })
     .filter((g) => g.queue.length && (!manager || g.manager === manager) && (!q || `${g.name} ${g.manager} ${g.queue.map((i) => i.title).join(" ")}`.toLowerCase().includes(q)))
     .filter((g) => !service || g.top.length)
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -231,7 +227,6 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   useEffect(() => { onCount?.(dueCount); }, [dueCount, onCount]);
   const sitesTotal = clients.reduce((n, c) => n + (c.websites || []).length, 0);
   const sitesChecked = clients.reduce((n, c) => n + (c.websites || []).filter((w) => recs[recId(c, w)]?.checkedAt).length, 0);
-  const noSite = clients.filter((c) => !(c.websites || []).length).length;
   const current = open ? recs[open.id] : null;
   const currentIdea = current ? (current.ideas || []).find((i) => i.key === open.key) : null;
 
@@ -250,7 +245,6 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
             : null}
           <button onClick={() => setResearchFor([])} disabled={!clients.length} title="Free: the app writes a research prompt for a batch of clients, you run it in Claude on your own plan and paste the reply back" className="inline-flex items-center gap-1.5 rounded-md border border-violet-300 bg-violet-50 px-4 py-2 text-sm text-violet-900 hover:bg-violet-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Research with Claude</button>
           <span className="text-xs text-zinc-500">{sitesChecked} of {sitesTotal} client sites checked</span>
-          {noSite > 0 && <button onClick={() => setFindSites(true)} className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-900 hover:bg-amber-100"><SearchIcon className="h-3.5 w-3.5" /> Find websites ({noSite} without one)</button>}
         </div>
         {run && (
           <div className="mt-3 text-sm">
@@ -274,6 +268,11 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
           {Object.keys(IDEA_SERVICES).filter((k) => serviceCounts[k]).map((k) => (
             <button key={k} onClick={() => setService(service === k ? "" : k)} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${service === k ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}><span className={`h-2 w-2 rounded-full ${IDEA_SERVICES[k]}`} />{k}<span className="opacity-60">{serviceCounts[k]}</span></button>
           ))}
+          <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-zinc-600" title="Hide ideas that would take this many hours or fewer">Over
+            <select value={minHours} onChange={(e) => setMinHours(Number(e.target.value))} className="rounded-md border border-zinc-300 bg-white px-1.5 py-1 text-xs">
+              {[0, 4, 8, 16, 24, 40].map((h) => <option key={h} value={h}>{h ? `${h} hours` : "any hours"}</option>)}
+            </select>
+          </label>
         </div>
       )}
       {view === "top" && (
@@ -348,7 +347,6 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
 
       {view === "replies" && <IdeaBoard cards={shown.filter((c) => normStatus(c.status) !== "queued").map((c) => ({ ...c, status: normStatus(c.status) }))} filtering={!!(q || kind)} onOpen={(id, key) => setOpen({ id, key })} onMove={(id, key, status) => updateIdea(id, key, { status })} />}
 
-      {findSites && <FindWebsitesModal clients={missingSites} onClose={() => setFindSites(false)} onSave={setWebsites} />}
       {addFor && <AddIdeaModal group={addFor} onClose={() => setAddFor(null)} onSave={(data) => { addIdea(addFor, data); setAddFor(null); }} />}
       {researchFor && <ResearchModal feedback={feedback} clients={clients} recs={recs} preset={researchFor} initialManager={manager} onClose={() => setResearchFor(null)} onImport={importResearch} />}
 
@@ -607,52 +605,3 @@ function AddIdeaModal({ group, onClose, onSave }) {
 }
 
 
-// Websites for clients that have none: email domains first (free, instant), then Claude for the rest.
-function FindWebsitesModal({ clients, onClose, onSave }) {
-  const guesses = clients.map((c) => ({ c, site: websiteFromEmails(c) })).filter((x) => x.site);
-  const [accepted, setAccepted] = useState(() => new Set(guesses.map((x) => x.c.id)));
-  const rest = clients.filter((c) => !guesses.some((g) => g.c.id === c.id));
-  const [reply, setReply] = useState("");
-  const [found, setFound] = useState([]);
-  const [msg, setMsg] = useState("");
-  const [copied, setCopied] = useState(false);
-  useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
-  const prompt = rest.length ? findWebsitesPrompt(rest.map((c) => ({ id: c.id, name: c.name, type: c.type, poc: String(c.poc || "").split("\n")[0], emails: c.emails || [], notes: c.notes || "" }))) : "";
-  async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); }
-  function read() { try { const list = parseWebsitesReply(reply).filter((x) => x.website); setFound(list.map((x) => ({ ...x, keep: x.confidence !== "low" }))); setMsg(list.length ? `${list.length} website${list.length === 1 ? "" : "s"} found. Untick any that look wrong, then save.` : "Claude found no websites in that reply."); } catch (e) { setMsg(e.message); } }
-  function saveAll() {
-    const pairs = [...guesses.filter((g) => accepted.has(g.c.id)).map((g) => ({ clientId: g.c.id, website: g.site })), ...found.filter((f) => f.keep).map((f) => ({ clientId: f.client_id, website: f.website }))];
-    onSave(pairs); setMsg(`Saved ${pairs.length} website${pairs.length === 1 ? "" : "s"} to Settings → Clients.`); setTimeout(onClose, 900);
-  }
-  const nameOf = (id) => clients.find((c) => c.id === id)?.name || id;
-  return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
-      <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3"><h3 className="text-lg font-semibold">Find websites</h3><span className="text-xs text-zinc-500">{clients.length} client{clients.length === 1 ? "" : "s"} without one in Settings</span><button onClick={onClose} aria-label="Close" className="ml-auto rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button></div>
-        <div className="space-y-4 px-5 py-4 text-sm">
-          {guesses.length > 0 && (
-            <div>
-              <div className="font-semibold">1. From their email addresses <span className="font-normal text-xs text-zinc-500">· a company email domain is nearly always the website</span></div>
-              <div className="mt-2 grid gap-1 sm:grid-cols-2">{guesses.map(({ c, site }) => <label key={c.id} className="flex items-center gap-2 rounded-md border border-zinc-200 px-2 py-1"><input type="checkbox" checked={accepted.has(c.id)} onChange={(e) => setAccepted((s) => { const n = new Set(s); if (e.target.checked) n.add(c.id); else n.delete(c.id); return n; })} /><span className="min-w-0 flex-1 truncate">{c.name}</span><a href={`https://${site}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700">{site} <ExternalIcon /></a></label>)}</div>
-            </div>
-          )}
-          {rest.length > 0 && (
-            <div>
-              <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">{guesses.length ? "2" : "1"}. Ask Claude about the other {rest.length}</span>
-                <span className="ml-auto flex gap-2">
-                  <button onClick={() => copy(false)} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy prompt</>}</button>
-                  <button onClick={() => copy(true)} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white"><ExternalIcon /> Copy and open Claude</button>
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-zinc-500">{rest.map((c) => c.name).join(" · ")}</p>
-              <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={4} placeholder="Paste Claude’s reply here" className="mt-2 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" />
-              <div className="mt-1 flex items-center gap-2"><button onClick={read} disabled={!reply.trim()} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-40">Read reply</button>{msg && <span className="text-xs text-zinc-700">{msg}</span>}</div>
-              {found.length > 0 && <div className="mt-2 grid gap-1 sm:grid-cols-2">{found.map((f) => <label key={f.client_id} className="flex items-center gap-2 rounded-md border border-zinc-200 px-2 py-1" title={f.evidence}><input type="checkbox" checked={f.keep} onChange={(e) => setFound((l) => l.map((x) => (x.client_id === f.client_id ? { ...x, keep: e.target.checked } : x)))} /><span className="min-w-0 flex-1 truncate">{nameOf(f.client_id)}</span><a href={`https://${f.website}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700">{f.website} <ExternalIcon /></a><span className={`text-[10px] ${f.confidence === "high" ? "text-green-700" : f.confidence === "low" ? "text-red-700" : "text-amber-700"}`}>{f.confidence}</span></label>)}</div>}
-            </div>
-          )}
-          <div className="flex items-center justify-end gap-2"><button onClick={onClose} className="rounded-md px-3 py-1.5 text-zinc-600 hover:bg-zinc-100">Cancel</button><button onClick={saveAll} disabled={!accepted.size && !found.some((f) => f.keep)} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Save to Settings</button></div>
-        </div>
-      </div>
-    </div>
-  );
-}
