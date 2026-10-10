@@ -574,7 +574,7 @@ function ResearchModal({ feedback = [], clients, recs, preset, initialManager = 
                 <button key={c.id} onClick={() => toggle(c.id)} className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(c.id) ? "border-violet-500 bg-violet-100 text-violet-900" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{c.name}{researched(c) ? " ✓" : ""}</button>
               ))}
             </div>
-            <p className="mt-1 text-[11px] text-zinc-500">{picked.length} picked{mgr ? ` from ${mgr}’s clients` : ""}..{doneCount > 0 && ` ${doneCount} already researched (hidden; type a name to re-run one).`}</p>
+            <p className="mt-1 text-[11px] text-zinc-500">{picked.length} picked{mgr ? ` from ${mgr}’s clients` : ""}.{doneCount > 0 && ` ${doneCount} already researched (hidden; type a name to re-run one).`}</p>
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">2. Run it in Claude</span>
