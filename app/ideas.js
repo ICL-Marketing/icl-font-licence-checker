@@ -4,8 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint } from "@/app/claudeInbox";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea } from "@/lib/clientIdeas";
-import { dayGreeting, firstNameOf } from "@/lib/leadsShared";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, greetingFor, IDEA_GREETING, internalTasks } from "@/lib/clientIdeas";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
 // Each client site is checked for free (site health, licences, homepage gaps) plus one search
@@ -283,6 +282,14 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
           </label>
         </div>
       )}
+      {(() => { const tasks = internalTasks(Object.values(recs)); return tasks.length > 0 && (
+        <details className="mt-3 rounded-xl border border-zinc-300 bg-zinc-50 px-4 py-2 text-sm">
+          <summary className="cursor-pointer font-semibold text-zinc-700">Internal support tasks ({tasks.length}) <span className="font-normal text-zinc-500">· our own checks failing, never emailed to clients</span></summary>
+          <ul className="mt-2 space-y-1">
+            {tasks.map((t) => <li key={`${t.recId}|${t.key}`} className="flex flex-wrap items-center gap-2"><span className="font-medium">{t.client}</span><span className="text-zinc-600">{t.title}</span>{t.why && <span className="text-xs text-zinc-500">{t.why}</span>}<button onClick={() => updateIdea(t.recId, t.key, { status: "done" })} className="ml-auto rounded border border-zinc-300 bg-white px-2 py-0.5 text-xs hover:bg-zinc-100">Sorted</button></li>)}
+          </ul>
+        </details>
+      ); })()}
       {view === "top" && (
         <div className="mt-3 overflow-x-auto rounded-xl border border-zinc-200 bg-white">
           <table className="w-full min-w-[900px] text-sm">
@@ -311,7 +318,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
                         <div className="mt-1 font-medium leading-snug">{it.title}</div>
                         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs" onClick={(e) => e.stopPropagation()}>
                           {it.status === "queued"
-                            ? <><a href={href} target="_blank" rel="noopener" title={to ? `Opens Outlook with the email to ${to}` : "No email for this client in Settings"} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100"><MailIcon className="h-3 w-3" /> Outlook</a><button onClick={() => markSent(it.recId, it.key)} className="rounded-md bg-emerald-700 px-2 py-0.5 font-medium text-white hover:bg-emerald-800">Mark sent</button></>
+                            ? <>{greetingFor(r, to).warn && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800" title={greetingFor(r, to).warn}>Check name</span>}<a href={to ? href : undefined} aria-disabled={!to} onClick={(e) => { if (!to) e.preventDefault(); }} target="_blank" rel="noopener" title={to ? `Opens Outlook with the email to ${to}` : "No email for this client in Settings"} className={`inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100 ${to ? "" : "cursor-not-allowed opacity-40"}`}><MailIcon className="h-3 w-3" /> Outlook</a><button onClick={() => markSent(it.recId, it.key)} className="rounded-md bg-emerald-700 px-2 py-0.5 font-medium text-white hover:bg-emerald-800">Mark sent</button></>
                             : <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700">{IDEA_STATUSES.find(([id]) => id === it.status)?.[1]}{it.sentAt ? ` ${new Date(it.sentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : ""}</span>}
                         </div>
                       </div>
@@ -358,7 +365,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
       {addFor && <AddIdeaModal group={addFor} onClose={() => setAddFor(null)} onSave={(data) => { addIdea(addFor, data); setAddFor(null); }} />}
 
       {current && currentIdea && (
-        <IdeaDrawer r={current} idea={currentIdea} onClose={() => setOpen(null)} onIdea={(fields) => updateIdea(current.id, currentIdea.key, fields)} onBad={(reason) => { markBad(current, currentIdea, reason); setOpen(null); }} />
+        <IdeaDrawer r={current} idea={currentIdea} onClose={() => setOpen(null)} onIdea={(fields) => updateIdea(current.id, currentIdea.key, fields)} onRec={(fields) => { for (const x of Object.values(recsRef.current)) if (x.clientId === current.clientId) update(x.id, fields); }} onBad={(reason) => { markBad(current, currentIdea, reason); setOpen(null); }} />
       )}
     </div>
   );
@@ -400,15 +407,15 @@ function IdeaBoard({ cards, filtering, onOpen, onMove }) {
   );
 }
 
-function IdeaDrawer({ r, idea, onClose, onIdea, onBad }) {
+function IdeaDrawer({ r, idea, onClose, onIdea, onRec, onBad }) {
   const [copied, setCopied] = useState(false);
   const [to, setTo] = useState((r.emails || [])[0] || "");
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
   const full = ideaEmail(r, idea, to);
   const outlook = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(to)}&subject=${encodeURIComponent(idea.subject || "")}&body=${encodeURIComponent(full)}`;
   async function copy() { try { await navigator.clipboard.writeText(`Subject: ${idea.subject || ""}\n\n${full}`); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {} }
-  const pocFirst = firstNameOf(String(r.poc || "").split(/\n|,/)[0]);
-  const greeting = `${full.split("\n\n")[0]}\n\n${dayGreeting()}`;
+  const greet = greetingFor(r, to);
+  const greeting = `${full.split("\n\n")[0]}\n\n${IDEA_GREETING}`;
   const site = r.website ? `https://${r.website}` : "";
   return (
     <div className="fixed inset-0 z-30 flex justify-end bg-black/30" onClick={onClose}>
@@ -448,7 +455,9 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onBad }) {
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold">Email</span>
               <span className="ml-auto flex gap-2">
-                <a href={outlook} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100"><MailIcon className="h-3.5 w-3.5" /> Open in Outlook</a>
+                {to.trim()
+                  ? <a href={outlook} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100"><MailIcon className="h-3.5 w-3.5" /> Open in Outlook</a>
+                  : <span title="Add an email address for this client first" className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs text-zinc-400"><MailIcon className="h-3.5 w-3.5" /> Open in Outlook</span>}
                 <button onClick={copy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy email</>}</button>
                 {normStatus(idea.status) === "queued"
                   ? <button onClick={() => onIdea({ status: "sent", sentAt: new Date().toISOString(), sentMonth: monthKey() })} className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-800">Mark sent</button>
@@ -460,7 +469,12 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onBad }) {
                 ? <select value={to} onChange={(e) => setTo(e.target.value)} className="mt-0.5 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm">{r.emails.map((e) => <option key={e}>{e}</option>)}</select>
                 : <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="No email for this client in Settings" className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" />}
             </label>
-            {!pocFirst && <p className="mt-1 text-[11px] text-zinc-500">No contact name in Settings → Clients, so the greeting uses the email address or “Hi there”.</p>}
+            {greet.warn && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                <span className="font-semibold">Check the name.</span><span>{greet.warn}</span>
+                <input key={`gn:${r.id}`} defaultValue={r.greetName || ""} onBlur={(e) => e.target.value.trim() !== (r.greetName || "") && onRec({ greetName: e.target.value.trim() })} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder="Their first name" className="ml-auto w-36 rounded border border-amber-300 bg-white px-1.5 py-0.5" />
+              </div>
+            )}
             <label className="mt-2 block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Subject</div>
               <input value={idea.subject || ""} onChange={(e) => onIdea({ subject: e.target.value, edited: true })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
             <pre className="mt-2 whitespace-pre-wrap rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1.5 font-sans text-sm text-zinc-600" title="Written automatically on the day you send">{greeting}</pre>
