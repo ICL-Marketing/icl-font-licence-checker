@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, MAPS_TYPES, findSitesPrompt, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, reportProgress } from "@/app/claudeInbox";
 
@@ -608,7 +608,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     })();
   }, [leads]); // eslint-disable-line react-hooks/exhaustive-deps
   // Claude's checks (run on the user's own Claude plan) applied to each lead: website, contact, verdict, draft.
-  function applyLeadCheck(items) {
+  function applyLeadCheck(items, { siteFollowUp = true } = {}) {
     let done = 0, left = 0; const rescan = []; const doneIds = []; const moved = { skip: 0, back: 0 };
     for (const it of items) {
       const l = leadsRef.current[it.lead_id]; if (!l) continue;
@@ -659,7 +659,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     // checked lead that still has no address (the site, Companies House, then Hunter under the usual rules).
     setTimeout(async () => {
       const noSite = doneIds.filter((id) => { const x = leadsRef.current[id]; return x && !x.website && x.problem === "No website" && !isFrozen(x); });
-      if (noSite.length) await afterPaste("Lead check", noSite, rescan);
+      if (noSite.length && siteFollowUp) await afterPaste("Lead check", noSite, rescan);
       else if (rescan.length) await refreshLeads(rescan);
       const need = doneIds.filter((id) => { const x = leadsRef.current[id]; return x && x.website && !x.emailAddress && !isFrozen(x) && !x.optedOut && !claudeSkip(x) && !/under £|already a client|dormant/i.test(parkReason(x)); });
       // A contact found here moves the lead to To assess (retryContacts does that for every lead it finds an address for).
@@ -741,6 +741,10 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   });
   useClaudeHandler("find-sites", (text) => {
     const r = applySites(parseSitesReply(text));
+    // Replies from the combined prompt also carry the full lead check: apply that too.
+    let checked = null;
+    try { const list = parseLeadCheck(text).filter((x) => x.reason); if (list.length) checked = applyLeadCheck(list, { siteFollowUp: false }); } catch {}
+    if (checked) return [r.found && `${r.found} website${r.found === 1 ? "" : "s"} found (rescanning)`, r.none && `${r.none} with no website (trying their names on .co.uk/.com first)`, `${checked.done} lead${checked.done === 1 ? "" : "s"} checked`, checked.moved.back && `${checked.moved.back} to To assess`, checked.moved.skip && `${checked.moved.skip} to Not pursuing`].filter(Boolean).join(" · ");
     return [r.found && `${r.found} website${r.found === 1 ? "" : "s"} found (rescanning)`, r.none && `${r.none} with no website (trying their names on .co.uk/.com first)`, r.unsure && `${r.unsure} unsure (noted on the lead)`, r.left && `${r.left} left alone`].filter(Boolean).join(" · ") || "Nothing to update.";
   });
   useClaudeHandler("find-leads", (text) => {
@@ -1538,8 +1542,8 @@ function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
   const [col, setCol] = useState(column);
   const poolFor = (cl) => sorted(leads.filter((l) => (l.status || "new") === cl && !claudeSkip(l) && (cl === "new" || recheckable(l))));
   const pool = poolFor(col);
-  const [size, setSize] = useState(5);
-  const [picked, setPicked] = useState(() => (preset.length ? preset : poolFor(column).filter((l) => !l.claude).slice(0, 5).map((l) => l.id)));
+  const [size, setSize] = useState("all");
+  const [picked, setPicked] = useState(() => (preset.length ? preset : poolFor(column).filter((l) => !l.claude && !sentIds("lead-check").has(l.id)).map((l) => l.id)));
   const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState(false);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
@@ -1560,7 +1564,7 @@ function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
           <div>
             <div className="mb-2 inline-flex rounded-md border border-zinc-300 bg-white p-0.5 text-xs">{CHECK_COLUMNS.map(([id, label]) => <button key={id} onClick={() => { setCol(id); nextBatch(size, [], id); }} className={`rounded px-2.5 py-1 ${col === id ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>{label} ({poolFor(id).filter((l) => !l.claude).length} new)</button>)}</div>
             <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">1. Pick leads</span><span className="text-xs text-zinc-500">Next unchecked:</span>
-              {[1, 3, 5, 8].map((n) => <button key={n} onClick={() => nextBatch(n)} className={`rounded-full border px-2 py-0.5 text-xs ${size === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{n}</button>)}
+              {[50, 100].map((n) => <button key={n} onClick={() => nextBatch(n)} className={`rounded-full border px-2 py-0.5 text-xs ${size === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{n}</button>)}
               <button onClick={() => nextBatch("all")} title="Every lead in this column Claude hasn't checked yet" className={`rounded-full border px-2 py-0.5 text-xs ${size === "all" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>All new ({pool.filter((l) => !l.claude).length})</button>
               {pool.some((l) => l.claude) && <button onClick={() => nextBatch("recheck")} title="Every lead in this column, including ones Claude already checked" className={`rounded-full border px-2 py-0.5 text-xs ${size === "recheck" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>Re-check all ({pool.length})</button>}
             </div>
@@ -1767,26 +1771,30 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
 // Find websites with Claude: free on your own plan. Picks leads with no website, Claude finds the real one or confirms there isn't one.
 function FindSitesModal({ leads, preset, onClose, onApply }) {
   const pool = sorted(leads.filter((l) => !l.website && siteSearchable(l))).sort((a, b) => (a.sitesCheckedAt ? 1 : 0) - (b.sitesCheckedAt ? 1 : 0));
-  const [size, setSize] = useState(5);
-  const [picked, setPicked] = useState(() => (preset.length ? preset : pool.filter((l) => !l.sitesCheckedAt).slice(0, 5).map((l) => l.id)));
+  const [size, setSize] = useState("all");
+  const [picked, setPicked] = useState(() => (preset.length ? preset : pool.filter((l) => !l.sitesCheckedAt && !sentIds("find-sites").has(l.id)).map((l) => l.id)));
   const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState(false);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
   const items = picked.map((id) => leads.find((l) => l.id === id)).filter(Boolean).map((l) => ({
-    id: l.id, business: l.business, companyNumber: l.companyNumber, address: l.address || l.area, town: l.tradingTown || "", what: l.whatTheyDo || sicDescription(l.sics || []),
+    id: l.id, business: l.business, companyNumber: l.companyNumber, address: [l.address || l.area, l.tradingTown && `trades in ${l.tradingTown}`].filter(Boolean).join("; "), sic: l.whatTheyDo || sicDescription(l.sics || []), website: "",
+    issue: "No website found by our checks",
+    contacts: (l.contacts || []).filter((p) => p.email).slice(0, 5).map((p) => `${p.name} (${p.role}, ${p.email})`).join("; "),
     people: (l.contacts || []).filter((p) => /Companies House/.test(p.source || "")).slice(0, 4).map((p) => `${p.name} (${p.role})`).join("; "),
     rejected: (l.rejectedSites || []).join(", "),
   }));
-  const prompt = items.length ? findSitesPrompt(items) : "";
+  // One prompt does both jobs: find the website, then the full lead check (contact, verdict, email).
+  const prompt = items.length ? leadCheckPrompt(items, { findSite: true }) : "";
   // Copying sends the batch to Claude and moves straight on to the next one, so several can run at once.
   async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("find-sites", picked); nextBatch(size, picked); }
-  const nextBatch = (n, done = []) => { setSize(n); const waiting = sentIds("find-sites"); setPicked(pool.filter((l) => !l.sitesCheckedAt && !done.includes(l.id) && !waiting.has(l.id)).slice(0, n).map((l) => l.id)); };
+  const nextBatch = (n, done = []) => { setSize(n); const waiting = sentIds("find-sites"); setPicked(pool.filter((l) => !l.sitesCheckedAt && !done.includes(l.id) && !waiting.has(l.id)).slice(0, n === "all" ? undefined : n).map((l) => l.id)); };
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   return (
         <div className="space-y-4 text-sm">
           <div>
             <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">1. Pick leads</span><span className="text-xs text-zinc-500">Next unsearched:</span>
-              {[1, 3, 5, 8].map((n) => <button key={n} onClick={() => nextBatch(n)} className={`rounded-full border px-2 py-0.5 text-xs ${size === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{n}</button>)}
+              {[50, 100].map((n) => <button key={n} onClick={() => nextBatch(n)} className={`rounded-full border px-2 py-0.5 text-xs ${size === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{n}</button>)}
+              <button onClick={() => nextBatch("all")} className={`rounded-full border px-2 py-0.5 text-xs ${size === "all" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>All ({pool.filter((l) => !l.sitesCheckedAt).length})</button>
             </div>
             <div className="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
               {pool.map((l) => <button key={l.id} onClick={() => toggle(l.id)} className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(l.id) ? "border-amber-500 bg-amber-100 text-amber-900" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{l.business}{l.sitesCheckedAt ? " ✓" : ""}</button>)}
