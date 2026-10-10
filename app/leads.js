@@ -5,7 +5,7 @@ import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
 import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, MAPS_TYPES, findSitesPrompt, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
-import { useClaudeHandler, markSent, sentIds, PasteHint } from "@/app/claudeInbox";
+import { useClaudeHandler, markSent, sentIds, PasteHint, reportProgress } from "@/app/claudeInbox";
 
 // Website leads: local businesses whose site is letting them down, found
 // through Companies House and worked through a pipeline board.
@@ -661,8 +661,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     // Once Claude's answers are in: rescan any lead on a new website, then look for contacts again on every
     // checked lead that still has no address (the site, Companies House, then Hunter under the usual rules).
     setTimeout(async () => {
-      for (const id of doneIds) { const x = leadsRef.current[id]; if (x && !x.website && x.problem === "No website" && !isFrozen(x)) await tryObviousDomain(id); }
-      if (rescan.length) await refreshLeads(rescan);
+      const noSite = doneIds.filter((id) => { const x = leadsRef.current[id]; return x && !x.website && x.problem === "No website" && !isFrozen(x); });
+      if (noSite.length) await afterPaste("Lead check", noSite, rescan);
+      else if (rescan.length) await refreshLeads(rescan);
       const need = doneIds.filter((id) => { const x = leadsRef.current[id]; return x && x.website && !x.emailAddress && !isFrozen(x) && !x.optedOut && !claudeSkip(x) && !/under £|already a client|dormant/i.test(parkReason(x)); });
       // A contact found here moves the lead to To assess (retryContacts does that for every lead it finds an address for).
       if (need.length && !stopRef.current) await retryContacts(need);
@@ -673,7 +674,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   // rescanned and contacts retried); a proper search that finds nothing confirms they have no website.
   // Before a lead is stamped "no website": try the company name on .co.uk and .com. A live site goes on the
   // lead for someone to confirm (and the lead is rescanned on it); true if one was found.
-  async function tryObviousDomain(id) {
+  async function tryObviousDomain(id, { refresh = true } = {}) {
     const l = leadsRef.current[id];
     if (!l || l.website) return false;
     let domain = "";
@@ -681,12 +682,33 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     if (!domain || (l.rejectedSites || []).includes(domain)) return false;
     const cur = leadsRef.current[id];
     update(id, { website: domain, websiteConfirmed: false, websiteVerified: "", websiteEvidence: "the company name on .co.uk / .com", websiteNeeded: false, noWebsiteConfirmed: false, ...(cur.problem === "No website" ? { problem: "", problemDetail: "" } : {}), ...(cur.claude ? { claude: { ...cur.claude, issue_confirmed: false } } : {}), notesLog: [...(cur.notesLog || []), { at: new Date().toISOString(), text: `Found ${domain} by trying the company name before marking it as having no website` }] });
-    await refreshLeads([id]);
+    if (refresh) await refreshLeads([id]);
     return true;
   }
-  async function applySites(list) {
+  // Slow follow-up work after a paste (name checks, rescans, contacts) runs here in the background,
+  // with a progress bar in the Claude window, so the paste itself finishes straight away.
+  async function afterPaste(label, checkIds, rescan, stampNone = null) {
+    const job = `${label}:${Date.now()}`;
+    const total = checkIds.length;
+    let done = 0;
+    if (total) reportProgress(job, `${label}: trying the company names on .co.uk and .com`, 0, total);
+    const queue = [...checkIds];
+    await Promise.all([0, 1, 2].map(async () => {
+      while (queue.length) {
+        const id = queue.shift();
+        if (await tryObviousDomain(id, { refresh: false })) rescan.push(id);
+        else stampNone?.(id);
+        done++; reportProgress(job, `${label}: trying the company names on .co.uk and .com`, done, total);
+      }
+    }));
+    if (rescan.length) { reportProgress(job, `${label}: rescanning ${rescan.length} lead${rescan.length === 1 ? "" : "s"} on their website (progress on the board)`, 0, 1); await refreshLeads(rescan); }
+    const need = rescan.filter((id) => { const x = leadsRef.current[id]; return x && x.website && !x.emailAddress && !isFrozen(x) && !x.optedOut; });
+    if (need.length && !stopRef.current) { reportProgress(job, `${label}: looking for contacts`, 0, 1); await retryContacts(need); }
+    reportProgress(job, `${label}: finished`, 1, 1);
+  }
+  function applySites(list) {
     let found = 0, none = 0, unsure = 0, left = 0;
-    const rescan = [];
+    const rescan = [], noneIds = [], noneInfo = {};
     for (const it of list) {
       const l = leadsRef.current[it.lead_id];
       if (!l || l.website || !siteSearchable(l)) { left++; continue; }
@@ -700,16 +722,13 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         update(l.id, { sitesCheckedAt: at, siteSuggestion: it.website, notesLog: [...(l.notesLog || []), { at, text: `Claude thinks the website might be ${it.website} but isn’t sure: ${it.evidence}` }] });
         unsure++;
       } else if (it.has_website === false) {
-        if (await tryObviousDomain(l.id)) { found++; continue; }
-        update(l.id, { websiteNeeded: false, noWebsiteConfirmed: true, sitesCheckedAt: at, problem: "No website", problemDetail: `Claude searched and found no website${it.other ? ` (only ${it.other})` : ""}.`, caveats: String(l.caveats || "").split("; ").filter((x) => x && !/not found by name|could trade under another name/i.test(x)).join("; ") });
-        none++;
+        noneIds.push(l.id); noneInfo[l.id] = it; none++;
+        continue;
       } else { update(l.id, { sitesCheckedAt: at }); unsure++; }
     }
-    setTimeout(async () => {
-      if (rescan.length) await refreshLeads(rescan);
-      const need = rescan.filter((id) => { const x = leadsRef.current[id]; return x && x.website && !x.emailAddress && !isFrozen(x) && !x.optedOut; });
-      if (need.length && !stopRef.current) await retryContacts(need);
-    }, 100);
+    // "No website" is only stamped once the company name has been tried on .co.uk and .com.
+    const stampNone = (id) => { const it = noneInfo[id]; const l = leadsRef.current[id]; if (!l || l.website) return; update(id, { websiteNeeded: false, noWebsiteConfirmed: true, sitesCheckedAt: new Date().toISOString(), problem: "No website", problemDetail: `Claude searched and found no website${it.other ? ` (only ${it.other})` : ""}.`, caveats: String(l.caveats || "").split("; ").filter((x) => x && !/not found by name|could trade under another name/i.test(x)).join("; ") }); };
+    setTimeout(() => afterPaste("Website search", noneIds, rescan, stampNone), 50);
     return { found, none, unsure, left, ids: list.map((x) => x.lead_id) };
   }
   // Replies pasted into the one "Paste from Claude" box land here, whichever prompt they came from.
@@ -719,9 +738,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     const r = applyLeadCheck(list);
     return [`${r.done} lead${r.done === 1 ? "" : "s"} updated`, r.left && `${r.left} left alone (Ready to send or in conversation)`, r.moved.back && `${r.moved.back} back to To assess`, r.moved.skip && `${r.moved.skip} to Not pursuing`, r.rescanned && `${r.rescanned} rescanning on a new website`].filter(Boolean).join(" · ");
   });
-  useClaudeHandler("find-sites", async (text) => {
-    const r = await applySites(parseSitesReply(text));
-    return [r.found && `${r.found} website${r.found === 1 ? "" : "s"} found (rescanning)`, r.none && `${r.none} confirmed with no website`, r.unsure && `${r.unsure} unsure (noted on the lead)`, r.left && `${r.left} left alone`].filter(Boolean).join(" · ") || "Nothing to update.";
+  useClaudeHandler("find-sites", (text) => {
+    const r = applySites(parseSitesReply(text));
+    return [r.found && `${r.found} website${r.found === 1 ? "" : "s"} found (rescanning)`, r.none && `${r.none} with no website (trying their names on .co.uk/.com first)`, r.unsure && `${r.unsure} unsure (noted on the lead)`, r.left && `${r.left} left alone`].filter(Boolean).join(" · ") || "Nothing to update.";
   });
   useClaudeHandler("find-leads", (text) => {
     const items = parseFoundLeads(text);

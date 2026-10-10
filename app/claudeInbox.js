@@ -51,6 +51,8 @@ export function markSent(kind, ids) {
 }
 export function sentIds(kind) { const s = loadSent()[kind] || {}; const now = Date.now(); return new Set(Object.entries(s).filter(([, t]) => now - t < 2 * 86400000).map(([id]) => id)); }
 export const openInbox = () => window.dispatchEvent(new Event("open-claude-inbox"));
+// Background work after a paste reports here; the Claude window shows a bar per job.
+export const reportProgress = (id, label, done, total) => window.dispatchEvent(new CustomEvent("claude-progress", { detail: { id, label, done, total } }));
 
 // Small reminder for each "copy the prompt" panel.
 export function PasteHint({ className = "" }) {
@@ -62,6 +64,17 @@ export function ClaudeInbox() {
   const [text, setText] = useState("");
   const [log, setLog] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [jobs, setJobs] = useState({});
+  useEffect(() => {
+    const on = (e) => {
+      const { id, label, done, total } = e.detail || {};
+      setJobs((j) => ({ ...j, [id]: { label, done, total } }));
+      if (total && done >= total && /finished/.test(label)) setTimeout(() => setJobs((j) => { const n = { ...j }; delete n[id]; return n; }), 4000);
+    };
+    window.addEventListener("claude-progress", on);
+    return () => window.removeEventListener("claude-progress", on);
+  }, []);
+  const active = Object.entries(jobs);
   useEffect(() => { const o = () => setOpen(true); window.addEventListener("open-claude-inbox", o); return () => window.removeEventListener("open-claude-inbox", o); }, []);
   useEffect(() => { if (!open) return; const k = (e) => { if (e.key === "Escape") setOpen(false); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [open]);
   async function take(t) {
@@ -77,7 +90,7 @@ export function ClaudeInbox() {
   }
   return (
     <>
-      <button onClick={() => setOpen(true)} className="whitespace-nowrap rounded-md bg-orange-600 px-3 py-1 text-sm font-medium text-white hover:bg-orange-700">Paste from Claude</button>
+      <button onClick={() => setOpen(true)} className="whitespace-nowrap rounded-md bg-orange-600 px-3 py-1 text-sm font-medium text-white hover:bg-orange-700">Paste from Claude{active.some(([, j]) => j.done < j.total) && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-white align-middle" />}</button>
       {open && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={() => setOpen(false)}>
           <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -93,6 +106,16 @@ export function ClaudeInbox() {
                 <button onClick={() => take(text)} disabled={!text.trim() || busy} className="rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">{busy ? "Adding…" : "Add"}</button>
                 <span className="text-[11px] text-zinc-500">Works for: {Object.values(KIND_LABEL).join(", ")}.</span>
               </div>
+              {active.length > 0 && (
+                <div className="space-y-2 rounded-md bg-zinc-50 p-2">
+                  {active.map(([id, j]) => (
+                    <div key={id} className="text-xs">
+                      <div className="flex justify-between text-zinc-700"><span>{j.label}</span>{j.total > 1 && <span className="text-zinc-500">{j.done} of {j.total}</span>}</div>
+                      <div className="mt-1 h-1.5 overflow-hidden rounded bg-zinc-200"><div className={`h-full ${j.done >= j.total ? "bg-emerald-500" : "bg-blue-500"} transition-all`} style={{ width: `${j.total ? Math.max(4, Math.round((j.done / j.total) * 100)) : 4}%` }} /></div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {log.length > 0 && (
                 <ul className="space-y-1 border-t border-zinc-100 pt-2">
                   {log.map((x, n) => (
