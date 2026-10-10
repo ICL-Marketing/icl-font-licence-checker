@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, MAPS_TYPES, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, MAPS_TYPES, findSitesPrompt, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 
 // Website leads: local businesses whose site is letting them down, found
@@ -111,6 +111,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const [mapsWhat, setMapsWhatState] = useState(() => { try { return localStorage.getItem("flc-leads-maps") || ""; } catch { return ""; } });
   const setMapsWhat = (v) => { setMapsWhatState(v); try { localStorage.setItem("flc-leads-maps", v); } catch {} };
   const [findClaude, setFindClaude] = useState(false);
+  const [sitesFor, setSitesFor] = useState(null); // null closed, { ids: [] } next batch, { ids: [id] } one lead
   const [claudeFor, setClaudeFor] = useState(null); // null closed, [] next batch, [id] one lead
   const [filter, setFilter] = useState("");
   const [showProblem, setShowProblem] = useState("");
@@ -643,6 +644,35 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     }, 100);
     return { done, left, doneIds, rescanned: rescan.length, moved, retry: doneIds.length };
   }
+  // Claude's website search: a site it can tie to the company becomes the lead's website (confirmed, then
+  // rescanned and contacts retried); a proper search that finds nothing confirms they have no website.
+  function applySites(list) {
+    let found = 0, none = 0, unsure = 0, left = 0;
+    const rescan = [];
+    for (const it of list) {
+      const l = leadsRef.current[it.lead_id];
+      if (!l || l.website || !siteSearchable(l)) { left++; continue; }
+      const at = new Date().toISOString();
+      const rejected = (l.rejectedSites || []).map((x) => String(x).toLowerCase());
+      if (it.website && it.confidence !== "low" && !rejected.includes(it.website)) {
+        const parkedForFacts = /under £|already a client|dormant/i.test(parkReason(l));
+        update(l.id, { website: it.website, websiteConfirmed: true, websiteVerified: "checked by Claude", websiteEvidence: it.evidence || "checked by Claude", websiteNeeded: false, websiteDoubt: "", siteUrl: "", sitesCheckedAt: at, noWebsiteConfirmed: false, claude: null, claudeFields: [], ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}), ...(["not-pursuing", "no-contact"].includes(l.status) && !parkedForFacts ? { status: "new" } : {}), caveats: String(l.caveats || "").split("; ").filter((x) => x && !/no website|not found by name|confirm the website/i.test(x)).join("; ") });
+        rescan.push(l.id); found++;
+      } else if (it.website) {
+        update(l.id, { sitesCheckedAt: at, siteSuggestion: it.website, notesLog: [...(l.notesLog || []), { at, text: `Claude thinks the website might be ${it.website} but isn’t sure: ${it.evidence}` }] });
+        unsure++;
+      } else if (it.has_website === false) {
+        update(l.id, { websiteNeeded: false, noWebsiteConfirmed: true, sitesCheckedAt: at, problem: "No website", problemDetail: `Claude searched and found no website${it.other ? ` (only ${it.other})` : ""}.`, caveats: String(l.caveats || "").split("; ").filter((x) => x && !/not found by name|could trade under another name/i.test(x)).join("; ") });
+        none++;
+      } else { update(l.id, { sitesCheckedAt: at }); unsure++; }
+    }
+    setTimeout(async () => {
+      if (rescan.length) await refreshLeads(rescan);
+      const need = rescan.filter((id) => { const x = leadsRef.current[id]; return x && x.website && !x.emailAddress && !isFrozen(x) && !x.optedOut; });
+      if (need.length && !stopRef.current) await retryContacts(need);
+    }, 100);
+    return { found, none, unsure, left, ids: list.map((x) => x.lead_id) };
+  }
   async function checkLicence(l) {
     update(l.id, { checking: true, error: "" });
     try { const { lead } = await post({ step: "licence", lead: l }); update(l.id, { ...lead, checking: false, error: lead.licence?.error || "" }); }
@@ -791,11 +821,12 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         </div>
       )}
       {findClaude && <FindLeadsModal area={areaCentres.join(", ")} miles={areaMiles} exclude={list.slice(-80).map((l) => l.business)} onClose={() => setFindClaude(false)} onAdd={(items) => { setFindClaude(false); findOutside("claude", items.map((x) => ({ id: `cl:${slug(x.name)}${slug(x.town)}`, name: x.name, companyNumber: x.companyNumber, website: x.website, websiteEvidence: x.website ? "checked by Claude" : "", town: x.town, postcode: x.postcode, whatTheyDo: x.whatTheyDo, issue: x.issue, why: x.why, contact: x.contact, source: "Claude", triggerKind: "claude", trigger: x.why }))); }} />}
+      {sitesFor && <FindSitesModal leads={list} preset={sitesFor.ids} onClose={() => setSitesFor(null)} onApply={applySites} />}
       {claudeFor && <LeadCheckModal leads={list} preset={claudeFor.ids} column={claudeFor.col} onClose={() => setClaudeFor(null)} onApply={applyLeadCheck} />}
-      <Board onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} onClaude={(col) => setClaudeFor({ col, ids: [] })} leads={visible} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
+      <Board onFindSites={() => setSitesFor({ ids: [] })} onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} onClaude={(col) => setClaudeFor({ col, ids: [] })} leads={visible} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status }); }} />
 
-      {current && <LeadDrawer key={current.id} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => setClaudeFor({ col: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new", ids: [current.id] })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
+      {current && <LeadDrawer key={current.id} onFindSite={() => setSitesFor({ ids: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => setClaudeFor({ col: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new", ids: [current.id] })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
   );
 }
@@ -806,9 +837,11 @@ const parkReason = (l) => { const m = `${l.caveats || ""}; ${l.likelihoodWhy || 
 const oneLine = (t) => { let x = String(t || "").replace(/\s*\([^)]*\)/g, "").replace(/\s+/g, " ").trim(); const m = x.match(/^(.+?[.!?])(\s|$)/); if (m) x = m[1]; return x.length > 170 ? `${x.slice(0, 167).replace(/\s+\S*$/, "")}…` : x; };
 // Only Claude's own verdict parks a lead: an unconfirmed issue is fine when Claude still says to contact them.
 // Claude couldn't find their real website: that's for us to look up, not a reason to park the lead.
-const websiteUnknown = (l) => !!l.claude && l.claude.website_is_theirs === false && !l.claude.correct_website && !l.website;
+const websiteUnknown = (l) => !!l.claude && l.claude.website_is_theirs === false && !l.claude.correct_website && !l.website && !l.noWebsiteConfirmed;
 const claudeSkip = (l) => !!l.claude && !l.claude.worth_contacting && !websiteUnknown(l) && !l.websiteNeeded;
 // Parked for a reason Claude could change (contact, site, issue), not a fact like size, dormancy or being a client.
+// No website found yet and still worth one: open, not opted out, not parked for size, dormancy or being a client.
+const siteSearchable = (l) => !isFrozen(l) && !l.optedOut && !l.noWebsiteConfirmed && ["new", "no-contact", "not-pursuing"].includes(l.status || "new") && !/under £|already a client|dormant/i.test(parkReason(l));
 const recheckable = (l) => !isFrozen(l) && !l.optedOut && !(l.review?.done && l.status === "not-pursuing") && !claudeSkip(l) && (l.status === "no-contact" || (l.status === "not-pursuing" && !/under £|already a client|dormant/i.test(parkReason(l))));
 // The same reason spelled out with the numbers, for the top of the lead page.
 function parkExplain(l) {
@@ -846,7 +879,7 @@ const PLACES = {
 const movedRecently = (l) => { const t = Date.parse(l.statusAt || ""); return Number.isFinite(t) && Date.now() - t < 86400000 ? t : 0; };
 const sorted = (list) => list.slice().sort((a, b) => movedRecently(b) - movedRecently(a) || ({ High: 0, Medium: 1, Low: 2 }[a.likelihood] ?? 3) - ({ High: 0, Medium: 1, Low: 2 }[b.likelihood] ?? 3) || (b.netAssets || 0) - (a.netAssets || 0));
 
-function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn, onOpen, onMove, onClaude, onReview }) {
+function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn, onOpen, onMove, onClaude, onReview, onFindSites }) {
   const [over, setOver] = useState(null);
   const [shown, setShown] = useState({}); // cards rendered per column; big columns page in
   // While searching or filtering, only columns with a match are shown.
@@ -863,6 +896,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
             <span>{c.label}</span><span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{c.items.length}</span>
           </div>
           <div className="px-1 pb-2 text-[11px] font-normal text-zinc-500">{c.hint}</div>
+          {(() => { const n = c.items.filter((l) => !l.website && siteSearchable(l) && !l.sitesCheckedAt).length; return n > 0 && <button onClick={onFindSites} title="Free on your Claude plan: Claude searches for each company's real website, or confirms they don't have one" className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100">Find websites with Claude ({n})</button>; })()}
           {(c.id === "new" || c.id === "no-contact") && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.id)} title="Go through these one at a time: look at the site, pick the issue and approach, then draft the email with Claude" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
           {(c.id === "new" || c.id === "no-contact" || c.id === "not-pursuing") && (() => { const todo = c.items.filter((l) => !l.claude && (c.id === "new" || recheckable(l))).length; return c.items.length > 0 && <button onClick={() => onClaude(c.id)} title={c.id === "new" ? "Free on your Claude plan: Claude checks the website, the issue and the best contact for a batch of leads" : "Claude re-checks parked leads: anything worth pursuing with a published email moves back to To assess (size, dormant and existing clients are left out)"} className="mx-1 mb-2 inline-flex items-center justify-center gap-1 rounded-md border border-orange-300 bg-orange-50 px-2 py-1 text-[11px] font-medium text-orange-900 hover:bg-orange-100"><SearchIcon className="h-3 w-3" /> {c.id === "new" ? "Check" : "Re-check"} with Claude ({todo} to check)</button>; })()}
           <div className="flex flex-1 flex-col gap-2">
@@ -881,6 +915,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                   {l.review?.step > 1 && !l.review?.done && ["new", "no-contact"].includes(c.id) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="Review in progress">Step {l.review.step}/3</span>}
                   {TRIGGER_TAG[l.triggerKind] && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 font-semibold text-violet-800" title={l.trigger}>{TRIGGER_TAG[l.triggerKind]}</span>}
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
+                  {l.noWebsiteConfirmed && !l.website && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title={l.problemDetail}>No site ✓</span>}
                   {l.websiteNeeded && !l.website && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="Claude couldn't find their real website. Open the lead to paste it in, or confirm they have none.">Find website</span>}
                   {l.claude && !l.websiteNeeded && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${l.claude.worth_contacting ? "bg-orange-100 text-orange-800" : "bg-red-100 text-red-800"}`} title={l.claude.reason}>{l.claude.worth_contacting ? "Claude ✓" : "Claude: skip"}</span>}
                   {l.optedOut && <span className="rounded-full bg-red-600 px-1.5 py-0.5 font-semibold text-white" title={`Asked not to be contacted${l.optedOutAt ? ` on ${new Date(l.optedOutAt).toLocaleDateString("en-GB")}` : ""}`}>Opted out</span>}
@@ -1055,7 +1090,7 @@ function FollowUp({ l, onChange }) {
   );
 }
 
-function LeadDrawer({ onNext, onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjects = {}, onClose, onChange, onRemove, onRecheck, onContacts, onHunter, onLicence, onRefresh }) {
+function LeadDrawer({ onFindSite, onNext, onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjects = {}, onClose, onChange, onRemove, onRecheck, onContacts, onHunter, onLicence, onRefresh }) {
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
   const [optingOut, setOptingOut] = useState(false);
@@ -1346,6 +1381,7 @@ function LeadDrawer({ onNext, onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunter
           </>}
         </div></div>
         <div className="shrink-0 flex flex-wrap items-center gap-2 border-t border-zinc-200 bg-white px-5 py-3 text-xs shadow-[0_-6px_12px_-8px_rgba(0,0,0,0.15)]">
+          {!l.website && siteSearchable(l) && <button onClick={onFindSite} className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-amber-900 hover:bg-amber-100"><SearchIcon className="h-3.5 w-3.5" /> Find website with Claude</button>}
           {["new", "no-contact", "not-pursuing"].includes(l.status) && !isFrozen(l) && <button onClick={onClaude} className="inline-flex items-center gap-1 rounded-md border border-orange-300 bg-orange-50 px-2.5 py-1 text-orange-900 hover:bg-orange-100"><SearchIcon className="h-3.5 w-3.5" /> Check with Claude</button>}
           <button onClick={() => onRefresh()} disabled={l.checking} className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2.5 py-1 font-medium text-white disabled:opacity-40"><RefreshIcon className="h-3.5 w-3.5" /> Rescan this lead</button>
           {!l.optedOut
@@ -1636,6 +1672,74 @@ function ReviewSteps({ l, onChange, issues, person, subjects, commitWebsite, rej
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Find websites with Claude: free on your own plan. Picks leads with no website, Claude finds the real one or confirms there isn't one.
+function FindSitesModal({ leads, preset, onClose, onApply }) {
+  const pool = sorted(leads.filter((l) => !l.website && siteSearchable(l))).sort((a, b) => (a.sitesCheckedAt ? 1 : 0) - (b.sitesCheckedAt ? 1 : 0));
+  const [size, setSize] = useState(5);
+  const [picked, setPicked] = useState(() => (preset.length ? preset : pool.filter((l) => !l.sitesCheckedAt).slice(0, 5).map((l) => l.id)));
+  const [reply, setReply] = useState("");
+  const [msg, setMsg] = useState("");
+  const [copied, setCopied] = useState(false);
+  useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
+  const items = picked.map((id) => leads.find((l) => l.id === id)).filter(Boolean).map((l) => ({
+    id: l.id, business: l.business, companyNumber: l.companyNumber, address: l.address || l.area, town: l.tradingTown || "", what: l.whatTheyDo || sicDescription(l.sics || []),
+    people: (l.contacts || []).filter((p) => /Companies House/.test(p.source || "")).slice(0, 4).map((p) => `${p.name} (${p.role})`).join("; "),
+    rejected: (l.rejectedSites || []).join(", "),
+  }));
+  const prompt = items.length ? findSitesPrompt(items) : "";
+  async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); }
+  const nextBatch = (n, done = []) => { setSize(n); setPicked(pool.filter((l) => !l.sitesCheckedAt && !done.includes(l.id)).slice(0, n).map((l) => l.id)); };
+  const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  function doApply() {
+    try {
+      const list = parseSitesReply(reply);
+      if (!list.length) { setMsg("No leads found in the reply. Make sure Claude kept the lead_id values."); return; }
+      const r = onApply(list);
+      setMsg([r.found && `${r.found} website${r.found === 1 ? "" : "s"} found (rescanning now)`, r.none && `${r.none} confirmed with no website`, r.unsure && `${r.unsure} unsure (noted on the lead)`, r.left && `${r.left} left alone`].filter(Boolean).join(" · ") || "Nothing to update.");
+      setReply(""); nextBatch(size, r.ids);
+    } catch (e) { setMsg(e.message); }
+  }
+  return (
+    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
+      <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3">
+          <h3 className="text-lg font-semibold">Find websites with Claude</h3><span className="text-xs text-zinc-500">Free on your Claude plan</span>
+          <button onClick={onClose} aria-label="Close" className="ml-auto rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button>
+        </div>
+        <div className="space-y-4 px-5 py-4 text-sm">
+          <div>
+            <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">1. Pick leads</span><span className="text-xs text-zinc-500">Next unsearched:</span>
+              {[1, 3, 5, 8].map((n) => <button key={n} onClick={() => nextBatch(n)} className={`rounded-full border px-2 py-0.5 text-xs ${size === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{n}</button>)}
+            </div>
+            <div className="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
+              {pool.map((l) => <button key={l.id} onClick={() => toggle(l.id)} className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(l.id) ? "border-amber-500 bg-amber-100 text-amber-900" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{l.business}{l.sitesCheckedAt ? " ✓" : ""}</button>)}
+            </div>
+            <p className="mt-1 text-[11px] text-zinc-500">{picked.length} picked · {pool.filter((l) => !l.sitesCheckedAt).length} still to search · ✓ searched before. Biggest companies first.</p>
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">2. Run it in Claude</span>
+              <span className="ml-auto flex gap-2">
+                <button onClick={() => copy(false)} disabled={!prompt} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-40">{copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />} Copy prompt</button>
+                <button onClick={() => copy(true)} disabled={!prompt} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"><ExternalIcon /> Copy and open Claude</button>
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-zinc-500">Paste it into a new chat with web search on.</p>
+          </div>
+          <div>
+            <span className="font-semibold">3. Paste Claude’s reply</span>
+            <textarea value={reply} onChange={(e) => { setReply(e.target.value); setMsg(""); }} rows={5} placeholder="Paste the whole reply here (the JSON block)" className="mt-1 w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" />
+            <div className="mt-1 flex items-center gap-2">
+              <button onClick={doApply} disabled={!reply.trim()} className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">Update leads</button>
+              {msg && <span className="text-xs text-zinc-700">{msg}</span>}
+            </div>
+            <p className="mt-1 text-[11px] text-zinc-500">A site Claude can tie to the company becomes their website and the lead is rescanned. “No website” is recorded as confirmed. Low-confidence guesses are only noted.</p>
+          </div>
+        </div>
       </div>
     </div>
   );
