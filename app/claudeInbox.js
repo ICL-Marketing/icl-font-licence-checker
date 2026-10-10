@@ -16,6 +16,21 @@ export function useClaudeHandler(kind, fn) {
   }, [kind]);
 }
 
+// Prompt jobs: each part of the app registers the jobs it can write a prompt for, so they all live in one window.
+const promptJobs = new Map(); // id -> { label, order, count(), render(opts, close) }
+export function useClaudeJob(id, job) {
+  const ref = useRef(job);
+  useEffect(() => { ref.current = job; window.dispatchEvent(new Event("claude-jobs")); });
+  useEffect(() => {
+    const j = { get label() { return ref.current.label; }, get order() { return ref.current.order ?? 9; }, count: () => ref.current.count?.(), render: (o, c) => ref.current.render(o, c) };
+    promptJobs.set(id, j);
+    window.dispatchEvent(new Event("claude-jobs"));
+    return () => { if (promptJobs.get(id) === j) promptJobs.delete(id); };
+  }, [id]);
+}
+// Open the Claude window: { tab: "prompt" | "paste", job, preset: [ids], column }.
+export const openClaude = (detail = {}) => window.dispatchEvent(new CustomEvent("open-claude-inbox", { detail }));
+
 export const KIND_LABEL = { "lead-check": "Lead check", "find-sites": "Website search", "find-leads": "New leads", draft: "Email draft", "client-research": "Client research" };
 
 function jsonOf(text) {
@@ -50,17 +65,21 @@ export function markSent(kind, ids) {
   try { localStorage.setItem(SENT_KEY, JSON.stringify(s)); } catch {}
 }
 export function sentIds(kind) { const s = loadSent()[kind] || {}; const now = Date.now(); return new Set(Object.entries(s).filter(([, t]) => now - t < 2 * 86400000).map(([id]) => id)); }
-export const openInbox = () => window.dispatchEvent(new Event("open-claude-inbox"));
+export const openInbox = () => openClaude({ tab: "paste" });
 // Background work after a paste reports here; the Claude window shows a bar per job.
 export const reportProgress = (id, label, done, total) => window.dispatchEvent(new CustomEvent("claude-progress", { detail: { id, label, done, total } }));
 
 // Small reminder for each "copy the prompt" panel.
 export function PasteHint({ className = "" }) {
-  return <p className={`text-xs text-zinc-600 ${className}`}>Paste Claude’s reply into <button onClick={openInbox} className="font-semibold text-orange-700 underline">Paste from Claude</button> (top right). Any reply, any order: it knows where each one goes.</p>;
+  return <p className={`text-xs text-zinc-600 ${className}`}>When Claude answers, paste its reply in <button onClick={openInbox} className="font-semibold text-orange-700 underline">Paste a reply</button>. Any reply, any order: it knows where each one goes. Copying moves on to the next batch, so you can run several chats at once.</p>;
 }
 
 export function ClaudeInbox() {
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState("prompt");
+  const [job, setJob] = useState({ id: "", opts: {}, n: 0 });
+  const [, setTick] = useState(0);
+  useEffect(() => { const t = () => setTick((n) => n + 1); window.addEventListener("claude-jobs", t); return () => window.removeEventListener("claude-jobs", t); }, []);
   const [text, setText] = useState("");
   const [log, setLog] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -75,7 +94,20 @@ export function ClaudeInbox() {
     return () => window.removeEventListener("claude-progress", on);
   }, []);
   const active = Object.entries(jobs);
-  useEffect(() => { const o = () => setOpen(true); window.addEventListener("open-claude-inbox", o); return () => window.removeEventListener("open-claude-inbox", o); }, []);
+  useEffect(() => {
+    const o = (e) => {
+      const d = e.detail || {};
+      setOpen(true);
+      setTab(d.tab || (d.job ? "prompt" : "prompt"));
+      if (d.job) setJob((j) => ({ id: d.job, opts: { preset: d.preset || [], column: d.column }, n: j.n + 1 }));
+    };
+    window.addEventListener("open-claude-inbox", o);
+    return () => window.removeEventListener("open-claude-inbox", o);
+  }, []);
+  const list = [...promptJobs.entries()].sort((a, b) => a[1].order - b[1].order);
+  const currentId = promptJobs.has(job.id) ? job.id : list[0]?.[0] || "";
+  const current = promptJobs.get(currentId);
+  const close = () => setOpen(false);
   useEffect(() => { if (!open) return; const k = (e) => { if (e.key === "Escape") setOpen(false); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [open]);
   async function take(t) {
     const kind = detectReply(t);
@@ -90,15 +122,26 @@ export function ClaudeInbox() {
   }
   return (
     <>
-      <button onClick={() => setOpen(true)} className="whitespace-nowrap rounded-md bg-orange-600 px-3 py-1 text-sm font-medium text-white hover:bg-orange-700">Paste from Claude{active.some(([, j]) => j.done < j.total) && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-white align-middle" />}</button>
+      <button onClick={() => setOpen(true)} title="Get a prompt for Claude, or paste a reply" className="whitespace-nowrap rounded-md bg-orange-600 px-3 py-1 text-sm font-medium text-white hover:bg-orange-700">Claude{active.some(([, j]) => j.done < j.total) && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-white align-middle" />}</button>
       {open && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={() => setOpen(false)}>
-          <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3">
-              <h3 className="text-lg font-semibold">Paste from Claude</h3><span className="text-xs text-zinc-500">Any reply from any prompt in the app</span>
+          <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 border-b border-zinc-200 px-5 py-3">
+              <h3 className="text-lg font-semibold">Claude</h3><span className="text-xs text-zinc-500">Free on your Claude plan</span>
+              <div className="ml-4 inline-flex rounded-md border border-zinc-300 p-0.5 text-sm">
+                {[["prompt", "1. Get a prompt"], ["paste", "2. Paste a reply"]].map(([k, label]) => <button key={k} onClick={() => setTab(k)} className={`rounded px-3 py-1 ${tab === k ? "bg-orange-600 font-medium text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>{label}</button>)}
+              </div>
               <button onClick={() => setOpen(false)} aria-label="Close" className="ml-auto rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button>
             </div>
-            <div className="space-y-3 px-5 py-4 text-sm">
+            {tab === "prompt" && (
+              <div className="space-y-4 px-5 py-4 text-sm">
+                <div className="flex flex-wrap gap-1.5">
+                  {list.map(([id, j]) => { const n = j.count(); return <button key={id} onClick={() => setJob((x) => ({ id, opts: {}, n: x.n + 1 }))} className={`rounded-full border px-3 py-1 text-xs font-medium ${currentId === id ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{j.label}{n ? ` (${n})` : ""}</button>; })}
+                </div>
+                {current ? <div key={`${currentId}:${job.n}`}>{current.render(currentId === job.id ? job.opts : {}, close)}</div> : <p className="text-xs text-zinc-500">Open Website Leads or Client Ideas once to load their prompts.</p>}
+              </div>
+            )}
+            {tab === "paste" && <div className="space-y-3 px-5 py-4 text-sm">
               <textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} onPaste={(e) => { const t = e.clipboardData.getData("text"); if (detectReply(t)) { e.preventDefault(); take(t); } }} rows={6}
                 placeholder="Paste Claude's reply here. It's added as soon as you paste; paste the next one straight after."
                 className="w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" />
@@ -127,7 +170,7 @@ export function ClaudeInbox() {
                   ))}
                 </ul>
               )}
-            </div>
+            </div>}
           </div>
         </div>
       )}

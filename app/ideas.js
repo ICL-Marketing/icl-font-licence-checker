@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { useClaudeHandler, markSent, sentIds, PasteHint } from "@/app/claudeInbox";
+import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint } from "@/app/claudeInbox";
 import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea } from "@/lib/clientIdeas";
 import { dayGreeting, firstNameOf } from "@/lib/leadsShared";
 
@@ -42,7 +42,6 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   const [kind, setKind] = useState("");
   const [cfg, setCfg] = useState(null); // { ai, aiUsage }
   const [withAi, setWithAi] = useState(true);
-  const [researchFor, setResearchFor] = useState(null);
   const view = "top"; // one table now; the All ideas and Replies views were retired
   const [manager, setManager] = useState("");
   const [service, setService] = useState("");
@@ -183,6 +182,8 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     }
     return { clientsDone, ideasAdded, doneIds };
   }
+  // The research prompt lives in the one Claude window at the top of the page.
+  useClaudeJob("client-research", { label: "Client research", order: 4, count: () => clients.filter((c) => !Object.values(recs).some((r) => r.clientId === c.id && r.ai)).length, render: (o, close) => <ResearchModal feedback={feedback} clients={clients} recs={recs} preset={o.preset || []} initialManager={manager} onClose={close} onImport={importResearch} /> });
   // Research replies pasted into the one "Paste from Claude" box land here.
   useClaudeHandler("client-research", (text) => {
     const list = parseResearchReply(text);
@@ -251,7 +252,6 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
           {cfg?.ai
             ? <label className="inline-flex items-center gap-1.5 text-sm text-zinc-700" title="Claude researches each client on the web (what they really do, where, competitors, whether the website on file is theirs) and writes ideas specific to them. Roughly 20-40p per client."><input type="checkbox" checked={withAi} onChange={(e) => setWithAi(e.target.checked)} disabled={running} /> AI research <span className="text-xs text-zinc-400">{cfg.aiUsage?.used || 0} of {cfg.aiUsage?.cap || 0} this month</span></label>
             : null}
-          <button onClick={() => setResearchFor([])} disabled={!clients.length} title="Free: the app writes a research prompt for a batch of clients, you run it in Claude on your own plan and paste the reply back" className="inline-flex items-center gap-1.5 rounded-md border border-violet-300 bg-violet-50 px-4 py-2 text-sm text-violet-900 hover:bg-violet-100 disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Research with Claude</button>
           <span className="text-xs text-zinc-500">{sitesChecked} of {sitesTotal} client sites checked</span>
         </div>
         {run && (
@@ -291,7 +291,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
               {groups.length === 0 && <tr><td colSpan={2} className="p-4 text-zinc-500">No ideas yet. Use Research with Claude above.</td></tr>}
               {groups.map((g) => (
                 <tr key={g.clientId || g.name} className="align-top">
-                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return w ? <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline">{w} <ExternalIcon /></a> : null; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button></div>{g.top.length < 3 && <button onClick={() => setResearchFor([g.clientId])} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
+                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return w ? <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline">{w} <ExternalIcon /></a> : null; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button></div>{g.top.length < 3 && <button onClick={() => openClaude({ job: "client-research", preset: [g.clientId] })} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
                   <td className="max-w-0 px-3 py-3">
                   <div className="grid snap-x auto-cols-[calc((100%-2.25rem)/3.2)] grid-flow-col gap-3 overflow-x-auto pb-1">
                   {g.top.length === 0 && <div className="text-xs text-zinc-400">No big ideas yet.</div>}
@@ -356,7 +356,6 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
       {view === "replies" && <IdeaBoard cards={shown.filter((c) => normStatus(c.status) !== "queued").map((c) => ({ ...c, status: normStatus(c.status) }))} filtering={!!(q || kind)} onOpen={(id, key) => setOpen({ id, key })} onMove={(id, key, status) => updateIdea(id, key, { status })} />}
 
       {addFor && <AddIdeaModal group={addFor} onClose={() => setAddFor(null)} onSave={(data) => { addIdea(addFor, data); setAddFor(null); }} />}
-      {researchFor && <ResearchModal feedback={feedback} clients={clients} recs={recs} preset={researchFor} initialManager={manager} onClose={() => setResearchFor(null)} onImport={importResearch} />}
 
       {current && currentIdea && (
         <IdeaDrawer r={current} idea={currentIdea} onClose={() => setOpen(null)} onIdea={(fields) => updateIdea(current.id, currentIdea.key, fields)} onBad={(reason) => { markBad(current, currentIdea, reason); setOpen(null); }} />
@@ -512,14 +511,7 @@ function ResearchModal({ feedback = [], clients, recs, preset, initialManager = 
   const list = clients.filter((c) => (q ? c.name.toLowerCase().includes(q.toLowerCase()) : mine(c) && (!researched(c) || picked.includes(c.id))));
   const doneCount = clients.filter((c) => mine(c) && researched(c)).length;
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
-      <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3">
-          <h3 className="text-lg font-semibold">Research with Claude</h3>
-          <span className="text-xs text-zinc-500">Free on your Claude plan</span>
-          <button onClick={onClose} aria-label="Close" className="ml-auto rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button>
-        </div>
-        <div className="space-y-4 px-5 py-4 text-sm">
+        <div className="space-y-4 text-sm">
           <div>
             <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">1. Pick clients</span>
               <span className="text-xs text-zinc-500">Next unresearched:</span>
@@ -550,8 +542,6 @@ function ResearchModal({ feedback = [], clients, recs, preset, initialManager = 
             <PasteHint className="mt-1" />
           </div>
         </div>
-      </div>
-    </div>
   );
 }
 

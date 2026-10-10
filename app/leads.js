@@ -5,7 +5,7 @@ import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
 import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, MAPS_TYPES, findSitesPrompt, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
-import { useClaudeHandler, markSent, sentIds, PasteHint, reportProgress } from "@/app/claudeInbox";
+import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, reportProgress } from "@/app/claudeInbox";
 
 // Website leads: local businesses whose site is letting them down, found
 // through Companies House and worked through a pipeline board.
@@ -126,9 +126,6 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const setLeadSource = (v) => { setLeadSourceState(v); try { localStorage.setItem("flc-leads-source", v); } catch {} };
   const [mapsWhat, setMapsWhatState] = useState(() => { try { return localStorage.getItem("flc-leads-maps") || ""; } catch { return ""; } });
   const setMapsWhat = (v) => { setMapsWhatState(v); try { localStorage.setItem("flc-leads-maps", v); } catch {} };
-  const [findClaude, setFindClaude] = useState(false);
-  const [sitesFor, setSitesFor] = useState(null); // null closed, { ids: [] } next batch, { ids: [id] } one lead
-  const [claudeFor, setClaudeFor] = useState(null); // null closed, [] next batch, [id] one lead
   const [filter, setFilter] = useState("");
   const [showProblem, setShowProblem] = useState("");
   // Today's work by default: parked and lost leads hidden, and only High and Medium leads in To assess.
@@ -286,7 +283,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   // Find new leads: every town around Richmond, every trade, then enrich each new candidate.
   async function findLeads(resume = null) {
     const mode = resume?.mode || leadSource;
-    if (!resume && mode === "claude") { setFindClaude(true); return; }
+    if (!resume && mode === "claude") { openClaude({ job: "find-leads" }); return; }
     if (!resume && ["jobs", "maps"].includes(mode)) return findOutside(mode);
     stopRef.current = false;
     onRunning?.(true);
@@ -731,6 +728,10 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     setTimeout(() => afterPaste("Website search", noneIds, rescan, stampNone), 50);
     return { found, none, unsure, left, ids: list.map((x) => x.lead_id) };
   }
+  // The prompts this page can write, all reached from the one Claude button at the top.
+  useClaudeJob("lead-check", { label: "Check leads", order: 1, count: () => list.filter((l) => (l.status || "new") === "new" && !l.claude).length, render: (o, close) => <LeadCheckModal leads={list} preset={o.preset || []} column={o.column || "new"} onClose={close} onApply={applyLeadCheck} /> });
+  useClaudeJob("find-sites", { label: "Find websites", order: 2, count: () => list.filter((l) => !l.website && siteSearchable(l) && !l.sitesCheckedAt).length, render: (o, close) => <FindSitesModal leads={list} preset={o.preset || []} onClose={close} onApply={applySites} /> });
+  useClaudeJob("find-leads", { label: "Find new leads", order: 3, render: (o, close) => <FindLeadsModal area={areaCentres.join(", ")} miles={areaMiles} exclude={list.slice(-80).map((l) => l.business)} onClose={close} /> });
   // Replies pasted into the one "Paste from Claude" box land here, whichever prompt they came from.
   useClaudeHandler("lead-check", (text) => {
     const list = parseLeadCheck(text);
@@ -920,13 +921,10 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           <button onClick={() => { if (confirm(`Delete ${selected.size} lead${selected.size === 1 ? "" : "s"}?`)) removeMany([...selected]); }} className="ml-auto inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50"><TrashIcon className="h-3.5 w-3.5" /> Delete</button>
         </div>
       )}
-      {findClaude && <FindLeadsModal area={areaCentres.join(", ")} miles={areaMiles} exclude={list.slice(-80).map((l) => l.business)} onClose={() => setFindClaude(false)} />}
-      {sitesFor && <FindSitesModal leads={list} preset={sitesFor.ids} onClose={() => setSitesFor(null)} onApply={applySites} />}
-      {claudeFor && <LeadCheckModal leads={list} preset={claudeFor.ids} column={claudeFor.col} onClose={() => setClaudeFor(null)} onApply={applyLeadCheck} />}
-      <Board onFindSites={() => setSitesFor({ ids: [] })} onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} onClaude={(col) => setClaudeFor({ col, ids: [] })} hideCols={showParked || filtering ? [] : ["not-pursuing", "lost"]} leads={onBoard} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
+      <Board onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} hideCols={showParked || filtering ? [] : ["not-pursuing", "lost"]} leads={onBoard} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status }); }} />
 
-      {current && <LeadDrawer key={current.id} onNoSite={async (extra = {}) => { if (await tryObviousDomain(current.id)) return false; update(current.id, { websiteNeeded: false, noWebsiteConfirmed: true, problem: "No website", problemDetail: "Checked by hand: they have no website", ...extra }); return true; }} onFindSite={() => setSitesFor({ ids: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => setClaudeFor({ col: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new", ids: [current.id] })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
+      {current && <LeadDrawer key={current.id} onNoSite={async (extra = {}) => { if (await tryObviousDomain(current.id)) return false; update(current.id, { websiteNeeded: false, noWebsiteConfirmed: true, problem: "No website", problemDetail: "Checked by hand: they have no website", ...extra }); return true; }} onFindSite={() => openClaude({ job: "find-sites", preset: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => openClaude({ job: "lead-check", preset: [current.id], column: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new" })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
   );
 }
@@ -980,7 +978,7 @@ const PLACES = {
 const arrived = (l) => Date.parse(l.statusAt || l.addedAt || "") || 0;
 const sorted = (list) => list.slice().sort((a, b) => arrived(b) - arrived(a) || ({ High: 0, Medium: 1, Low: 2 }[a.likelihood] ?? 3) - ({ High: 0, Medium: 1, Low: 2 }[b.likelihood] ?? 3) || (b.netAssets || 0) - (a.netAssets || 0));
 
-function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn, onOpen, onMove, onClaude, onReview, onFindSites, hideCols = [] }) {
+function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn, onOpen, onMove, onReview, hideCols = [] }) {
   const [over, setOver] = useState(null);
   const [shown, setShown] = useState({}); // cards rendered per column; big columns page in
   // While searching or filtering, only columns with a match are shown.
@@ -997,9 +995,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
             <span>{c.label}</span><span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{c.items.length}</span>
           </div>
           <div className="px-1 pb-2 text-[11px] font-normal text-zinc-500">{c.hint}</div>
-          {(() => { const n = c.items.filter((l) => !l.website && siteSearchable(l) && !l.sitesCheckedAt).length; return n > 0 && <button onClick={onFindSites} title="Free on your Claude plan: Claude searches for each company's real website, or confirms they don't have one" className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100">Find websites with Claude ({n})</button>; })()}
           {(c.id === "new" || c.id === "no-contact") && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.id)} title="Go through these one at a time: look at the site, pick the issue and approach, then draft the email with Claude" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
-          {(c.id === "new" || c.id === "no-contact" || c.id === "not-pursuing") && (() => { const todo = c.items.filter((l) => !l.claude && (c.id === "new" || recheckable(l))).length; return c.items.length > 0 && <button onClick={() => onClaude(c.id)} title={c.id === "new" ? "Free on your Claude plan: Claude checks the website, the issue and the best contact for a batch of leads" : "Claude re-checks parked leads: anything worth pursuing with a published email moves back to To assess (size, dormant and existing clients are left out)"} className="mx-1 mb-2 inline-flex items-center justify-center gap-1 rounded-md border border-orange-300 bg-orange-50 px-2 py-1 text-[11px] font-medium text-orange-900 hover:bg-orange-100"><SearchIcon className="h-3 w-3" /> {c.id === "new" ? "Check" : "Re-check"} with Claude ({todo ? `${todo} new of ${c.items.length}` : `all ${c.items.length}`})</button>; })()}
           <div className="flex flex-1 flex-col gap-2">
             {c.items.slice(0, shown[c.id] || 60).map((l) => (
               <div key={l.id} draggable onDragStart={(e) => { e.dataTransfer.setData("text/lead", l.id); e.dataTransfer.effectAllowed = "move"; }} onClick={() => onOpen(l.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") onOpen(l.id); }}
@@ -1008,7 +1004,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                   <input type="checkbox" checked={selected.has(l.id)} onChange={() => onToggle(l.id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${l.business}`} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span className="flex-1 text-sm font-medium leading-tight">{l.business}</span>
                   {["new", "no-contact"].includes(c.id) && (!l.claude
-                    ? <span className="whitespace-nowrap rounded border border-orange-300 bg-orange-50 px-1.5 py-0.5 text-[10px] font-semibold text-orange-800" title="Not checked by Claude yet: use Check with Claude at the top of the column">Needs checking</span>
+                    ? <span className="whitespace-nowrap rounded border border-orange-300 bg-orange-50 px-1.5 py-0.5 text-[10px] font-semibold text-orange-800" title="Not checked by Claude yet: use the Claude button at the top of the page">Needs checking</span>
                     : l.likelihood && <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${LIKELY[l.likelihood]}`} title={l.likelihoodWhy || ""}>{l.likelihood}</span>)}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
@@ -1559,14 +1555,7 @@ function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
   const nextBatch = (n, alsoDone = [], cl = col) => { setSize(n); const waiting = sentIds("lead-check"); const all = poolFor(cl).filter((l) => !alsoDone.includes(l.id) && (n === "all" || !waiting.has(l.id))); setPicked((n === "all" ? [...all.filter((l) => !l.claude), ...all.filter((l) => l.claude)] : all.filter((l) => !l.claude).slice(0, n)).map((l) => l.id)); };
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
-      <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3">
-          <h3 className="text-lg font-semibold">Check with Claude</h3>
-          <span className="text-xs text-zinc-500">Free on your Claude plan</span>
-          <button onClick={onClose} aria-label="Close" className="ml-auto rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button>
-        </div>
-        <div className="space-y-4 px-5 py-4 text-sm">
+        <div className="space-y-4 text-sm">
           <div>
             <div className="mb-2 inline-flex rounded-md border border-zinc-300 bg-white p-0.5 text-xs">{CHECK_COLUMNS.map(([id, label]) => <button key={id} onClick={() => { setCol(id); nextBatch(size, [], id); }} className={`rounded px-2.5 py-1 ${col === id ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>{label} ({poolFor(id).filter((l) => !l.claude).length})</button>)}</div>
             <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">1. Pick leads</span><span className="text-xs text-zinc-500">Next unchecked:</span>
@@ -1595,8 +1584,6 @@ function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
             <PasteHint className="mt-1" />
           </div>
         </div>
-      </div>
-    </div>
   );
 }
 
@@ -1613,13 +1600,7 @@ function FindLeadsModal({ area, miles, exclude, onClose }) {
     if (open) window.open("https://claude.ai/new", "_blank", "noopener");
   }
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3">
-          <h2 className="text-lg font-semibold">Find leads with Claude</h2><span className="text-xs text-zinc-500">Free on your Claude plan</span>
-          <button onClick={onClose} aria-label="Close" className="ml-auto rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button>
-        </div>
-        <div className="space-y-4 px-5 py-4 text-sm">
+        <div className="space-y-4 text-sm">
           <div>
             <div className="font-semibold">1. What to look for</div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1641,8 +1622,6 @@ function FindLeadsModal({ area, miles, exclude, onClose }) {
             <PasteHint className="mt-1" />
           </div>
         </div>
-      </div>
-    </div>
   );
 }
 
@@ -1802,13 +1781,7 @@ function FindSitesModal({ leads, preset, onClose, onApply }) {
   const nextBatch = (n, done = []) => { setSize(n); const waiting = sentIds("find-sites"); setPicked(pool.filter((l) => !l.sitesCheckedAt && !done.includes(l.id) && !waiting.has(l.id)).slice(0, n).map((l) => l.id)); };
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
-      <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3">
-          <h3 className="text-lg font-semibold">Find websites with Claude</h3><span className="text-xs text-zinc-500">Free on your Claude plan</span>
-          <button onClick={onClose} aria-label="Close" className="ml-auto rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button>
-        </div>
-        <div className="space-y-4 px-5 py-4 text-sm">
+        <div className="space-y-4 text-sm">
           <div>
             <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">1. Pick leads</span><span className="text-xs text-zinc-500">Next unsearched:</span>
               {[1, 3, 5, 8].map((n) => <button key={n} onClick={() => nextBatch(n)} className={`rounded-full border px-2 py-0.5 text-xs ${size === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{n}</button>)}
@@ -1832,7 +1805,5 @@ function FindSitesModal({ leads, preset, onClose, onApply }) {
             <PasteHint className="mt-1" />
           </div>
         </div>
-      </div>
-    </div>
   );
 }
