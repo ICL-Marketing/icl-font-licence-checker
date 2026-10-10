@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, MAPS_TYPES, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 
 // Website leads: local businesses whose site is letting them down, found
@@ -386,20 +386,31 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     try {
       let list = items || [];
       if (mode === "maps") {
-        const what = mapsWhat.trim();
-        if (!what) throw new Error("Type what kind of business to look for, e.g. plumbers.");
-        const places = (area?.places?.length ? area.places : areaCentres).slice(0, 25);
+        const what = MAPS_TYPES.some(([, t]) => t.includes(mapsWhat)) ? mapsWhat : "";
+        if (!what) throw new Error("Pick a business type first.");
         const seen = new Set();
-        for (const pl of places) {
-          if (stopRef.current) break;
-          st.phase = `Searching Google Maps for ${what} in ${pl}… ${list.length} found`; setRun({ ...st });
-          const j = await post({ step: "places", query: what, place: pl });
-          if (j.usage) setCfg((c) => (c ? { ...c, placesUsage: j.usage } : c));
-          for (const x of j.items || []) {
-            if (seen.has(x.placeId) || !inPatch(x.postcode)) continue; seen.add(x.placeId);
-            list.push({ id: `gm:${x.placeId}`, name: x.name, address: x.address, postcode: x.postcode, town: x.town, website: x.website, websiteEvidence: x.website ? "listed on their Google Business profile" : "", source: "Google Maps", triggerKind: "maps", trigger: x.website ? `${x.type || "Business"} on Google Maps${x.reviews ? ` · ${x.rating}★ from ${x.reviews} reviews` : ""}` : "On Google Maps with no website", google: { rating: x.rating, reviews: x.reviews, mapsUrl: x.mapsUrl, phone: x.phone, type: x.type }, trade: what.replace(/s$/, "") });
+        let spent = 0;
+        // One search per location covers the whole radius. More pages only while they keep turning up new businesses.
+        for (const centre of areaCentres) {
+          let token = "";
+          for (let page = 0; page < 3; page++) {
+            if (stopRef.current) break;
+            st.phase = `Searching Google Maps for ${what.toLowerCase()} around ${centre}… ${list.length} found`; setRun({ ...st });
+            const j = await post({ step: "places", query: what, centre, miles: areaMiles, page, pageToken: token });
+            if (!j.cached) spent++;
+            if (j.usage) setCfg((c) => (c ? { ...c, placesUsage: j.usage } : c));
+            let fresh = 0;
+            for (const x of j.items || []) {
+              if (seen.has(x.placeId) || !inPatch(x.postcode)) continue; seen.add(x.placeId);
+              const item = { id: `gm:${x.placeId}`, name: x.name, address: x.address, postcode: x.postcode, town: x.town, website: x.website, websiteEvidence: x.website ? "listed on their Google Business profile" : "", source: "Google Maps", triggerKind: "maps", trigger: x.website ? `${x.type || "Business"} on Google Maps${x.reviews ? ` · ${x.rating}★ from ${x.reviews} reviews` : ""}` : "On Google Maps with no website", google: { rating: x.rating, reviews: x.reviews, mapsUrl: x.mapsUrl, phone: x.phone, type: x.type }, trade: what.toLowerCase().replace(/s$/, "") };
+              if (isNew(item)) fresh++;
+              list.push(item);
+            }
+            token = j.next || "";
+            if (!token || fresh < 8) break; // mostly businesses we already have: not worth another search
           }
         }
+        st.spent = spent;
       } else if (mode === "jobs") {
         const km = Math.round((areaMiles || 10) * 1.609);
         const by = new Map();
@@ -429,7 +440,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         } catch (e) { if (stopRef.current) break; st.errors.push(`${x.name}: ${e.message}`); }
         st.done++; setRun({ ...st });
       }
-      st.phase = stopRef.current ? "Stopped." : `Done: ${st.found} new lead${st.found === 1 ? "" : "s"} from ${st.done} checked${st.parked ? `, ${st.parked} parked` : ""}.`;
+      st.phase = stopRef.current ? "Stopped." : `Done: ${st.found} new lead${st.found === 1 ? "" : "s"} from ${st.done} checked${st.parked ? `, ${st.parked} parked` : ""}.${mode === "maps" ? ` ${st.spent || 0} Google search${st.spent === 1 ? "" : "es"} used.` : ""}`;
       setRun({ ...st });
     } catch (e) { st.phase = `Stopped: ${e.message}`; setRun({ ...st }); }
     finally { onRunning?.(false); }
@@ -724,7 +735,12 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
             <select value={leadSource} onChange={(e) => setLeadSource(e.target.value)} disabled={running} title={(LEAD_SOURCES.find((x) => x[0] === leadSource) || [])[2]} className="rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm disabled:opacity-40">
               {LEAD_SOURCES.map(([k, label]) => <option key={k} value={k}>{label}{k === "jobs" && cfg && !cfg.jobs ? " (connect Adzuna)" : k === "maps" && cfg && !cfg.places ? " (connect Google)" : ""}</option>)}
             </select>
-            {leadSource === "maps" && <input value={mapsWhat} onChange={(e) => setMapsWhat(e.target.value)} disabled={running} placeholder="e.g. plumbers" title="What kind of business to look for on Google Maps" className="w-32 rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm" />}
+            {leadSource === "maps" && (
+              <select value={MAPS_TYPES.some(([, t]) => t.includes(mapsWhat)) ? mapsWhat : ""} onChange={(e) => setMapsWhat(e.target.value)} disabled={running} title="What kind of business to look for on Google Maps" className="rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm disabled:opacity-40">
+                <option value="">Business type…</option>
+                {MAPS_TYPES.map(([group, types]) => <optgroup key={group} label={group}>{types.map((t) => <option key={t} value={t}>{t}</option>)}</optgroup>)}
+              </select>
+            )}
             {running
               ? <button onClick={stopNow} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
               : <button onClick={() => findLeads()} disabled={cfg?.configured === false} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> {leadSource === "claude" ? "Ask Claude" : "Find leads"}</button>}
@@ -735,7 +751,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
             <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
           </div>
         </div>
-        {leadSource === "maps" && cfg?.places && <p className="mt-2 text-xs text-zinc-500">Google Maps searches this month: <span className="font-semibold">{cfg.placesUsage?.used || 0}</span> of {cfg.placesUsage?.cap || 900} free. One search per town in the area.</p>}
+        {leadSource === "maps" && cfg?.places && <p className="mt-2 text-xs text-zinc-500">Google Maps searches this month: <span className="font-semibold">{cfg.placesUsage?.used || 0}</span> of {cfg.placesUsage?.cap || 900} free. Each run uses 1 to 3 per location; repeating a search within 30 days is free.</p>}
         {leadSource === "jobs" && <p className="mt-2 text-xs text-zinc-500"><a href="https://www.adzuna.co.uk" target="_blank" rel="noreferrer" className="underline">Jobs by Adzuna</a>. Recruitment agencies are left out.</p>}
         {cfg?.hunter && cfg.hunterUsage?.cap > 0 && (
           <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">

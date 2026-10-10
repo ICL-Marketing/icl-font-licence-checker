@@ -146,7 +146,7 @@ export async function POST(request) {
       return Response.json({ triggers: out });
     }
     if (b.step === "jobs") return Response.json(await jobsSearch({ place: String(b.place || "").slice(0, 60), km: Number(b.km) || 15, page: Number(b.page) || 1 }));
-    if (b.step === "places") return Response.json({ ...(await placesSearch({ query: String(b.query || "").slice(0, 80), place: String(b.place || "").slice(0, 60), pageToken: String(b.pageToken || "") })), usage: await placesUsage().catch(() => null) });
+    if (b.step === "places") return Response.json({ ...(await placesSearch({ query: String(b.query || "").slice(0, 80), centre: String(b.centre || "").slice(0, 60), miles: Number(b.miles) || 10, page: Number(b.page) || 0, pageToken: String(b.pageToken || "") })), usage: await placesUsage().catch(() => null) });
     if (b.step === "enrich-outside") {
       if (!b.item?.name) return Response.json({ error: "item required" }, { status: 400 });
       const lead = await leadsEnrichOutside({ ...b.item, links }, { minAssets: Number(b.minAssets) || 0, knownSites: new Set((Array.isArray(b.knownSites) ? b.knownSites : []).map((s) => String(s).toLowerCase().replace(/^www\./, ""))) });
