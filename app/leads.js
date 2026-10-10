@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, findLeadsPrompt, parseFoundLeads, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 
 // Website leads: local businesses whose site is letting them down, found
@@ -133,19 +133,19 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       // Qualified was folded into To assess.
       for (const l of Object.values(local)) if (l.status === "qualified") { l.status = "new"; l.updatedAt = new Date().toISOString(); }
       // A Claude check made before the website was confirmed or replaced no longer applies.
-      for (const l of Object.values(local)) if (l.claude && l.website && l.websiteConfirmed && l.claude.website_is_theirs === false && l.website !== l.claude.correct_website) { l.claude = null; l.claudeFields = []; if (l.status === "not-pursuing" && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.statusAt = new Date().toISOString(); } l.updatedAt = new Date().toISOString(); }
+      for (const l of Object.values(local)) if (l.claude && l.website && l.websiteConfirmed && l.claude.website_is_theirs === false && l.website !== l.claude.correct_website) { l.claude = null; l.claudeFields = []; if (l.status === "not-pursuing" && !l.review?.done && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.statusAt = new Date().toISOString(); } l.updatedAt = new Date().toISOString(); }
       // Claude said skip: parked for good, whichever column it was left in.
       for (const l of Object.values(local)) if (claudeSkip(l) && ["new", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.statusAt = l.updatedAt = new Date().toISOString(); }
       // Parked earlier only because Claude couldn't confirm the issue, though it said to contact them: bring back.
-      for (const l of Object.values(local)) if (l.status === "not-pursuing" && websiteUnknown(l) && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.websiteNeeded = true; l.statusAt = l.updatedAt = new Date().toISOString(); }
-      for (const l of Object.values(local)) if (l.status === "not-pursuing" && l.claude?.worth_contacting && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = l.emailAddress ? "new" : "no-contact"; l.contactUnverified = !l.emailAddress; l.statusAt = l.updatedAt = new Date().toISOString(); }
+      for (const l of Object.values(local)) if (l.status === "not-pursuing" && !l.review?.done && websiteUnknown(l) && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.websiteNeeded = true; l.statusAt = l.updatedAt = new Date().toISOString(); }
+      for (const l of Object.values(local)) if (l.status === "not-pursuing" && !l.review?.done && l.claude?.worth_contacting && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = l.emailAddress ? "new" : "no-contact"; l.contactUnverified = !l.emailAddress; l.statusAt = l.updatedAt = new Date().toISOString(); }
       for (const l of Object.values(local)) if (l.status === "no-contact" && contactExhausted(l)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); }
       // "info", "hello" and the like are inboxes, not people: the email opens "Hi there," instead.
       for (const l of Object.values(local)) if (!isFrozen(l) && l.contactName && !firstNameOf(l.contactName)) { l.contactName = ""; l.updatedAt = new Date().toISOString(); }
       // Company-name searches are no longer run; drop any stored ones so only the trade search shows.
       for (const l of Object.values(local)) if (!isFrozen(l) && l.seo?.searches?.some((x) => x.kind !== "trade")) { l.seo = { ...l.seo, searches: l.seo.searches.filter((x) => x.kind === "trade") }; l.updatedAt = new Date().toISOString(); }
       // Parked only for a missing contact? That has its own column now.
-      for (const l of Object.values(local)) if (l.status === "not-pursuing" && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); }
+      for (const l of Object.values(local)) if (l.status === "not-pursuing" && !l.review?.done && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); }
       // One-off: every lead imported from the Client Matrix sheet was closed as Lost (7 Oct 2026).
       for (const l of Object.values(local)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); }
       leadsRef.current = local;
@@ -160,14 +160,14 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const l of Object.values(next)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status) && websiteIsVerified(l) && !(l.websiteConfirmed && !l.claude)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried) && ["new", "qualified"].includes(l.status)) { l.contactUnverified = true; l.status = parkStatus(l); l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "qualified") { l.status = "new"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
-        for (const l of Object.values(next)) if (l.claude && l.website && l.websiteConfirmed && l.claude.website_is_theirs === false && l.website !== l.claude.correct_website) { l.claude = null; l.claudeFields = []; if (l.status === "not-pursuing" && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.statusAt = new Date().toISOString(); } l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (l.claude && l.website && l.websiteConfirmed && l.claude.website_is_theirs === false && l.website !== l.claude.correct_website) { l.claude = null; l.claudeFields = []; if (l.status === "not-pursuing" && !l.review?.done && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.statusAt = new Date().toISOString(); } l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (claudeSkip(l) && ["new", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
-        for (const l of Object.values(next)) if (l.status === "not-pursuing" && websiteUnknown(l) && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.websiteNeeded = true; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
-        for (const l of Object.values(next)) if (l.status === "not-pursuing" && l.claude?.worth_contacting && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = l.emailAddress ? "new" : "no-contact"; l.contactUnverified = !l.emailAddress; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (l.status === "not-pursuing" && !l.review?.done && websiteUnknown(l) && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.websiteNeeded = true; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (l.status === "not-pursuing" && !l.review?.done && l.claude?.worth_contacting && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = l.emailAddress ? "new" : "no-contact"; l.contactUnverified = !l.emailAddress; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "no-contact" && contactExhausted(l)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!isFrozen(l) && l.contactName && !firstNameOf(l.contactName)) { l.contactName = ""; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!isFrozen(l) && l.seo?.searches?.some((x) => x.kind !== "trade")) { l.seo = { ...l.seo, searches: l.seo.searches.filter((x) => x.kind === "trade") }; l.updatedAt = new Date().toISOString(); push(l.id, l); }
-        for (const l of Object.values(next)) if (l.status === "not-pursuing" && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (l.status === "not-pursuing" && !l.review?.done && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         save(next);
         leadsRef.current = next;
@@ -486,7 +486,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         let { lead } = await post({ step: "refresh", lead: l, knownSites });
         if (lead.website && lead.problem !== "Parked domain" && lead.problem !== "Dead/broken site") { try { st.phase = `Checking licences on ${lead.website}…`; setRun({ ...st }); ({ lead } = await post({ step: "licence", lead })); } catch {} }
         // A site you confirmed with nothing found yet is not parked: Claude decides. Claude's location beats the footer address.
-        if (lead.websiteConfirmed && !lead.problem && !lead.claude && lead.status === "not-pursuing" && !l.optedOut) { lead.status = "new"; lead.likelihood = ""; lead.likelihoodWhy = "Site looks current; check with Claude for another angle"; lead.statusAt = new Date().toISOString(); }
+        if (lead.websiteConfirmed && !lead.problem && !lead.claude && lead.status === "not-pursuing" && !l.optedOut && !l.review?.done) { lead.status = "new"; lead.likelihood = ""; lead.likelihoodWhy = "Site looks current; check with Claude for another angle"; lead.statusAt = new Date().toISOString(); }
         if (lead.claude?.location && !/^(national|online|uk|nationwide)$/i.test(lead.claude.location)) { lead.tradingTown = lead.claude.location; lead.tradesElsewhere = false; }
         update(id, lead); st.found++;
         setPendingRescan((prev) => { const n = new Set(prev); n.delete(id); return n; });
@@ -580,7 +580,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     for (const it of items) {
       const l = leadsRef.current[it.lead_id]; if (!l) continue;
       // Only leads still being assessed take Claude's answers. Ready to send and anything in conversation are never touched.
-      if (!["new", "no-contact", "not-pursuing"].includes(l.status) || isFrozen(l)) { left++; continue; }
+      if (!["new", "no-contact", "not-pursuing"].includes(l.status) || isFrozen(l) || (l.review?.done && l.status === "not-pursuing")) { left++; continue; }
       const f = { claude: it };
       const site = String(l.website || "").toLowerCase().replace(/^www\./, "");
       if (!it.website_is_theirs && site) {
@@ -690,6 +690,15 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const q = filter.trim().toLowerCase();
   const visible = list.filter((l) => !pendingRescan.has(l.id) && (!q || `${l.business} ${l.area} ${l.website} ${l.problem} ${l.notes || ""}`.toLowerCase().includes(q)) && (!showProblem || l.problem === showProblem));
   const current = open ? leads[open] : null;
+  // Review one by one: the next lead in the same column that hasn't been reviewed (skipped ones go to the back).
+  const skippedRef = useRef(new Set());
+  function reviewNext(status, afterId = null) {
+    if (afterId) skippedRef.current.add(afterId);
+    const col = sorted(Object.values(leadsRef.current).filter((x) => (x.status || "new") === status && !x.review?.done && !x.optedOut && x.id !== afterId));
+    const next = col.find((x) => !skippedRef.current.has(x.id)) || null;
+    if (!next) skippedRef.current = new Set();
+    setOpen(next ? next.id : null);
+  }
 
   return (
     <div>
@@ -767,10 +776,10 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       )}
       {findClaude && <FindLeadsModal area={areaCentres.join(", ")} miles={areaMiles} exclude={list.slice(-80).map((l) => l.business)} onClose={() => setFindClaude(false)} onAdd={(items) => { setFindClaude(false); findOutside("claude", items.map((x) => ({ id: `cl:${slug(x.name)}${slug(x.town)}`, name: x.name, companyNumber: x.companyNumber, website: x.website, websiteEvidence: x.website ? "checked by Claude" : "", town: x.town, postcode: x.postcode, whatTheyDo: x.whatTheyDo, issue: x.issue, why: x.why, contact: x.contact, source: "Claude", triggerKind: "claude", trigger: x.why }))); }} />}
       {claudeFor && <LeadCheckModal leads={list} preset={claudeFor.ids} column={claudeFor.col} onClose={() => setClaudeFor(null)} onApply={applyLeadCheck} />}
-      <Board onClaude={(col) => setClaudeFor({ col, ids: [] })} leads={visible} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
+      <Board onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} onClaude={(col) => setClaudeFor({ col, ids: [] })} leads={visible} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status }); }} />
 
-      {current && <LeadDrawer onClaude={() => setClaudeFor({ col: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new", ids: [current.id] })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
+      {current && <LeadDrawer key={current.id} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => setClaudeFor({ col: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new", ids: [current.id] })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
   );
 }
@@ -784,7 +793,7 @@ const oneLine = (t) => { let x = String(t || "").replace(/\s*\([^)]*\)/g, "").re
 const websiteUnknown = (l) => !!l.claude && l.claude.website_is_theirs === false && !l.claude.correct_website && !l.website;
 const claudeSkip = (l) => !!l.claude && !l.claude.worth_contacting && !websiteUnknown(l) && !l.websiteNeeded;
 // Parked for a reason Claude could change (contact, site, issue), not a fact like size, dormancy or being a client.
-const recheckable = (l) => !isFrozen(l) && !l.optedOut && !claudeSkip(l) && (l.status === "no-contact" || (l.status === "not-pursuing" && !/under £|already a client|dormant/i.test(parkReason(l))));
+const recheckable = (l) => !isFrozen(l) && !l.optedOut && !(l.review?.done && l.status === "not-pursuing") && !claudeSkip(l) && (l.status === "no-contact" || (l.status === "not-pursuing" && !/under £|already a client|dormant/i.test(parkReason(l))));
 // The same reason spelled out with the numbers, for the top of the lead page.
 function parkExplain(l) {
   const r = parkReason(l);
@@ -821,7 +830,7 @@ const PLACES = {
 const movedRecently = (l) => { const t = Date.parse(l.statusAt || ""); return Number.isFinite(t) && Date.now() - t < 86400000 ? t : 0; };
 const sorted = (list) => list.slice().sort((a, b) => movedRecently(b) - movedRecently(a) || ({ High: 0, Medium: 1, Low: 2 }[a.likelihood] ?? 3) - ({ High: 0, Medium: 1, Low: 2 }[b.likelihood] ?? 3) || (b.netAssets || 0) - (a.netAssets || 0));
 
-function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn, onOpen, onMove, onClaude }) {
+function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn, onOpen, onMove, onClaude, onReview }) {
   const [over, setOver] = useState(null);
   const [shown, setShown] = useState({}); // cards rendered per column; big columns page in
   // While searching or filtering, only columns with a match are shown.
@@ -838,6 +847,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
             <span>{c.label}</span><span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{c.items.length}</span>
           </div>
           <div className="px-1 pb-2 text-[11px] font-normal text-zinc-500">{c.hint}</div>
+          {(c.id === "new" || c.id === "no-contact") && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.id)} title="Go through these one at a time: look at the site, pick the issue and approach, then draft the email with Claude" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
           {(c.id === "new" || c.id === "no-contact" || c.id === "not-pursuing") && (() => { const todo = c.items.filter((l) => !l.claude && (c.id === "new" || recheckable(l))).length; return c.items.length > 0 && <button onClick={() => onClaude(c.id)} title={c.id === "new" ? "Free on your Claude plan: Claude checks the website, the issue and the best contact for a batch of leads" : "Claude re-checks parked leads: anything worth pursuing with a published email moves back to To assess (size, dormant and existing clients are left out)"} className="mx-1 mb-2 inline-flex items-center justify-center gap-1 rounded-md border border-orange-300 bg-orange-50 px-2 py-1 text-[11px] font-medium text-orange-900 hover:bg-orange-100"><SearchIcon className="h-3 w-3" /> {c.id === "new" ? "Check" : "Re-check"} with Claude ({todo} to check)</button>; })()}
           <div className="flex flex-1 flex-col gap-2">
             {c.items.slice(0, shown[c.id] || 60).map((l) => (
@@ -852,6 +862,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
                   {l.problem && <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
+                  {l.review?.step > 1 && !l.review?.done && ["new", "no-contact"].includes(c.id) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="Review in progress">Step {l.review.step}/3</span>}
                   {TRIGGER_TAG[l.triggerKind] && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 font-semibold text-violet-800" title={l.trigger}>{TRIGGER_TAG[l.triggerKind]}</span>}
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
                   {l.websiteNeeded && !l.website && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="Claude couldn't find their real website. Open the lead to paste it in, or confirm they have none.">Find website</span>}
@@ -1028,10 +1039,12 @@ function FollowUp({ l, onChange }) {
   );
 }
 
-function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjects = {}, onClose, onChange, onRemove, onRecheck, onContacts, onHunter, onLicence, onRefresh }) {
+function LeadDrawer({ onNext, onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjects = {}, onClose, onChange, onRemove, onRecheck, onContacts, onHunter, onLicence, onRefresh }) {
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
   const [optingOut, setOptingOut] = useState(false);
+  const reviewable = ["new", "no-contact"].includes(l.status) && !isFrozen(l);
+  const [view, setView] = useState(() => (reviewable && !l.review?.done ? "review" : "details"));
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
   // Older drafts carry the greeting inside the text; new ones get it written on the day.
   const emailText = /^Hi\b/.test(l.email || "") ? (l.email || "") : fullEmail(l, l.email || "");
@@ -1116,6 +1129,13 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
           <button onClick={onClose} aria-label="Close" className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900"><CloseIcon /></button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto"><div className="space-y-4 px-5 py-4">
+          {(reviewable || l.review) && (
+            <div className="flex gap-1 rounded-lg bg-zinc-100 p-1 text-xs">
+              {[["review", l.review?.done ? "Review ✓" : "Review steps"], ["details", "All details"]].map(([k, label]) => <button key={k} onClick={() => setView(k)} className={`flex-1 rounded-md px-2 py-1 font-medium ${view === k ? "bg-white shadow-sm" : "text-zinc-500 hover:text-zinc-900"}`}>{label}</button>)}
+            </div>
+          )}
+          {view === "review" && <ReviewSteps l={l} onChange={onChange} issues={issues} person={person} subjects={subjects} commitWebsite={commitWebsite} rejectWebsite={rejectWebsite} onNext={onNext ? (done) => onNext(l.status, done) : null} />}
+          {view === "details" && <>
           {(l.whatTheyDo || l.siteDescription || l.background || l.sics?.length) && (
             <p className="text-sm text-zinc-700">
               <span className={`font-medium ${cf.includes("whatTheyDo") ? "text-orange-700" : ""}`} title={cf.includes("whatTheyDo") ? "From Claude's check" : l.sicStale ? `Companies House lists this company as: ${sicDescription(l.sics)}. The website says otherwise, so that is hidden.` : undefined}>{l.whatTheyDo || sicDescription(l.sics) || (l.sics?.length ? `SIC ${l.sics[0]}` : "")}</span>
@@ -1307,6 +1327,7 @@ function LeadDrawer({ onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = fal
             </div>
           </div>
 
+          </>}
         </div></div>
         <div className="shrink-0 flex flex-wrap items-center gap-2 border-t border-zinc-200 bg-white px-5 py-3 text-xs shadow-[0_-6px_12px_-8px_rgba(0,0,0,0.15)]">
           {["new", "no-contact", "not-pursuing"].includes(l.status) && !isFrozen(l) && <button onClick={onClaude} className="inline-flex items-center gap-1 rounded-md border border-orange-300 bg-orange-50 px-2.5 py-1 text-orange-900 hover:bg-orange-100"><SearchIcon className="h-3.5 w-3.5" /> Check with Claude</button>}
@@ -1456,6 +1477,149 @@ function FindLeadsModal({ area, miles, exclude, onClose, onAdd }) {
             <button onClick={add} disabled={!reply.trim()} className="mt-2 rounded-md bg-violet-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Check and add leads</button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Step by step: 1 look at the site yourself, 2 pick what to raise and how, 3 Claude drafts it from our templates.
+function ReviewSteps({ l, onChange, issues, person, subjects, commitWebsite, rejectWebsite, onNext }) {
+  const r = l.review || {};
+  const step = r.step || 1;
+  const setR = (patch, extra = {}) => onChange({ review: { ...r, ...patch }, ...extra });
+  const [own, setOwn] = useState("");
+  const [reply, setReply] = useState("");
+  const [msg, setMsg] = useState("");
+  const [copied, setCopied] = useState(false);
+  const site = l.siteUrl || (l.website ? `${l.problem === "Broken SSL" ? "http" : "https"}://${l.website}` : "");
+  const google = `https://www.google.com/search?q=${encodeURIComponent(`${String(l.business || "").replace(/\s+(ltd|limited)\.?$/i, "")} ${l.tradingTown || l.area || ""}`)}`;
+  const cands = [
+    ...issues.map((i) => ({ key: `chk:${i.id}`, label: i.label, from: "Checker", issue: i })),
+    ...(l.claude && (l.claude.angle || l.claude.issue_note) ? [{ key: "claude", label: oneLine(l.claude.angle || l.claude.issue_note), from: "Claude" }] : []),
+    ...(l.trigger ? [{ key: "why-now", label: l.trigger, from: "Why now" }] : []),
+    ...(r.seen || []).map((x) => ({ key: `you:${x}`, label: x, from: "You" })),
+    ...(r.own || []).map((x) => ({ key: `own:${x}`, label: x, from: "You" })),
+  ];
+  const lead = cands.find((c) => c.key === r.lead) || null;
+  const path = r.path || suggestPath(lead?.issue?.id || lead?.label || "", l);
+  const first = firstNameOf(l.contactName);
+  const prompt = lead ? draftPrompt({ l, first, leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => (r.also || []).includes(c.key) && c.key !== r.lead).map((c) => c.label), notes: r.notes || "", path, template: lead.issue?.body || "" }) : "";
+  const FROM = { Checker: "bg-zinc-200 text-zinc-700", Claude: "bg-orange-100 text-orange-800", "Why now": "bg-violet-100 text-violet-800", You: "bg-blue-100 text-blue-800" };
+  const head = (n, title, done) => (
+    <button onClick={() => setR({ step: n })} className={`flex w-full items-center gap-2 text-left text-sm font-semibold ${step === n ? "text-zinc-900" : "text-zinc-500 hover:text-zinc-900"}`}>
+      <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${done ? "bg-emerald-600 text-white" : step === n ? "bg-zinc-900 text-white" : "bg-zinc-200 text-zinc-600"}`}>{done ? "✓" : n}</span>{title}
+    </button>
+  );
+  async function copy(open) {
+    try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
+    if (open) window.open("https://claude.ai/new", "_blank", "noopener");
+  }
+  function useDraft() {
+    try { const d = parseDraftReply(reply); setR({ drafted: new Date().toISOString() }, { subject: d.subject || l.subject, email: d.body, emailEdited: true, emailPrevious: l.email && l.email !== d.body ? l.email : l.emailPrevious }); setReply(""); setMsg("Draft added below. Tweak it if you like."); }
+    catch (e) { setMsg(e.message); }
+  }
+  const greeting = `${first ? `Hi ${first},` : "Hi there,"}\n\n${dayGreeting()}`;
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-zinc-200 p-3">
+        {head(1, "Look at their website", !!r.siteChecked)}
+        {step === 1 && (
+          <div className="mt-3 space-y-3 text-sm">
+            <div className="flex flex-wrap gap-2">
+              {site && <a href={site} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-white"><ExternalIcon className="h-4 w-4" /> Open {l.website}</a>}
+              <a href={google} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 px-3 py-1.5 hover:bg-zinc-100"><SearchIcon className="h-4 w-4" /> Google them</a>
+              {l.google?.mapsUrl && <a href={l.google.mapsUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 px-3 py-1.5 hover:bg-zinc-100"><PinIcon className="h-4 w-4" /> Google Maps</a>}
+            </div>
+            {l.website ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-zinc-700">Is this their website?</span>
+                <button onClick={() => setR({ siteChecked: true }, websiteIsVerified(l) && l.websiteVerified ? {} : { websiteConfirmed: true, websiteVerified: "confirmed by you", websiteDoubt: "" })} className={`rounded-md border px-2.5 py-1 text-xs font-medium ${r.siteChecked ? "border-emerald-600 bg-emerald-600 text-white" : "border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"}`}>{r.siteChecked ? "✓ Yes, it’s theirs" : "Yes, it’s theirs"}</button>
+                <button onClick={rejectWebsite} className="rounded-md border border-red-300 bg-red-50 px-2.5 py-1 text-xs text-red-800 hover:bg-red-100">Not theirs</button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <input key={`rw:${l.id}`} placeholder="Found it? Paste their website" onBlur={(e) => e.target.value.trim() && commitWebsite(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} className="min-w-[14rem] flex-1 rounded-md border border-zinc-300 px-2 py-1 text-sm" />
+                <button onClick={() => setR({ siteChecked: true }, { websiteNeeded: false, problem: "No website", problemDetail: "Checked by hand: they have no website" })} className={`rounded-md border px-2.5 py-1 text-xs font-medium ${r.siteChecked ? "border-emerald-600 bg-emerald-600 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{r.siteChecked ? "✓ They have no website" : "They have no website"}</button>
+              </div>
+            )}
+            {l.website && (
+              <div>
+                <div className="text-xs text-zinc-500">What did you notice? (tap all that apply)</div>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {SEEN_ON_SITE.map((x) => { const on = (r.seen || []).includes(x); return <button key={x} onClick={() => setR({ seen: on ? r.seen.filter((y) => y !== x) : [...(r.seen || []), x] })} className={`rounded-full border px-2 py-0.5 text-xs ${on ? "border-blue-500 bg-blue-100 text-blue-900" : "border-zinc-300 hover:bg-zinc-100"}`}>{x}</button>; })}
+                </div>
+              </div>
+            )}
+            <textarea key={`rn:${l.id}`} defaultValue={r.notes || ""} onBlur={(e) => e.target.value !== (r.notes || "") && setR({ notes: e.target.value })} rows={2} placeholder="Anything else worth saying? (optional, Claude uses it in the email)" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" />
+            <div className="flex justify-end"><button onClick={() => setR({ step: 2 })} disabled={!r.siteChecked} title={r.siteChecked ? "" : "Answer the website question first"} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: pick the issue →</button></div>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-zinc-200 p-3">
+        {head(2, "Pick what to raise and how", !!r.lead && step > 2)}
+        {step === 2 && (
+          <div className="mt-3 space-y-3 text-sm">
+            {!cands.length && <p className="text-xs text-zinc-500">Nothing found yet. Add what you noticed in step 1, or type your own below.</p>}
+            <div className="space-y-1">
+              {cands.map((c) => (
+                <div key={c.key} className={`flex items-center gap-2 rounded-md border px-2 py-1.5 ${r.lead === c.key ? "border-zinc-900 bg-zinc-50" : "border-zinc-200"}`}>
+                  <button onClick={() => setR({ lead: c.key, path: r.pathSet ? r.path : suggestPath(c.issue?.id || c.label, l) })} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                    <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${r.lead === c.key ? "border-zinc-900 bg-zinc-900" : "border-zinc-400"}`}>{r.lead === c.key && <span className="h-1.5 w-1.5 rounded-full bg-white" />}</span>
+                    <span className="min-w-0 flex-1">{c.label}</span>
+                  </button>
+                  <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${FROM[c.from]}`}>{c.from}</span>
+                  {r.lead !== c.key && <label className="flex shrink-0 items-center gap-1 text-[11px] text-zinc-500" title="Mention this briefly as well"><input type="checkbox" checked={(r.also || []).includes(c.key)} onChange={(e) => setR({ also: e.target.checked ? [...(r.also || []), c.key] : (r.also || []).filter((x) => x !== c.key) })} className="h-3 w-3" /> also</label>}
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input value={own} onChange={(e) => setOwn(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && own.trim()) { setR({ own: [...(r.own || []), own.trim()], lead: r.lead || `own:${own.trim()}` }); setOwn(""); } }} placeholder="Add your own issue and press Enter" className="flex-1 rounded-md border border-zinc-300 px-2 py-1 text-sm" />
+            </div>
+            <div>
+              <div className="text-xs text-zinc-500">Approach</div>
+              <div className="mt-1 grid gap-1 sm:grid-cols-2">
+                {REVIEW_PATHS.map((p) => (
+                  <button key={p.id} onClick={() => setR({ path: p.id, pathSet: true })} className={`rounded-md border px-2 py-1.5 text-left ${path === p.id ? "border-zinc-900 bg-zinc-50" : "border-zinc-200 hover:bg-zinc-50"}`}>
+                    <div className="text-xs font-semibold">{p.label}{!r.pathSet && path === p.id && lead && <span className="ml-1 font-normal text-zinc-400">suggested</span>}</div>
+                    <div className="text-[11px] text-zinc-500">{p.hint}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-between"><button onClick={() => setR({ step: 1 })} className="text-xs text-zinc-500 hover:text-zinc-900">← Back</button><button onClick={() => setR({ step: 3, path })} disabled={!lead} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: draft the email →</button></div>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-zinc-200 p-3">
+        {head(3, "Draft the email", !!r.done)}
+        {step === 3 && lead && (
+          <div className="mt-3 space-y-3 text-sm">
+            <p className="text-xs text-zinc-500">Leading with <b className="text-zinc-800">{lead.label}</b> · {(REVIEW_PATHS.find((p) => p.id === path) || {}).label}</p>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => copy(true)} className="inline-flex items-center gap-1.5 rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium text-white"><ExternalIcon className="h-3.5 w-3.5" /> Copy prompt and open Claude</button>
+              <button onClick={() => copy(false)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100">{copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />} Copy prompt</button>
+              {lead.issue && <button onClick={() => { const d = draftFor(l, person, lead.issue, subjects); onChange({ subject: d.subject, email: d.body, issueId: d.issueId, emailEdited: false }); setMsg("Our template is in. Or ask Claude for a version that uses your notes."); }} className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100">Use our template instead</button>}
+            </div>
+            <textarea value={reply} onChange={(e) => { setReply(e.target.value); setMsg(""); }} rows={3} placeholder="Paste Claude's reply here" className="w-full rounded-md border border-zinc-300 px-2 py-1 font-mono text-xs" />
+            {reply.trim() && <button onClick={useDraft} className="rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white">Use this draft</button>}
+            {msg && <p className="text-xs text-zinc-600">{msg}</p>}
+            <div>
+              <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} placeholder="Subject" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm font-medium" />
+              <pre className="mt-2 whitespace-pre-wrap rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1 font-sans text-sm text-zinc-500">{greeting}</pre>
+              <AutoTextarea value={l.email || ""} onChange={(e) => onChange({ email: e.target.value, emailEdited: true })} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
+            </div>
+            {!l.emailAddress && <p className="text-xs text-red-700">No email address yet. Add one under All details before marking it ready.</p>}
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={() => setR({ step: 2 })} className="text-xs text-zinc-500 hover:text-zinc-900">← Back</button>
+              <span className="ml-auto" />
+              <button onClick={() => { setR({ done: true, doneAt: new Date().toISOString() }, { status: "not-pursuing", likelihoodWhy: "Reviewed by hand: not worth it" }); onNext?.(true); }} className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Not worth it</button>
+              {onNext && <button onClick={() => onNext(false)} className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Skip for now →</button>}
+              <button onClick={() => { setR({ done: true, doneAt: new Date().toISOString() }, { status: "ready" }); onNext?.(true); }} disabled={!l.emailAddress || !l.email} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Ready to send ✓{onNext ? " · next" : ""}</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
