@@ -689,6 +689,10 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       if (r.hunterUsed) f.hunterDomain = r.hunterDomain || String(l.website || "").replace(/^https?:\/\//i, "").replace(/^www\./, "").replace(/\/.*$/, "");
       if (!l.website && r.hunterDomain) { f.website = r.hunterDomain; f.websiteConfirmed = false; f.websiteVerified = ""; f.websiteEvidence = "Hunter's company lookup"; f.caveats = [l.caveats, `Website ${r.hunterDomain} came from Hunter's company lookup; double-check it is theirs`].filter(Boolean).join("; "); }
       if (!best && !l.emailAddress && !r.hunterDomain && !handledByYou(l) && ["no-contact", "new", "qualified"].includes(l.status)) { f.status = "not-pursuing"; f.contactUnverified = true; }
+      // Say what happened on the card: Hunter's own note, or what it found.
+      const generic = r.channels.find((c) => c.kind === "email");
+      f.hunterNote = best ? `Found ${best.name}${best.role ? `, ${best.role}` : ""}` : generic ? `No named person; used the general inbox` : r.hunterNote || "Hunter found no addresses for this company";
+      if (!best && generic && !l.emailAddress) { f.emailAddress = generic.value; f.emailFrom = generic.label || "General inbox from their site"; f.contactUnverified = false; }
       if (best && !l.emailAddress) { f.emailAddress = best.email; f.contactName = l.contactName || best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; if (["no-contact", "not-pursuing"].includes(l.status) && l.contactUnverified) { f.status = "new"; f.contactUnverified = false; } }
       update(l.id, f);
       fetch("/api/leads").then((x) => x.json()).then(setCfg).catch(() => {});
@@ -1967,7 +1971,7 @@ function FindLeadsModal({ area, miles, exclude, onClose }) {
 // Step by step: 1 look at the site yourself, 2 pick what to raise and how, 3 Claude drafts it from our templates.
 function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects, commitWebsite, rejectWebsite, onNext }) {
   const r = l.review || {};
-  const step = r.step || 1;
+  const step = l.status === "maintenance" ? 3 : r.step || 1; // maintenance: straight to the email, even before it's saved
   const setR = (patch, extra = {}) => onChange({ review: { ...r, ...patch }, ...extra });
   // Web maintenance: nothing to pick, the maintenance email is written already (Settings → Email templates). Straight to the email.
   const maint = l.status === "maintenance";
@@ -1994,7 +1998,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
     ...(r.seen || []).map((x) => ({ key: `you:${x}`, label: x, from: "You" })),
     ...(r.own || []).map((x) => ({ key: `own:${x}`, label: x, from: "You" })),
   ];
-  const lead = cands.find((c) => c.key === r.lead) || null;
+  const lead = cands.find((c) => c.key === r.lead) || (maint ? cands.find((c) => c.key === "chk:maintenance") || { key: "chk:maintenance", label: "Website maintenance", from: "Checker" } : null);
   // The main issue decides the subject line (Settings → Emails holds the wording for each issue).
   const subjectOf = (c) => {
     if (!c) return "";
@@ -2033,7 +2037,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
     if (names) { const t = setTimeout(() => onChange({ contactName: names, review: { ...(l.review || {}), namesFilled: true } }), 0); return () => clearTimeout(t); }
   }, [l.id, l.emailAddress]); // eslint-disable-line react-hooks/exhaustive-deps
   // The email box only holds Claude's draft (or your own typing), never the app's automatic template.
-  const draftText = r.drafted ? l.email || "" : "";
+  const draftText = r.drafted || maint ? l.email || (maint && !l.emailEdited ? emailTemplates().maintenance.body : "") : "";
   // Address and email text both in: Ready to send, and on to the next lead.
   const finishReady = (extra = {}) => { setR({ done: true, doneAt: new Date().toISOString(), drafted: r.drafted || new Date().toISOString() }, { status: "ready", statusBy: "you", ...extra }); onNext?.(true); };
   return (
@@ -2048,20 +2052,20 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
               {l.google?.mapsUrl && <a href={l.google.mapsUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 px-3 py-1.5 hover:bg-zinc-100"><PinIcon className="h-4 w-4" /> Google Maps</a>}
             </div>
             {(() => {
-              const stored = l.seo?.searches?.find((x) => x.kind === "trade");
-              const trade = l.tradeOverride || l.trade || "";
-              const town = l.searchTown || (l.tradesElsewhere ? "" : l.tradingTown) || "";
-              const query = [trade, town].filter(Boolean).join(" ");
+              // The searches Claude ran for this lead (worst first), each opening in Google UK so you can see it yourself.
+              const searches = (l.seo?.searches || []).filter((x) => x.query);
+              const g = (q) => `https://www.google.co.uk/search?q=${encodeURIComponent(q)}&gl=uk&pws=0`;
+              const pos = (x) => (x.position === 1 ? "came top" : x.position && x.position <= 3 ? `#${x.position}, top 3` : x.position ? `#${x.position}` : "not on page 1");
+              if (!searches.length) return <p className="rounded-md bg-zinc-50 px-2 py-1.5 text-xs text-zinc-500">No Google check yet: Claude runs it when the lead is vetted (or Claude → Search rankings).</p>;
               return (
-                <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-zinc-50 px-2 py-1.5 text-xs text-zinc-600">
-                  <span>Search Google for</span>
-                  <input key={`rt:${l.id}:${trade}`} defaultValue={trade} onBlur={(e) => { const v = e.target.value.trim(); if (v !== trade) onChange({ tradeOverride: v }); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder="what they do" className="w-32 rounded border border-zinc-300 bg-white px-1.5 py-0.5" />
-                  <span>in</span>
-                  <input key={`rw:${l.id}:${town}`} defaultValue={town} onBlur={(e) => { const v = e.target.value.trim(); if (v !== town) onChange({ searchTown: v }); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder="town" className="w-28 rounded border border-zinc-300 bg-white px-1.5 py-0.5" />
-                  {query && <a href={`https://www.google.com/search?q=${encodeURIComponent(query)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100"><SearchIcon className="h-3.5 w-3.5" /> Search</a>}
-                  {query && <select value={stored?.query?.toLowerCase() === query.toLowerCase() ? rankValue(stored) : ""} onChange={(e) => onChange(rankFields(l, query, e.target.value))} className="rounded-md border border-zinc-300 bg-white px-1.5 py-0.5">
-                    <option value="">Where do they come?</option><option value="top">Top result</option><option value="top3">In the top 3</option><option value="page1">On page 1, below the top 3</option><option value="none">Not on page 1</option>
-                  </select>}
+                <div className="rounded-md bg-zinc-50 px-2 py-1.5 text-xs text-zinc-600">
+                  <div className="mb-0.5 font-medium text-zinc-700">Google searches {l.seo?.claudeAt ? "Claude ran" : "checked"}</div>
+                  {searches.map((x) => (
+                    <div key={x.query} className="flex flex-wrap items-center gap-1.5">
+                      <a href={g(x.query)} target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-blue-700 hover:underline">“{x.query}” <ExternalIcon /></a>
+                      <span className={x.position && x.position <= 3 ? "text-emerald-700" : "text-red-700"}>{pos(x)}</span>
+                    </div>
+                  ))}
                 </div>
               );
             })()}
@@ -2261,7 +2265,7 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
     const c = vetChecks(l);
     if (!l.website) return <span className="flex items-center gap-1"><input key={`s${l.id}`} placeholder="Paste their website" className={input} onKeyDown={(e) => { if (e.key === "Enter" && e.currentTarget.value.trim()) onSite(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (e.target.value.trim()) onSite(l, e.target.value.trim()); }} /><a href={`https://www.google.co.uk/search?q=${encodeURIComponent(`"${l.business}"`)}`} target="_blank" rel="noopener" className="text-xs text-blue-700 hover:underline">Google</a><button onClick={() => onNoSite(l)} className="text-xs text-zinc-500 hover:underline">no website</button></span>;
     if (!c.site) return <span className="flex items-center gap-1 text-xs"><a href={`https://${l.website}`} target="_blank" rel="noopener" className="text-blue-700 hover:underline">Open {l.website}</a><button onClick={() => onOpen(l.id)} className="rounded border border-zinc-300 px-1.5 py-0.5 hover:bg-zinc-100">Confirm it’s theirs</button></span>;
-    if (!c.contact) return <span className="flex items-center gap-1"><input key={`e${l.id}`} type="email" placeholder="Paste an email address" className={input} onKeyDown={(e) => { if (e.key === "Enter" && /@/.test(e.currentTarget.value)) onEmail(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (/@/.test(e.target.value)) onEmail(l, e.target.value.trim()); }} />{l.website && <a href={`https://${l.website}`} target="_blank" rel="noopener" className="text-xs text-blue-700 hover:underline">Search website</a>}{l.website && <button onClick={() => onHunter(l)} disabled={l.checking} className="text-xs text-blue-700 hover:underline disabled:opacity-40">{l.checking ? "Looking…" : l.hunterTried ? "Hunter again" : "Find with Hunter"}</button>}</span>;
+    if (!c.contact) return <span className="flex flex-wrap items-center gap-1"><input key={`e${l.id}`} type="email" placeholder="Paste an email address" className={input} onKeyDown={(e) => { if (e.key === "Enter" && /@/.test(e.currentTarget.value)) onEmail(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (/@/.test(e.target.value)) onEmail(l, e.target.value.trim()); }} />{l.website && <a href={`https://${l.website}`} target="_blank" rel="noopener" className="ml-1 text-xs text-blue-700 hover:underline">Search website</a>}{l.website && <button onClick={() => onHunter(l)} disabled={l.checking} className="ml-3 text-xs text-blue-700 hover:underline disabled:opacity-40">{l.checking ? "Looking…" : l.hunterTried ? "Hunter again" : "Find with Hunter"}</button>}{!l.checking && (l.error || l.hunterNote) && <span className={`basis-full text-[11px] ${l.error ? "text-red-700" : "text-zinc-500"}`}>{l.error || `Hunter: ${l.hunterNote}`}</span>}</span>;
     return null;
   };
   // Each lead waits in the first step it's stuck on: website, then contact, then Google.
