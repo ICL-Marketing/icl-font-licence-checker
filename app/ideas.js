@@ -6,7 +6,7 @@ import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, withTitle } from "@/app/claudeInbox";
 import { iclFooter, setEmailTemplates } from "@/lib/leadsShared";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, greetingFor, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, BUILT_LABEL, ideaType, supportEmail, PLANS } from "@/lib/clientIdeas";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, greetingFor, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, ideaType, supportEmail, PLANS } from "@/lib/clientIdeas";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
 // Each client site is checked for free (site health, licences, homepage gaps) plus one search
@@ -31,6 +31,9 @@ async function post(body) {
   if (!r.ok) throw new Error(j.error || `Error ${r.status}`);
   return j;
 }
+
+// Who the idea came from: Claude or the automatic checks ("AI"), or ICL's own list and your team ("ICL").
+const ideaSource = (i) => (i.ai || i.internal || ideaType(i) === "fix" ? "AI" : "ICL");
 
 export default function IdeasArea({ clients = [], onRunning, onCount, onClientsChange }) {
   const [recs, setRecs] = useState({});
@@ -113,13 +116,6 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
 
   // Closing paragraph (and other wording) from Settings → Email templates.
   useEffect(() => { fetch("/api/settings?key=email-templates").then((r) => r.json()).then((j) => { if (j.shared && j.value) setEmailTemplates(j.value); }).catch(() => {}); }, []);
-  // One field on a client in Settings (e.g. who built their site), saved for the whole team.
-  const setClientField = (id, fields) => onClientsChange?.(clients.map((c) => (c.id === id ? { ...c, ...fields } : c)));
-  // Support plan: saved on the client, copied onto their sites, and the ideas worked out again (no plan → maintenance idea).
-  function setPlan(c, plan) {
-    setClientField(c.id, { plan });
-    for (const r of Object.values(recsRef.current)) if (r.clientId === c.id) update(r.id, { plan, ideas: ideasFor({ ...r, plan }, r.ideas || []), ideasVersion: IDEAS_VERSION });
-  }
   const update = (id, fields) => {
     const prev = recsRef.current[id] || {};
     const now = new Date().toISOString();
@@ -250,16 +246,16 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   const byClient = new Map();
   for (const r of liveRecs) { const k = r.clientId || r.name; if (!byClient.has(k)) byClient.set(k, { clientId: r.clientId, name: r.name, manager: r.manager || "", recs: [] }); byClient.get(k).recs.push(r); }
   const iclIps = iclServerIps(Object.values(recs));
-  // Fixes on sites we built are support work (no estimate, no pitch); everything else is a sales idea.
-  const supportFixes = [];
   const groups = [...byClient.values()].map((g) => {
     const client = clients.find((c) => c.id === g.clientId) || { name: g.name };
     const bb = builtByFor(client, g.recs, iclIps);
-    const all = clientQueue(g.recs);
+    // Developer jobs (fixes on sites we built, our own checks failing) sit in the client's list with the rest, marked AI Idea.
     const ours = bb.value !== "not";
-    for (const i of all) if (ours && ideaType(i) === "fix" && i.status === "queued") supportFixes.push({ ...i, client: g.name, clientRec: g.recs.find((r) => r.id === i.recId) || g.recs[0] });
-    const queue = ours ? all.filter((i) => ideaType(i) !== "fix") : all;
-    return { ...g, client, bb, queue, top: topIdeas(queue.filter((i) => !badRuleKeys.has(i.key) && (!minHours || hoursFor(i) > minHours) && (service !== "★" || i.starred)), 50, service === "★" ? "" : service), pick: monthlyPick(queue, month) }; })
+    const queue = [...clientQueue(g.recs), ...internalTasks(g.recs)];
+    // Developer jobs show whatever their size (the big-ideas list leaves small ones out).
+    const devJob = (i) => i.status === "queued" && (i.internal || (ours && ideaType(i) === "fix"));
+    const jobs = queue.filter((i) => devJob(i) && (!service || service === "★" ? service !== "★" || i.starred : (i.service || serviceFor(i.title)) === service));
+    return { ...g, client, bb, ours, queue, top: [...jobs, ...topIdeas(queue.filter((i) => !devJob(i) && !badRuleKeys.has(i.key) && (!minHours || hoursFor(i) > minHours) && (service !== "★" || i.starred)), 50, service === "★" ? "" : service)], pick: monthlyPick(queue, month) }; })
     .filter((g) => g.queue.length && (!manager || g.manager === manager) && (!q || `${g.name} ${g.manager} ${g.queue.map((i) => i.title).join(" ")}`.toLowerCase().includes(q)))
     .filter((g) => !service || g.top.length)
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -322,29 +318,6 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
           </label>
         </div>
       )}
-      {(() => { const tasks = internalTasks(Object.values(recs)); return (tasks.length > 0 || supportFixes.length > 0) && (
-        <details className="mt-3 rounded-xl border border-zinc-300 bg-zinc-50 px-4 py-2 text-sm">
-          <summary className="cursor-pointer font-semibold text-zinc-700">Developer jobs ({supportFixes.length + tasks.length}) <span className="font-normal text-zinc-500">· fixes on sites we built (cookie banners, SSL, licences…; no estimate) and our own checks failing</span></summary>
-          {supportFixes.length > 0 && <div className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Fixes on sites we built</div>}
-          <ul className="mt-1 space-y-1.5">
-            {supportFixes.map((f) => { const r = f.clientRec; const to = (r?.emails || [])[0] || ""; const mail = (mode) => { const e = supportEmail(r, f, to, mode); return mailHref(to, e.subject, e.body); };
-              return (
-                <li key={`${f.recId}|${f.key}`} className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">Fix</span>
-                  <span className="font-medium">{f.client}</span><button onClick={() => setOpen({ id: f.recId, key: f.key })} className="text-left text-zinc-700 hover:underline">{f.title}</button>
-                  <span className="ml-auto flex gap-1.5">
-                    {to && <a href={mail("onit")} target="_blank" rel="noopener" title="Optional: tell them now that we're sorting it" className="rounded border border-zinc-300 bg-white px-2 py-0.5 text-xs hover:bg-zinc-100">Tell them we’re on it</a>}
-                    <a href={to ? mail("fixed") : undefined} target="_blank" rel="noopener" onClick={(e) => { if (!to) e.preventDefault(); updateIdea(f.recId, f.key, { status: "done", fixedAt: new Date().toISOString() }); }} title={to ? "Opens the 'we spotted this and fixed it' email and marks it done" : "No email for this client: marks it done"} className="rounded bg-emerald-700 px-2 py-0.5 text-xs font-medium text-white hover:bg-emerald-800">Fixed{to ? ": email client" : ""}</a>
-                  </span>
-                </li>
-              ); })}
-          </ul>
-          {tasks.length > 0 && <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Our own checks failing</div>}
-          <ul className="mt-1 space-y-1">
-            {tasks.map((t) => <li key={`${t.recId}|${t.key}`} className="flex flex-wrap items-center gap-2"><span className="font-medium">{t.client}</span><span className="text-zinc-600">{t.title}</span>{t.why && <span className="text-xs text-zinc-500">{t.why}</span>}<button onClick={() => updateIdea(t.recId, t.key, { status: "done" })} className="ml-auto rounded border border-zinc-300 bg-white px-2 py-0.5 text-xs hover:bg-zinc-100">Sorted</button></li>)}
-          </ul>
-        </details>
-      ); })()}
       {view === "top" && (
         <div className="mt-3 overflow-x-auto rounded-xl border border-zinc-200 bg-white">
           <table className="w-full min-w-[900px] text-sm">
@@ -353,13 +326,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
               {groups.length === 0 && <tr><td colSpan={2} className="p-4 text-zinc-500">No ideas yet. Use the Claude button at the top: Client research.</td></tr>}
               {groups.map((g) => (
                 <tr key={g.clientId || g.name} className="align-top">
-                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => {
-                    const c = clients.find((x) => x.id === g.clientId); const bb = g.bb;
-                    const tone = bb.value === "not" ? "bg-zinc-200 text-zinc-700" : bb.value === "unsure" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800";
-                    const nextVal = { icl: "not", not: "unsure", unsure: "icl" }[bb.value];
-                    return <div className="mt-1 flex flex-wrap items-center gap-1"><button onClick={() => c && setClientField(c.id, { builtBy: nextVal })} disabled={!c} title={`${bb.why}. Click to change (ICL → Not ICL → Unsure).`} className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${tone}`}>{BUILT_LABEL[bb.value]}{bb.manual ? "" : " · auto"}</button>{bb.unsure && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800" title={bb.why}>Unsure, please check</span>}{bb.manual && <button onClick={() => setClientField(c.id, { builtBy: "" })} className="text-[10px] text-zinc-400 underline" title="Go back to the automatic check">auto</button>}
-                      {c && <select value={c.plan || ""} onChange={(e) => setPlan(c, e.target.value)} title="Their ICL hosting / support plan. No plan adds a maintenance idea." className={`rounded-full border-0 px-1.5 py-0.5 text-[11px] font-semibold ${c.plan === "none" ? "bg-red-100 text-red-800" : c.plan ? "bg-sky-100 text-sky-800" : "bg-zinc-100 text-zinc-600"}`}>{Object.entries(PLANS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}</select>}</div>;
-                  })()}{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return w ? <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline">{w} <ExternalIcon /></a> : null; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button></div>{g.top.length < 3 && <button onClick={() => openClaude({ job: "client-research", preset: [g.clientId] })} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
+                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return w ? <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline">{w} <ExternalIcon /></a> : null; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button></div></td>
                   <td className="max-w-0 px-3 py-3">
                   <div className="grid snap-x auto-cols-[calc((100%-2.25rem)/3.2)] grid-flow-col gap-3 overflow-x-auto pb-1">
                   {g.top.length === 0 && <div className="text-xs text-zinc-400">No big ideas yet.</div>}
@@ -370,7 +337,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
                       <div key={`${it.recId}|${it.key}`} onClick={() => setOpen({ id: it.recId, key: it.key })} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setOpen({ id: it.recId, key: it.key }); }} className={`relative cursor-pointer snap-start rounded-lg border p-2.5 pr-8 hover:border-zinc-400 hover:bg-zinc-50 ${it.starred ? "border-amber-300 bg-amber-50/40" : "border-zinc-200"}`}>
                         <button onClick={(e) => { e.stopPropagation(); updateIdea(it.recId, it.key, { starred: !it.starred }); }} aria-label={it.starred ? "Unstar" : "Star this idea"} title={it.starred ? "Starred: kept at the front. Click to unstar" : "Star a good idea to prioritise it"} className={`absolute right-2 top-2 text-lg leading-none ${it.starred ? "text-amber-500" : "text-zinc-300 hover:text-amber-400"}`}>{it.starred ? "★" : "☆"}</button>
                         <div className="flex flex-wrap items-center gap-1 text-[11px]">
-                          <span className={`rounded-full px-1.5 py-0.5 font-semibold ${ideaType(it) === "fix" ? "bg-red-600 text-white" : "bg-zinc-100 text-zinc-700"}`} title={ideaType(it) === "fix" ? "Something broken or wrong on the site" : "New work"}>{ideaType(it) === "fix" ? "Fix" : "Idea"}</span>
+                          <span className={`rounded-full px-1.5 py-0.5 font-semibold ${ideaType(it) === "fix" || it.internal ? "bg-red-600 text-white" : it.ai || ideaSource(it) === "AI" ? "bg-violet-100 text-violet-800" : "bg-zinc-100 text-zinc-700"}`} title={it.internal ? "Our own check is failing on this site: sort it, nothing to send" : ideaType(it) === "fix" ? "Something broken or wrong on the site (found by the checks)" : it.ai ? "From Claude's research" : "From ICL's own list of services"}>{ideaSource(it)} Idea</span>
                           {(() => { const sv = it.service || serviceFor(it.title); return <button onClick={(e) => { e.stopPropagation(); setService(service === sv ? "" : sv); }} title={`Show only ${sv} ideas`} className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${IDEA_SERVICES[sv] || "bg-zinc-500"}`}>{sv}</button>; })()}
                           {isQuickFix(it) ? <span className="rounded-full bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-800">Quick fix</span> : it.size === "large" && <span className="rounded-full bg-zinc-900 px-1.5 py-0.5 font-semibold text-white">Large</span>}
                           <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 font-semibold text-zinc-700" title={it.hours ? "Estimated hours to deliver" : "Rough guess; research again for Claude's estimate"}>~{hoursFor(it)} hr{hoursFor(it) === 1 ? "" : "s"}</span>
@@ -379,7 +346,11 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
                         </div>
                         <div className="mt-1 font-medium leading-snug">{it.title}</div>
                         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs" onClick={(e) => e.stopPropagation()}>
-                          {it.status === "queued"
+                          {it.status === "queued" && it.internal
+                            ? <button onClick={() => updateIdea(it.recId, it.key, { status: "done" })} title="Our own check: nothing to send the client" className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100">Sorted</button>
+                            : it.status === "queued" && g.ours && ideaType(it) === "fix"
+                            ? <a href={to ? (() => { const e = supportEmail(r, it, to, "fixed"); return mailHref(to, e.subject, e.body); })() : undefined} target="_blank" rel="noopener" onClick={(e) => { if (!to) e.preventDefault(); updateIdea(it.recId, it.key, { status: "done", fixedAt: new Date().toISOString() }); }} title={to ? "A site we built: opens the 'we spotted this and fixed it' email and marks it done" : "No email for this client: marks it done"} className="rounded-md bg-emerald-700 px-2 py-0.5 font-medium text-white hover:bg-emerald-800">Fixed{to ? ": email client" : ""}</a>
+                            : it.status === "queued"
                             ? <>{greetingFor(r, to).warn && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800" title={greetingFor(r, to).warn}>Check name</span>}<a href={to ? href : undefined} aria-disabled={!to} onClick={(e) => { if (!to) e.preventDefault(); }} target="_blank" rel="noopener" title={to ? `Opens Outlook with the email to ${to}` : "No email for this client in Settings"} className={`inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100 ${to ? "" : "cursor-not-allowed opacity-40"}`}><MailIcon className="h-3 w-3" /> Outlook</a><button onClick={() => markSent(it.recId, it.key)} className="rounded-md bg-emerald-700 px-2 py-0.5 font-medium text-white hover:bg-emerald-800">Mark sent</button></>
                             : <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700">{IDEA_STATUSES.find(([id]) => id === it.status)?.[1]}{it.sentAt ? ` ${new Date(it.sentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : ""}</span>}
                         </div>
@@ -424,7 +395,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
 
       {view === "replies" && <IdeaBoard cards={shown.filter((c) => normStatus(c.status) !== "queued").map((c) => ({ ...c, status: normStatus(c.status) }))} filtering={!!(q || kind)} onOpen={(id, key) => setOpen({ id, key })} onMove={(id, key, status) => updateIdea(id, key, { status })} />}
 
-      {addFor && <AddIdeaModal group={addFor} onClose={() => setAddFor(null)} onSave={(data) => { addIdea(addFor, data); setAddFor(null); }} />}
+      {addFor && <AddIdeaModal group={addFor} onResearch={addFor.clientId ? () => { setAddFor(null); openClaude({ job: "client-research", preset: [addFor.clientId] }); } : null} onClose={() => setAddFor(null)} onSave={(data) => { addIdea(addFor, data); setAddFor(null); }} />}
 
       {current && currentIdea && (
         <IdeaDrawer r={current} idea={currentIdea} onClose={() => setOpen(null)} onIdea={(fields) => updateIdea(current.id, currentIdea.key, fields)} onRec={(fields) => { for (const x of Object.values(recsRef.current)) if (x.clientId === current.clientId) update(x.id, fields); }} onBad={(reason) => { markBad(current, currentIdea, reason); setOpen(null); }} />
@@ -489,7 +460,7 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onRec, onBad }) {
               const line = first(r.ai?.business_summary) || [r.ai?.what_they_do, r.ai?.location].filter(Boolean).join(", ") || first(r.siteDescription) || first(r.title);
               return line ? <p className="mt-0.5 text-sm text-zinc-600">{line}</p> : null; })()}
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-              <span className={`rounded-full px-2 py-0.5 font-semibold ${ideaType(idea) === "fix" ? "bg-red-600 text-white" : "bg-zinc-100 text-zinc-700"}`}>{ideaType(idea) === "fix" ? "Fix" : "Idea"}</span>
+              <span className={`rounded-full px-2 py-0.5 font-semibold ${ideaType(idea) === "fix" || idea.internal ? "bg-red-600 text-white" : ideaSource(idea) === "AI" ? "bg-violet-100 text-violet-800" : "bg-zinc-100 text-zinc-700"}`}>{ideaSource(idea)} Idea</span>
               {(() => { const sv = idea.service || serviceFor(idea.title); return <span className={`rounded-full px-2 py-0.5 font-semibold text-white ${IDEA_SERVICES[sv] || "bg-zinc-500"}`}>{sv}</span>; })()}
               {isQuickFix(idea) ? <span className="rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-800">Quick fix</span> : idea.size && <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-700">{idea.size[0].toUpperCase() + idea.size.slice(1)} project</span>}
               <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-700" title="Estimated hours to deliver">~{hoursFor(idea)} hr{hoursFor(idea) === 1 ? "" : "s"}</span>
@@ -639,7 +610,7 @@ function BadIdea({ idea, onBad }) {
   );
 }
 
-function AddIdeaModal({ group, onClose, onSave }) {
+function AddIdeaModal({ group, onClose, onSave, onResearch }) {
   const [f, setF] = useState({ title: "", service: "Web design", size: "medium", hours: "", value: "", why: "", subject: "", email: "" });
   const set = (k) => (e) => setF((o) => ({ ...o, [k]: e.target.value }));
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
@@ -650,7 +621,8 @@ function AddIdeaModal({ group, onClose, onSave }) {
       <div className="w-full max-w-xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3"><h3 className="text-lg font-semibold">Add an idea for {group.name}</h3><button onClick={onClose} aria-label="Close" className="ml-auto rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button></div>
         <div className="space-y-3 px-5 py-4">
-          <label className={label}>Idea<input autoFocus value={f.title} onChange={set("title")} placeholder="e.g. Online booking for consultations" className={input} /></label>
+          {onResearch && <button onClick={onResearch} className="flex w-full items-center justify-between rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-left text-sm text-orange-900 hover:bg-orange-100"><span><span className="font-semibold">Let Claude research more ideas</span><span className="block text-xs text-orange-800">Opens the Client research prompt for {group.name}</span></span><span aria-hidden>→</span></button>}
+          <label className={label}>Or add your own idea<input autoFocus value={f.title} onChange={set("title")} placeholder="e.g. Online booking for consultations" className={input} /></label>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <label className={label}>Service<select value={f.service} onChange={set("service")} className={`${input} bg-white`}>{Object.keys(IDEA_SERVICES).map((k) => <option key={k}>{k}</option>)}</select></label>
             <label className={label}>Size<select value={f.size} onChange={set("size")} className={`${input} bg-white`}><option value="quick">Quick fix</option><option value="medium">Medium</option><option value="large">Large</option></select></label>
