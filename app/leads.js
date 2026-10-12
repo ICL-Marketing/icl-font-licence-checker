@@ -123,6 +123,9 @@ function toMaintenance(l) {
   l.caveats = String(l.caveats || "").split("; ").filter((x) => x && !/site is current/i.test(x)).join("; ");
   l.statusAt = l.updatedAt = new Date().toISOString();
 }
+// The search an issue names ("Not found for "fitted kitchens northallerton""), and a Google UK link to check it by hand.
+const searchIn = (t) => (String(t || "").match(/\bfor\s+["“‘']([^"”’']{3,80})["”’']/i) || [])[1] || "";
+const googleUk = (q) => `https://www.google.co.uk/search?q=${encodeURIComponent(q)}&gl=uk&pws=0`;
 // Only you put a lead in Ready to send. Anything else that lands it there waits in Email to draft for a quick check.
 function holdForCheck(l) {
   if (l.status !== "ready" || l.statusBy === "you" || l.review?.done) return false;
@@ -1896,6 +1899,13 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
   // What the email should say: used for this lead's own prompt, and saved on the lead for the batch prompt.
   const brief = lead ? { leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => (r.also || []).includes(c.key) && c.key !== r.lead).map((c) => c.label), notes: r.notes || "", path, template: lead.issue?.body || "" } : null;
   const prompt = lead ? withTitle("Email draft", l.business, draftPrompt({ l, first, ...brief })) : "";
+  // Issue and approach picked, no email yet: the lead waits in Email to draft (Claude can write it there or in a batch).
+  const toDraftNow = !!lead && lead.key !== "chk:maintenance" && !r.drafted && ["new", "no-contact", "no-website"].includes(l.status || "new");
+  useEffect(() => {
+    if (r.step !== 3 || !toDraftNow) return;
+    const t = setTimeout(() => onChange({ status: "to-draft", draftBrief: brief }), 0);
+    return () => clearTimeout(t);
+  }, [l.id, r.step, toDraftNow]); // eslint-disable-line react-hooks/exhaustive-deps
   const FROM = { Checker: "bg-zinc-200 text-zinc-700", Claude: "bg-orange-100 text-orange-800", "Why now": "bg-violet-100 text-violet-800", You: "bg-blue-100 text-blue-800" };
   const head = (n, title, done) => (
     <button onClick={() => setR({ step: n })} className={`flex w-full items-center gap-2 text-left text-sm font-semibold ${step === n ? "text-zinc-900" : "text-zinc-500 hover:text-zinc-900"}`}>
@@ -1986,6 +1996,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
                     <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${r.lead === c.key ? "border-zinc-900 bg-zinc-900" : "border-zinc-400"}`}>{r.lead === c.key && <span className="h-1.5 w-1.5 rounded-full bg-white" />}</span>
                     <span className="min-w-0 flex-1">{c.label}{r.lead === c.key && <span className="ml-2 rounded-full bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">Main</span>}</span>
                   </button>
+                  {(() => { const q = searchIn(c.label); return q && <a href={googleUk(q)} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} title={`Check “${q}” on Google yourself (UK, not personalised)`} className="shrink-0 text-blue-700 hover:text-blue-900"><ExternalIcon /></a>; })()}
                   <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${FROM[c.from]}`}>{c.from}</span>
                   {r.lead !== c.key && <label className="flex shrink-0 items-center gap-1 text-[11px] text-zinc-500" title="Mention this briefly as well"><input type="checkbox" checked={(r.also || []).includes(c.key)} onChange={(e) => setR({ also: e.target.checked ? [...(r.also || []), c.key] : (r.also || []).filter((x) => x !== c.key) })} className="h-3 w-3" /> also</label>}
                 </div>
@@ -2012,7 +2023,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
                 ))}
               </div>
             </div>
-            <div className="flex justify-between"><button onClick={() => setR({ step: 1 })} className="text-xs text-zinc-500 hover:text-zinc-900">← Back</button><button onClick={() => setR({ step: 3, path, ...(lead?.key === "chk:maintenance" && !r.drafted ? { drafted: new Date().toISOString() } : {}) }, { ...(r.subjectTyped ? {} : { subject: subjectOf(lead) }), ...(lead?.key === "chk:maintenance" && !r.drafted ? { email: emailTemplates().maintenance.body, emailEdited: false, issueId: "maintenance" } : {}) })} disabled={!lead} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: draft the email →</button></div>
+            <div className="flex justify-between"><button onClick={() => setR({ step: 1 })} className="text-xs text-zinc-500 hover:text-zinc-900">← Back</button><button onClick={() => setR({ step: 3, path, ...(lead?.key === "chk:maintenance" && !r.drafted ? { drafted: new Date().toISOString() } : {}) }, { ...(r.subjectTyped ? {} : { subject: subjectOf(lead) }), ...(toDraftNow ? { status: "to-draft", draftBrief: brief } : {}), ...(lead?.key === "chk:maintenance" && !r.drafted ? { email: emailTemplates().maintenance.body, emailEdited: false, issueId: "maintenance" } : {}) })} disabled={!lead} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: draft the email →</button></div>
             {lead?.key !== "chk:maintenance" && <div className="flex justify-end"><button onClick={() => { setR({ step: 3, path }, { draftBrief: brief, status: "to-draft", ...(r.subjectTyped ? {} : { subject: subjectOf(lead) }) }); onNext?.(false); }} disabled={!lead} title="Save the issue and approach, move it to Email to draft and go to the next lead. Claude writes all of those emails in one prompt." className="text-xs font-medium text-blue-700 underline disabled:opacity-40">or add to the email batch and go to the next lead →</button></div>}
           </div>
         )}
