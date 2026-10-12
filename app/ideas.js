@@ -3,7 +3,7 @@
 import { mailHref } from "@/app/mail";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
+import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon, TrashIcon } from "@/app/icons";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, withTitle } from "@/app/claudeInbox";
 import { iclFooter, setEmailTemplates } from "@/lib/leadsShared";
 import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, greetingFor, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, ideaType, supportEmail, PLANS } from "@/lib/clientIdeas";
@@ -32,6 +32,12 @@ async function post(body) {
   return j;
 }
 
+// A job for the support team: an email to support@ with the client, the site and what needs fixing.
+function supportHref(r, it) {
+  const site = r?.website ? `https://${r.website}` : "";
+  const body = [`Client: ${r?.name || ""}`, site && `Website: ${site}`, r?.manager && `Account manager: ${r.manager}`, "", `What needs fixing: ${it.title}`, it.why && `Details: ${it.why}`, it.page && `Page: ${it.page}`, "", "Found by the Website Checker's client checks."].filter((x) => x !== false && x !== undefined && x !== null).join("\n");
+  return mailHref("support@icldigital.com", `${r?.name || "Client"}: ${it.title}`, body);
+}
 // Who the idea came from: Claude or the automatic checks ("AI"), or ICL's own list and your team ("ICL").
 const ideaSource = (i) => (i.ai || i.internal || ideaType(i) === "fix" ? "AI" : "ICL");
 
@@ -68,6 +74,9 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   const [manager, setManager] = useState("");
   const [service, setService] = useState("");
   const [size, setSize] = useState(""); // "" all, or large / medium / small
+  const [showHidden, setShowHidden] = useState(false);
+  // Taking a client off Client Ideas keeps them in Settings (launch checks still use them).
+  const hideClient = (id, hidden) => onClientsChange?.(clients.map((c) => (c.id === id ? { ...c, ideasHidden: hidden } : c)));
   // Only ideas big enough to be worth pitching: over this many hours (0 = any size).
   const [minHours, setMinHoursState] = useState(() => { try { return Number(localStorage.getItem("flc-ideas-min-hours") || 0) || 0; } catch { return 0; } });
   const setMinHours = (v) => { setMinHoursState(v); try { localStorage.setItem("flc-ideas-min-hours", String(v)); } catch {} };
@@ -274,6 +283,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     const devJob = (i) => i.status === "queued" && (i.internal || (ours && ideaType(i) === "fix"));
     const jobs = queue.filter((i) => devJob(i) && (!service || service === "★" ? service !== "★" || i.starred : (i.service || serviceFor(i.title)) === service));
     return { ...g, client, bb, ours, queue, top: [...(size ? [] : jobs), ...topIdeas(queue.filter((i) => !devJob(i) && !badRuleKeys.has(i.key) && (!minHours || hoursFor(i) > minHours) && (service !== "★" || i.starred) && (!size || (i.size || "small") === size)), 50, service === "★" ? "" : service, { withSmall: !size || size === "small" })], pick: monthlyPick(queue, month) }; })
+    .filter((g) => !!g.client?.ideasHidden === (showHidden && clients.some((c) => c.ideasHidden)))
     .filter((g) => g.queue.length && (!manager || g.manager === manager) && (!q || `${g.name} ${g.manager} ${g.queue.map((i) => i.title).join(" ")}`.toLowerCase().includes(q)))
     .filter((g) => !service || g.top.length)
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -320,6 +330,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
         <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search clients or ideas" className="w-56 rounded-md border border-zinc-300 px-3 py-1.5 text-sm" />
         {managers.length > 0 && <select value={manager} onChange={(e) => setManager(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm"><option value="">All account managers</option>{managers.map((m) => <option key={m}>{m}</option>)}</select>}
         <select value={size} onChange={(e) => setSize(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm"><option value="">All ideas</option><option value="large">Big ideas</option><option value="medium">Medium ideas</option><option value="small">Small ideas</option></select>
+        {clients.some((c) => c.ideasHidden) && <button onClick={() => setShowHidden((v) => !v)} className={`rounded-md border px-2 py-1.5 text-sm ${showHidden ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-100"}`}>{showHidden ? "Back to all clients" : `Removed clients (${clients.filter((c) => c.ideasHidden).length})`}</button>}
         {manager && (() => {
           // One email to the account manager with every idea (as filtered) for each of their clients.
           const mine = groups.filter((g) => g.manager === manager && g.top.length);
@@ -352,7 +363,9 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
               {groups.length === 0 && <tr><td colSpan={2} className="p-4 text-zinc-500">No ideas yet. Use the Claude button at the top: Client research.</td></tr>}
               {groups.map((g) => (
                 <tr key={g.clientId || g.name} className="align-top">
-                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return <span className="inline-flex items-center gap-1 text-[11px]">{w && <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700 hover:underline">{w} <ExternalIcon /></a>}{g.clientId && <button onClick={() => { const v = window.prompt(`${g.name}: the right website address`, w ? `https://${w}` : "https://"); if (v) changeSite(g, w || "", v); }} title="Wrong website? Change it here: the old site's ideas are dropped, the new one is checked and Claude research opens" className="rounded px-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">{w ? "edit" : "+ website"}</button>}</span>; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button></div></td>
+                  <td className="px-4 py-3"><div className="flex items-start gap-2"><div className="min-w-0 flex-1 font-medium">{g.name}</div>{g.clientId && (g.client?.ideasHidden
+                    ? <button onClick={() => hideClient(g.clientId, false)} title="Put this client back on Client Ideas" className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-blue-700 hover:bg-blue-50">Restore</button>
+                    : <button onClick={() => { if (window.confirm(`Remove ${g.name} from Client Ideas? They stay in Settings, and you can restore them from "Removed clients".`)) hideClient(g.clientId, true); }} aria-label={`Remove ${g.name} from Client Ideas`} title="Remove from Client Ideas" className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button>)}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return <span className="inline-flex items-center gap-1 text-[11px]">{w && <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700 hover:underline">{w} <ExternalIcon /></a>}{g.clientId && <button onClick={() => { const v = window.prompt(`${g.name}: the right website address`, w ? `https://${w}` : "https://"); if (v) changeSite(g, w || "", v); }} title="Wrong website? Change it here: the old site's ideas are dropped, the new one is checked and Claude research opens" className="rounded px-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">{w ? "edit" : "+ website"}</button>}</span>; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button></div></td>
                   <td className="max-w-0 px-3 py-3">
                   <div className="grid snap-x auto-cols-[calc((100%-2.25rem)/3.2)] grid-flow-col gap-3 overflow-x-auto pb-1">
                   {g.top.length === 0 && <div className="text-xs text-zinc-400">No big ideas yet.</div>}
@@ -373,9 +386,9 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
                         <div className="mt-1 font-medium leading-snug">{it.title}</div>
                         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs" onClick={(e) => e.stopPropagation()}>
                           {it.status === "queued" && it.internal
-                            ? <button onClick={() => updateIdea(it.recId, it.key, { status: "done" })} title="Our own check: nothing to send the client" className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100">Sorted</button>
+                            ? <><a href={supportHref(r, it)} target="_blank" rel="noopener" title="Opens an email to support@icldigital.com with what needs fixing" className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100">Send to Support</a><button onClick={() => updateIdea(it.recId, it.key, { status: "done" })} title="Our own check: nothing to send the client" className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100">Sorted</button></>
                             : it.status === "queued" && g.ours && ideaType(it) === "fix"
-                            ? <a href={to ? (() => { const e = supportEmail(r, it, to, "fixed"); return mailHref(to, e.subject, e.body); })() : undefined} target="_blank" rel="noopener" onClick={(e) => { if (!to) e.preventDefault(); updateIdea(it.recId, it.key, { status: "done", fixedAt: new Date().toISOString() }); }} title={to ? "A site we built: opens the 'we spotted this and fixed it' email and marks it done" : "No email for this client: marks it done"} className="rounded-md bg-emerald-700 px-2 py-0.5 font-medium text-white hover:bg-emerald-800">Fixed{to ? ": email client" : ""}</a>
+                            ? <><a href={to ? (() => { const e = supportEmail(r, it, to, "fixed"); return mailHref(to, e.subject, e.body); })() : undefined} target="_blank" rel="noopener" onClick={(e) => { if (!to) e.preventDefault(); updateIdea(it.recId, it.key, { status: "done", fixedAt: new Date().toISOString() }); }} title={to ? "A site we built: opens the 'we spotted this and fixed it' email and marks it done" : "No email for this client: marks it done"} className="rounded-md bg-emerald-700 px-2 py-0.5 font-medium text-white hover:bg-emerald-800">Fixed{to ? ": email client" : ""}</a><a href={supportHref(r, it)} target="_blank" rel="noopener" title="Opens an email to support@icldigital.com with what needs fixing" className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100">Send to Support</a></>
                             : it.status === "queued"
                             ? <>{greetingFor(r, to).warn && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800" title={greetingFor(r, to).warn}>Check name</span>}<a href={to ? href : undefined} aria-disabled={!to} onClick={(e) => { if (!to) e.preventDefault(); }} target="_blank" rel="noopener" title={to ? `Opens Outlook with the email to ${to}` : "No email for this client in Settings"} className={`inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100 ${to ? "" : "cursor-not-allowed opacity-40"}`}><MailIcon className="h-3 w-3" /> Outlook</a><button onClick={() => markSent(it.recId, it.key)} className="rounded-md bg-emerald-700 px-2 py-0.5 font-medium text-white hover:bg-emerald-800">Mark sent</button></>
                             : <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700">{IDEA_STATUSES.find(([id]) => id === it.status)?.[1]}{it.sentAt ? ` ${new Date(it.sentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : ""}</span>}
