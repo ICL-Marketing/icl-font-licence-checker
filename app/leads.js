@@ -4,7 +4,7 @@ import { mailHref } from "@/app/mail";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, businessLabel, subjectForText, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, businessLabel, subjectForText, draftBatchPrompt, parseDraftBatch, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 import { mergeDoc } from "@/lib/merge";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, reportProgress, withTitle } from "@/app/claudeInbox";
@@ -876,6 +876,18 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   // The prompts this page can write, all reached from the one Claude button at the top.
   useClaudeJob("lead-check", { label: "Check leads", order: 1, count: () => list.filter((l) => (l.status || "new") === "new" && !l.claude).length, render: (o, close) => <LeadCheckModal leads={list} preset={o.preset || []} column={o.column || "new"} onClose={close} onApply={applyLeadCheck} /> });
   useClaudeJob("find-sites", { label: "Find websites", order: 2, count: () => list.filter((l) => !l.website && siteSearchable(l) && !l.sitesCheckedAt).length, render: (o, close) => <FindSitesModal leads={list} preset={o.preset || []} onClose={close} onApply={applySites} /> });
+  useClaudeJob("draft-batch", { label: "Draft emails", order: 1.5, count: () => list.filter((l) => l.status === "to-draft" && !l.review?.drafted).length, render: (o, close) => <DraftBatchModal leads={list} preset={o.preset || []} onClose={close} /> });
+  useClaudeHandler("draft-batch", (text) => {
+    const items = parseDraftBatch(text);
+    if (!items.length) throw new Error("No emails in that reply. Make sure Claude kept the lead_id values.");
+    let done = 0;
+    for (const it of items) {
+      const l = leadsRef.current[it.lead_id]; if (!l || isFrozen(l)) continue;
+      update(l.id, { email: it.body, emailEdited: true, claudeDraft: true, emailPrevious: l.email && l.email !== it.body ? l.email : l.emailPrevious, review: { ...(l.review || {}), step: 3, drafted: new Date().toISOString() } });
+      done++;
+    }
+    return `${done} email${done === 1 ? "" : "s"} added. Check each one in Email to draft, then Ready to send.`;
+  });
   useClaudeJob("rank-check", { label: "Search rankings", order: 3, count: () => list.filter((l) => rankable(l) && !l.seo?.claudeAt).length, render: (o, close) => <RankModal leads={list} preset={o.preset || []} onClose={close} /> });
   // Where they came for the searches their customers make: the weakest becomes the search issue.
   useClaudeHandler("rank-check", (text) => {
@@ -1181,7 +1193,8 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
             <span>{c.label}</span><span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{c.items.length}</span>
           </div>
           <div className="px-1 pb-2 text-[11px] font-normal text-zinc-500">{c.hint}</div>
-          {["new", "no-contact", "maintenance", "no-website"].includes(c.id) && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.id)} title="Go through these one at a time: look at the site, pick the issue and approach, then draft the email with Claude" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
+          {c.id === "to-draft" && c.items.some((l) => !l.review?.drafted) && <button onClick={() => openClaude({ job: "draft-batch" })} className="mb-2 w-full rounded-md bg-orange-600 px-2 py-1 text-xs font-medium text-white hover:bg-orange-700">Write {c.items.filter((l) => !l.review?.drafted).length} emails with Claude</button>}
+          {["new", "to-draft", "no-contact", "maintenance", "no-website"].includes(c.id) && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.id)} title="Go through these one at a time: look at the site, pick the issue and approach, then draft the email with Claude" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
           <div className="flex flex-1 flex-col gap-2">
             {c.items.slice(0, shown[c.id] || 60).map((l) => (
               <div key={l.id} draggable onDragStart={(e) => { e.dataTransfer.setData("text/lead", l.id); e.dataTransfer.effectAllowed = "move"; }} onClick={() => onOpen(l.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") onOpen(l.id); }}
@@ -1195,6 +1208,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
                   {businessLabel(l) && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 font-semibold text-white" title={l.whatTheyDo || ""}>{businessLabel(l)}</span>}
+                  {c.id === "to-draft" && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${l.review?.drafted ? "bg-emerald-100 text-emerald-800" : "bg-orange-100 text-orange-800"}`}>{l.review?.drafted ? "Draft in: check it" : "Waiting for Claude"}</span>}
                   {l.review?.step > 1 && !l.review?.done && ["new", "no-contact"].includes(c.id) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="Review in progress">Step {l.review.step}/3</span>}
                   {TRIGGER_TAG[l.triggerKind] && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 font-semibold text-violet-800" title={l.trigger}>{TRIGGER_TAG[l.triggerKind]}</span>}
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
@@ -1378,7 +1392,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
   const [optingOut, setOptingOut] = useState(false);
-  const reviewable = ["new", "no-contact", "maintenance", "no-website"].includes(l.status) && !isFrozen(l);
+  const reviewable = ["new", "to-draft", "no-contact", "maintenance", "no-website"].includes(l.status) && !isFrozen(l);
   // Opening a lead always lands on the Review tab (where it has one).
   const [view, setView] = useState(() => (reviewable || l.review ? "review" : "details"));
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
@@ -1680,7 +1694,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             const btn = "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-white";
             if (l.optedOut || isFrozen(l)) return null;
             if (l.status === "ready" && l.email && l.emailAddress && websiteIsVerified(l)) return <a href={outlook} target="_blank" rel="noopener" onClick={() => onChange({ status: "contacted", sentAt: new Date().toISOString() })} className={`${btn} bg-emerald-600 hover:bg-emerald-700`}><MailIcon className="h-4 w-4" /> Open in Outlook and mark as sent</a>;
-            if (!["new", "no-contact", "maintenance", "no-website"].includes(l.status || "new")) return null;
+            if (!["new", "to-draft", "no-contact", "maintenance", "no-website"].includes(l.status || "new")) return null;
             if (!l.website && siteSearchable(l)) return <button onClick={onFindSite} className={`${btn} bg-amber-600 hover:bg-amber-700`}><SearchIcon className="h-4 w-4" /> Find their website with Claude</button>;
             if (!l.claude) return <button onClick={onClaude} className={`${btn} bg-orange-600 hover:bg-orange-700`}><SearchIcon className="h-4 w-4" /> Check with Claude</button>;
             if (!l.review?.done) return <button onClick={() => setView("review")} className={`${btn} bg-zinc-900 hover:bg-zinc-700`}><PlayIcon className="h-4 w-4" /> {l.review?.step > 1 ? `Continue review (step ${l.review.step} of 3)` : "Review this lead"}</button>;
@@ -1853,7 +1867,9 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
   };
   const path = r.path || suggestPath(lead?.issue?.id || lead?.label || "", l);
   const first = greetNames(l.contactName);
-  const prompt = lead ? withTitle("Email draft", l.business, draftPrompt({ l, first, leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => (r.also || []).includes(c.key) && c.key !== r.lead).map((c) => c.label), notes: r.notes || "", path, template: lead.issue?.body || "" })) : "";
+  // What the email should say: used for this lead's own prompt, and saved on the lead for the batch prompt.
+  const brief = lead ? { leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => (r.also || []).includes(c.key) && c.key !== r.lead).map((c) => c.label), notes: r.notes || "", path, template: lead.issue?.body || "" } : null;
+  const prompt = lead ? withTitle("Email draft", l.business, draftPrompt({ l, first, ...brief })) : "";
   const FROM = { Checker: "bg-zinc-200 text-zinc-700", Claude: "bg-orange-100 text-orange-800", "Why now": "bg-violet-100 text-violet-800", You: "bg-blue-100 text-blue-800" };
   const head = (n, title, done) => (
     <button onClick={() => setR({ step: n })} className={`flex w-full items-center gap-2 text-left text-sm font-semibold ${step === n ? "text-zinc-900" : "text-zinc-500 hover:text-zinc-900"}`}>
@@ -1971,6 +1987,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
               </div>
             </div>
             <div className="flex justify-between"><button onClick={() => setR({ step: 1 })} className="text-xs text-zinc-500 hover:text-zinc-900">← Back</button><button onClick={() => setR({ step: 3, path, ...(lead?.key === "chk:maintenance" && !r.drafted ? { drafted: new Date().toISOString() } : {}) }, { ...(r.subjectTyped ? {} : { subject: subjectOf(lead) }), ...(lead?.key === "chk:maintenance" && !r.drafted ? { email: emailTemplates().maintenance.body, emailEdited: false, issueId: "maintenance" } : {}) })} disabled={!lead} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: draft the email →</button></div>
+            {lead?.key !== "chk:maintenance" && <div className="flex justify-end"><button onClick={() => { setR({ step: 3, path }, { draftBrief: brief, status: "to-draft", ...(r.subjectTyped ? {} : { subject: subjectOf(lead) }) }); onNext?.(false); }} disabled={!lead} title="Save the issue and approach, move it to Email to draft and go to the next lead. Claude writes all of those emails in one prompt." className="text-xs font-medium text-blue-700 underline disabled:opacity-40">or add to the email batch and go to the next lead →</button></div>}
           </div>
         )}
       </div>
@@ -1988,7 +2005,12 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
             {msg && <p className="text-xs text-zinc-600">{msg}</p>}
             <div>
               <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} placeholder="Subject" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm font-medium" />
-              <pre className="mt-2 whitespace-pre-wrap rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1 font-sans text-sm text-zinc-500">{greeting}</pre>
+              <div className="mt-2 rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1 text-sm text-zinc-500">
+                {/* The names go straight into the greeting: blank reads "Hi there,". */}
+                <div className="flex items-baseline gap-1">Hi <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value, nameFrom: "Added by you" })} placeholder="there" aria-label="Name(s) to greet, e.g. Paul and Louise" title="Name(s) to greet, e.g. Paul and Louise. Leave blank for “Hi there”." className="min-w-0 rounded border border-dashed border-zinc-300 bg-white px-1 py-0 text-sm text-zinc-900 placeholder:text-zinc-500" style={{ width: `${Math.max(5, (l.contactName || "").length + 2)}ch` }} />,</div>
+                {nameSources(l).map((t) => <span key={t} className="block text-[11px] text-zinc-600">Found: {t}</span>)}
+                <div className="mt-2">{dayGreeting()}</div>
+              </div>
               <AutoTextarea value={draftText} placeholder="Paste Claude’s email here" onChange={(e) => onChange({ email: e.target.value, emailEdited: true, review: { ...r, drafted: r.drafted || new Date().toISOString() } })} onPaste={(e) => { const t = e.clipboardData.getData("text"); if (!t || draftText.trim()) return; e.preventDefault(); const c = cleanPastedEmail(t); onChange({ email: c.body, emailEdited: true, ...(c.subject && !r.subjectTyped ? { subject: c.subject } : {}), review: { ...r, drafted: new Date().toISOString() } }); }} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
               <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{`${iclFooter()}\n\n${optOutLine()}`}</pre>
             </div>
@@ -2007,9 +2029,6 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
                       {src.warn && <div className="mt-0.5 font-medium text-amber-800">{src.warn}</div>}
                     </div>
                   ); })()}
-                  <label className="block text-xs"><span className="text-zinc-500">Name(s) for “Hi …,” (e.g. Paul and Louise)</span>
-                    <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value, nameFrom: "Added by you" })} placeholder="Leave blank for “Hi there”" className="mt-0.5 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm" />
-                    {nameSources(l).map((t) => <span key={t} className="mt-0.5 block text-[11px] text-zinc-600">Found: {t}</span>)}</label>
                 </div>
               );
             })()}
@@ -2078,6 +2097,45 @@ function FindSitesModal({ leads, preset, onClose, onApply }) {
 }
 
 // Search rankings with Claude: the searches their customers really make, and where they come.
+// Every lead waiting in Email to draft, written by Claude in one prompt from the brief saved at step 2.
+function DraftBatchModal({ leads, preset, onClose }) {
+  const pool = sorted(leads.filter((l) => l.status === "to-draft" && l.draftBrief));
+  const [size, setSize] = useState("all");
+  const waitingFor = (done = []) => { const w = sentIds("draft-batch"); return pool.filter((l) => !l.review?.drafted && !done.includes(l.id) && !w.has(l.id)); };
+  const [picked, setPicked] = useState(() => (preset.length ? preset : waitingFor().map((l) => l.id)));
+  const [copied, setCopied] = useState(false);
+  const items = picked.map((id) => leads.find((l) => l.id === id)).filter((l) => l?.draftBrief).map((l) => ({ l, first: greetNames(l.contactName), ...l.draftBrief }));
+  const prompt = items.length ? withTitle("Email drafts", `${items.length} lead${items.length === 1 ? "" : "s"}`, draftBatchPrompt(items)) : "";
+  const nextBatch = (n, done = []) => { setSize(n); setPicked(waitingFor(done).slice(0, n === "all" ? undefined : n).map((l) => l.id)); };
+  async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("draft-batch", picked); if (size !== "all") nextBatch(size, picked); }
+  const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  return (
+    <div className="space-y-4 text-sm">
+      <div>
+        <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">1. Pick leads</span><span className="text-xs text-zinc-500">Waiting for an email:</span>
+          {[50, 100].map((n) => <button key={n} onClick={() => nextBatch(n)} className={`rounded-full border px-2 py-0.5 text-xs ${size === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{n}</button>)}
+          <button onClick={() => nextBatch("all")} className={`rounded-full border px-2 py-0.5 text-xs ${size === "all" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>All ({pool.filter((l) => !l.review?.drafted).length})</button>
+        </div>
+        {pool.length ? <div className="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
+          {pool.map((l) => <button key={l.id} onClick={() => toggle(l.id)} className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(l.id) ? "border-sky-500 bg-sky-100 text-sky-900" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{l.business}{l.review?.drafted ? " ✓" : ""}</button>)}
+        </div> : <p className="mt-2 text-xs text-zinc-500">Nothing in Email to draft yet. In a lead’s Review, pick the issue and approach, then “add to the email batch”.</p>}
+        <p className="mt-1 text-[11px] text-zinc-500">{picked.length} picked · ✓ drafted already. Each email uses the issue, extras, notes and approach you picked at step 2.</p>
+      </div>
+      <div>
+        <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">2. Run it in Claude</span>
+          <span className="ml-auto flex gap-2">
+            <button onClick={() => copy(false)} disabled={!prompt} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-40">{copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />} Copy prompt</button>
+            <button onClick={() => copy(true)} disabled={!prompt} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"><ExternalIcon /> Copy and open Claude</button>
+          </span>
+        </div>
+      </div>
+      <div>
+        <span className="font-semibold">3. Paste the reply</span>
+        <PasteHint className="mt-1" />
+      </div>
+    </div>
+  );
+}
 function RankModal({ leads, preset, onClose }) {
   // To assess first, then the other open columns; anything already checked goes last.
   const pool = sorted(leads.filter(rankable)).sort((a, b) => (a.seo?.claudeAt ? 1 : 0) - (b.seo?.claudeAt ? 1 : 0) || colRank(a) - colRank(b));

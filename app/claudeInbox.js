@@ -31,7 +31,7 @@ export function useClaudeJob(id, job) {
 // Open the Claude window: { tab: "prompt" | "paste", job, preset: [ids], column }.
 export const openClaude = (detail = {}) => window.dispatchEvent(new CustomEvent("open-claude-inbox", { detail }));
 
-export const KIND_LABEL = { "rank-check": "Search rankings", "lead-check": "Lead check", "find-sites": "Website search", "find-leads": "New leads", draft: "Email draft", "client-research": "Client research" };
+export const KIND_LABEL = { "rank-check": "Search rankings", "lead-check": "Lead check", "find-sites": "Website search", "find-leads": "New leads", draft: "Email draft", "draft-batch": "Email drafts (batch)", "client-research": "Client research" };
 
 function jsonOf(text) {
   const t = String(text || "").trim();
@@ -45,6 +45,8 @@ function jsonOf(text) {
 export function detectReply(text) {
   const d = jsonOf(text);
   if (!d || typeof d !== "object") return /^subject:/im.test(String(text)) ? "draft" : null;
+  if (!Array.isArray(d) && Array.isArray(d.emails)) return "draft-batch";
+  if (Array.isArray(d) && d[0] && "lead_id" in d[0] && "email_body" in d[0]) return "draft-batch";
   if (!Array.isArray(d) && "body" in d && ("subject" in d || "lead_id" in d)) return "draft";
   const list = Array.isArray(d) ? d : Array.isArray(d.leads) ? d.leads : Array.isArray(d.clients) ? d.clients : [d];
   const x = list.find((o) => o && typeof o === "object") || {};
