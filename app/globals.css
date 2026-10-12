@@ -3,3 +3,6 @@
 body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
+
+/* A sideways trackpad swipe shouldn't go Back (which closes the open lead). */
+html, body { overscroll-behavior-x: none; }

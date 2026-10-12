@@ -1407,7 +1407,9 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
   const reviewable = ["new", "to-draft", "no-contact", "maintenance", "no-website"].includes(l.status) && !isFrozen(l);
   // Opening a lead always lands on the Review tab (where it has one).
   const [view, setView] = useState(() => (reviewable || l.review ? "review" : "details"));
-  useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
+  const downOnBackdrop = useRef(false);
+  // Escape while typing just leaves the box; press it again to close the lead.
+  useEffect(() => { const k = (e) => { if (e.key !== "Escape") return; const t = e.target; if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) { t.blur(); return; } onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
   // Older drafts carry the greeting inside the text; new ones get it written on the day.
   const emailText = /^Hi\b/.test(l.email || "") ? withIclLine(l.email || "", { optOut: true }) : fullEmail(l, l.email || "");
   const greetingPreview = /^Hi\b/.test(l.email || "") ? "" : `${greetNames(l.contactName) ? `Hi ${greetNames(l.contactName)},` : "Hi there,"}\n\n${dayGreeting()}`;
@@ -1457,8 +1459,9 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
   async function copy() { try { await navigator.clipboard.writeText(full); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {} }
   const site = l.siteUrl || (l.website ? (/^https?:/.test(l.website) ? l.website : `${l.problem === "Broken SSL" ? "http" : "https"}://${l.website}`) : "");
   return (
-    <div className="fixed inset-0 z-30 flex justify-end bg-black/30" onClick={onClose}>
-      <div className="flex h-full w-full max-w-2xl flex-col bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+    // Closes only on a real click on the grey area: a text selection dragged out of the panel doesn't count.
+    <div className="fixed inset-0 z-30 flex justify-end bg-black/30" onMouseDown={(e) => { downOnBackdrop.current = e.target === e.currentTarget; }} onClick={(e) => { if (e.target === e.currentTarget && downOnBackdrop.current) onClose(); downOnBackdrop.current = false; }}>
+      <div className="flex h-full w-full max-w-2xl flex-col bg-white shadow-xl">
         <div className="shrink-0 flex items-start gap-2 border-b border-zinc-200 bg-white px-5 py-3">
           <div className="min-w-0 flex-1">
             <input value={l.business || ""} onChange={(e) => onChange({ business: e.target.value })} className="w-full rounded border border-transparent text-lg font-semibold hover:border-zinc-300 focus:border-zinc-400" />
