@@ -678,7 +678,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), ...(r.hunterOnFile !== undefined && r.hunterOnFile !== null ? { hunterOnFile: r.hunterOnFile } : {}), contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: !!r.hunterUsed, ...(r.hunterUsed ? {} : { hunterOnFile: 0 }), checking: false, error: r.hunterNote || (best || r.hunterDomain ? "" : l.website ? "Hunter had nothing for this domain." : "Hunter did not recognise the company name.") };
       if (r.hunterUsed) f.hunterDomain = r.hunterDomain || String(l.website || "").replace(/^https?:\/\//i, "").replace(/^www\./, "").replace(/\/.*$/, "");
       if (!l.website && r.hunterDomain) { f.website = r.hunterDomain; f.websiteConfirmed = false; f.websiteVerified = ""; f.websiteEvidence = "Hunter's company lookup"; f.caveats = [l.caveats, `Website ${r.hunterDomain} came from Hunter's company lookup; double-check it is theirs`].filter(Boolean).join("; "); }
-      if (!best && !l.emailAddress && !r.hunterDomain && ["no-contact", "new", "qualified"].includes(l.status)) { f.status = "not-pursuing"; f.contactUnverified = true; }
+      if (!best && !l.emailAddress && !r.hunterDomain && !handledByYou(l) && ["no-contact", "new", "qualified"].includes(l.status)) { f.status = "not-pursuing"; f.contactUnverified = true; }
       if (best && !l.emailAddress) { f.emailAddress = best.email; f.contactName = l.contactName || best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; if (["no-contact", "not-pursuing"].includes(l.status) && l.contactUnverified) { f.status = "new"; f.contactUnverified = false; } }
       update(l.id, f);
       fetch("/api/leads").then((x) => x.json()).then(setCfg).catch(() => {});
@@ -1244,6 +1244,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       {boardTab === "vetting" ? <VettingList leads={visible.filter((l) => l.status === "vetting")} onOpen={(id) => setOpen(id)} onVet={(ids) => openClaude({ job: "vet", preset: ids })} onSend={(l) => update(l.id, { status: boardColumn(l), statusBy: "you" })} onPark={(l) => update(l.id, { status: "not-pursuing", statusBy: "you", likelihoodWhy: "Vetting: not worth it" })}
         onSite={(l, v) => { const h = String(v).trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""); if (!h.includes(".")) return; update(l.id, { website: h, websiteConfirmed: true, websiteVerified: "confirmed by you", websiteEvidence: "confirmed by you", websiteNeeded: false, noWebsiteConfirmed: false, websiteDoubt: "", ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}) }); setTimeout(() => refreshLeads([l.id]), 50); }}
         onNoSite={(l) => update(l.id, { website: "", noWebsiteConfirmed: true, websiteNeeded: false, problem: "No website", problemDetail: "Checked by hand: they have no website" })}
+        onHunter={(l) => hunterLookup(l)}
         onEmail={(l, v) => { const e = v.toLowerCase(); if (/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(e)) update(l.id, { emailAddress: e, emailFrom: "Added by you", contactUnverified: false }); }} /> :
       <Board onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} hideCols={showParked || filtering ? ["vetting"] : ["vetting", "not-pursuing", "lost"]} leads={onBoard} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status, statusBy: "you" }); }} />}
@@ -1627,7 +1628,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
               {[["review", l.review?.done ? "Review ✓" : "Review steps"], ["details", "All details"]].map(([k, label]) => <button key={k} onClick={() => setView(k)} className={`flex-1 rounded-md px-2 py-1 font-medium ${view === k ? "bg-white shadow-sm" : "text-zinc-500 hover:text-zinc-900"}`}>{label}</button>)}
             </div>
           )}
-          {view === "review" && <ReviewSteps l={l} onNoSite={onNoSite} onChange={onChange} issues={issues} person={person} subjects={subjects} commitWebsite={commitWebsite} rejectWebsite={rejectWebsite} onNext={onNext ? (done) => onNext(l.status, done) : null} />}
+          {view === "review" && <ReviewSteps onHunter={onHunter} l={l} onNoSite={onNoSite} onChange={onChange} issues={issues} person={person} subjects={subjects} commitWebsite={commitWebsite} rejectWebsite={rejectWebsite} onNext={onNext ? (done) => onNext(l.status, done) : null} />}
           {view === "details" && <>
           {(l.whatTheyDo || l.siteDescription || l.background || l.sics?.length) && (
             <p className="text-sm text-zinc-700">
@@ -1972,7 +1973,7 @@ function FindLeadsModal({ area, miles, exclude, onClose }) {
 }
 
 // Step by step: 1 look at the site yourself, 2 pick what to raise and how, 3 Claude drafts it from our templates.
-function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWebsite, rejectWebsite, onNext }) {
+function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects, commitWebsite, rejectWebsite, onNext }) {
   const r = l.review || {};
   const step = r.step || 1;
   const setR = (patch, extra = {}) => onChange({ review: { ...r, ...patch }, ...extra });
@@ -2172,6 +2173,11 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
                       {src.warn && <div className="mt-0.5 font-medium text-amber-800">{src.warn}</div>}
                     </div>
                   ); })()}
+                  {!l.emailAddress && <div className="flex flex-wrap items-center gap-2 text-xs sm:col-span-2">
+                    {l.website && <a href={`https://${String(l.website).replace(/^https?:\/\//, "")}`} target="_blank" rel="noopener" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 hover:bg-zinc-100"><ExternalIcon /> Search website</a>}
+                    {onHunter && <button onClick={onHunter} disabled={l.checking} title="Ask Hunter.io for named people and their addresses (uses a Hunter credit)" className="rounded-md border border-zinc-300 bg-white px-2 py-1 hover:bg-zinc-100 disabled:opacity-40">{l.checking ? "Looking…" : "Find with Hunter"}</button>}
+                    {l.hunterTried && !l.checking && <span className="text-zinc-500">Hunter already tried{l.hunterOnFile === 0 ? ": nothing on file" : ""}</span>}
+                  </div>}
                 </div>
               );
             })()}
@@ -2252,7 +2258,7 @@ function FindSitesModal({ leads, preset, onClose, onApply }) {
 
 // Search rankings with Claude: the searches their customers really make, and where they come.
 // The vetting list: Claude does the first pass; anything it couldn't settle waits for you, with the next step in the row.
-function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, onEmail }) {
+function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, onEmail, onHunter }) {
   const [shown, setShown] = useState(100);
   const all = sorted(leads);
   const waiting = all.filter((l) => !l.vetAt);
@@ -2264,7 +2270,7 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
     const c = vetChecks(l);
     if (!c.site && !l.website) return <span className="flex items-center gap-1"><input key={`s${l.id}`} placeholder="Paste their website" className={input} onKeyDown={(e) => { if (e.key === "Enter" && e.currentTarget.value.trim()) onSite(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (e.target.value.trim()) onSite(l, e.target.value.trim()); }} /><a href={`https://www.google.co.uk/search?q=${encodeURIComponent(`"${l.business}"`)}`} target="_blank" rel="noopener" className="text-xs text-blue-700 hover:underline">Google</a><button onClick={() => onNoSite(l)} className="text-xs text-zinc-500 hover:underline">no website</button></span>;
     if (!c.site) return <span className="flex items-center gap-1 text-xs"><a href={`https://${l.website}`} target="_blank" rel="noopener" className="text-blue-700 hover:underline">Open {l.website}</a><button onClick={() => onOpen(l.id)} className="rounded border border-zinc-300 px-1.5 py-0.5 hover:bg-zinc-100">Confirm it’s theirs</button></span>;
-    if (!c.contact) return <span className="flex items-center gap-1"><input key={`e${l.id}`} type="email" placeholder="Paste an email address" className={input} onKeyDown={(e) => { if (e.key === "Enter" && /@/.test(e.currentTarget.value)) onEmail(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (/@/.test(e.target.value)) onEmail(l, e.target.value.trim()); }} />{l.website && <a href={`https://${l.website}/contact`} target="_blank" rel="noopener" className="text-xs text-blue-700 hover:underline">Contact page</a>}</span>;
+    if (!c.contact) return <span className="flex items-center gap-1"><input key={`e${l.id}`} type="email" placeholder="Paste an email address" className={input} onKeyDown={(e) => { if (e.key === "Enter" && /@/.test(e.currentTarget.value)) onEmail(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (/@/.test(e.target.value)) onEmail(l, e.target.value.trim()); }} />{l.website && <a href={`https://${l.website}`} target="_blank" rel="noopener" className="text-xs text-blue-700 hover:underline">Search website</a>}{l.website && <button onClick={() => onHunter(l)} disabled={l.checking} className="text-xs text-blue-700 hover:underline disabled:opacity-40">{l.checking ? "Looking…" : l.hunterTried ? "Hunter again" : "Find with Hunter"}</button>}</span>;
     return null;
   };
   const row = (l, mine) => { const c = vetChecks(l); const w = (l.seo?.searches || [])[0];
