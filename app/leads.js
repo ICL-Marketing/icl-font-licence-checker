@@ -69,11 +69,13 @@ function nameSources(l) {
   const same = (full, n) => firstNameOf(full || "").toLowerCase() === n.toLowerCase();
   return names.map((n) => {
     const p = (l.contacts || []).find((x) => same(x.name, n));
+    // Same person as the Send to address: its "Found" line already says where they came from.
+    if (p && String(p.email || "").toLowerCase() === String(l.emailAddress || "").toLowerCase() && p.email) return null;
     if (p) return `${n}: ${p.name}${p.role ? `, ${p.role}` : ""}${p.source ? ` (${p.source}${p.why && !/^Found by/.test(p.why) ? `: ${p.why}` : ""})` : ""}`;
     const c = l.claude?.contact;
     if (c?.name && same(c.name, n)) return `${n}: ${c.name}${c.role ? `, ${c.role}` : ""} (Claude${c.email_source ? `: ${c.email_source}` : ""})`;
     return `${n}: ${l.nameFrom || "source not saved (added before sources were kept)"}`;
-  });
+  }).filter(Boolean);
 }
 // The source of each greeting name, with a quick way to check an unexplained one.
 function NameSources({ l }) {
@@ -2013,17 +2015,6 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
             </div>
             <p className="text-xs text-zinc-600">Claude replies with just the email text: paste it straight into the email box below.</p>
             {msg && <p className="text-xs text-zinc-600">{msg}</p>}
-            <div>
-              <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} placeholder="Subject" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm font-medium" />
-              <div className="mt-2 rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1 text-sm text-zinc-500">
-                {/* The names go straight into the greeting: blank reads "Hi there,". */}
-                <div className="flex items-baseline gap-1">Hi <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value, nameFrom: "Added by you" })} placeholder="there" aria-label="Name(s) to greet, e.g. Paul and Louise" title="Name(s) to greet, e.g. Paul and Louise. Leave blank for “Hi there”." className="min-w-0 rounded border border-dashed border-zinc-300 bg-white px-1 py-0 text-sm text-zinc-900 placeholder:text-zinc-500" style={{ width: `${Math.max(5, (l.contactName || "").length + 2)}ch` }} />,</div>
-                <NameSources l={l} />
-                <div className="mt-2">{dayGreeting()}</div>
-              </div>
-              <AutoTextarea value={draftText} placeholder="Paste Claude’s email here" onChange={(e) => onChange({ email: e.target.value, emailEdited: true, review: { ...r, drafted: r.drafted || new Date().toISOString() } })} onPaste={(e) => { const t = e.clipboardData.getData("text"); if (!t || draftText.trim()) return; e.preventDefault(); const c = cleanPastedEmail(t); onChange({ email: c.body, emailEdited: true, ...(c.subject && !r.subjectTyped ? { subject: c.subject } : {}), review: { ...r, drafted: new Date().toISOString() } }); }} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
-              <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{`${iclFooter()}\n\n${optOutLine()}`}</pre>
-            </div>
             {(() => {
               // Paste the address you found right here; it saves when you leave the box, press Enter or paste.
               const valid = (v) => /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(String(v || "").trim());
@@ -2035,13 +2026,24 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
                     <input key={`em:${l.id}`} type="email" defaultValue={l.emailAddress || ""} onChange={(e) => save(e.target.value)} onBlur={(e) => save(e.target.value)} onPaste={(e) => setTimeout(() => save(e.target.value), 0)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder="name@company.co.uk" className="mt-0.5 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm" /></label>
                   {(() => { const src = emailSource(l); return src && (
                     <div className="text-[11px] sm:col-span-2">
-                      <span className="text-zinc-600">Found: {src.text}</span> {!/website \(/.test(src.text) && <><EmailWhere l={l} onChange={onChange} /> · </>}<a href={src.google} target="_blank" rel="noreferrer" className="text-blue-700 underline" title="See where this address is published">check on Google</a>
+                      <span className="text-zinc-600">Found: {src.text}</span> {!/website \(|site \(/i.test(src.text) && <><EmailWhere l={l} onChange={onChange} /> · </>}<a href={src.google} target="_blank" rel="noreferrer" className="text-blue-700 underline" title="See where this address is published">check on Google</a>
                       {src.warn && <div className="mt-0.5 font-medium text-amber-800">{src.warn}</div>}
                     </div>
                   ); })()}
                 </div>
               );
             })()}
+            <div>
+              <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} placeholder="Subject" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm font-medium" />
+              <div className="mt-2 rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1 text-sm text-zinc-500">
+                {/* The names go straight into the greeting: blank reads "Hi there,". */}
+                <div className="flex items-baseline gap-1">Hi <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value, nameFrom: "Added by you" })} placeholder="there" aria-label="Name(s) to greet, e.g. Paul and Louise" title="Name(s) to greet, e.g. Paul and Louise. Leave blank for “Hi there”." className="min-w-0 rounded border border-dashed border-zinc-300 bg-white px-1 py-0 text-sm text-zinc-900 placeholder:text-zinc-500" style={{ width: `${Math.max(5, (l.contactName || "").length + 2)}ch` }} />,</div>
+                <NameSources l={l} />
+                <div className="mt-2">{dayGreeting()}</div>
+              </div>
+              <AutoTextarea value={draftText} placeholder="Paste Claude’s email here" onChange={(e) => onChange({ email: e.target.value, emailEdited: true, review: { ...r, drafted: r.drafted || new Date().toISOString() } })} onPaste={(e) => { const t = e.clipboardData.getData("text"); if (!t || draftText.trim()) return; e.preventDefault(); const c = cleanPastedEmail(t); onChange({ email: c.body, emailEdited: true, ...(c.subject && !r.subjectTyped ? { subject: c.subject } : {}), review: { ...r, drafted: new Date().toISOString() } }); }} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
+              <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{`${iclFooter()}\n\n${optOutLine()}`}</pre>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => setR({ step: 2 })} className="text-xs text-zinc-500 hover:text-zinc-900">← Back</button>
               <span className="ml-auto" />
