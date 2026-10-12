@@ -51,16 +51,39 @@ function emailSource(l) {
   const e = String(l.emailAddress || "").toLowerCase();
   if (!e) return null;
   const p = (l.contacts || []).find((x) => String(x.email || "").toLowerCase() === e);
+  const ch = (l.channels || []).find((x) => x.kind === "email" && String(x.value || "").toLowerCase() === e);
   const site = String(l.website || "").toLowerCase().replace(/^www\./, "");
   const parts = [];
-  if (p) {
-    parts.push(`${p.name}${p.role ? `, ${p.role}` : ""}`);
-    parts.push([p.source, p.emailStatus || p.why].filter(Boolean).join(": "));
-  } else if (l.edits?.emailAddress && !p) parts.push("Added by you");
-  else if (site && e.endsWith(`@${site}`)) parts.push("Published on their website");
-  else parts.push("No record of where this came from");
+  // Where it came from: saved with the address, else the person or inbox it matches.
+  if (l.emailFrom) parts.push(l.emailFrom);
+  if (p) parts.push([`${p.name}${p.role ? `, ${p.role}` : ""}`, [p.source, p.emailStatus || p.why].filter(Boolean).join(": ")].filter(Boolean).join(" · "));
+  else if (ch && !l.emailFrom) parts.push(ch.label || "General inbox from their site");
+  const known = parts.length > 0;
+  if (!known) parts.push("Not saved (found before sources were kept)");
   const warn = PERSONAL_MAIL.test(e) ? "Personal address (not their company domain): check it really belongs to this business." : site && !e.endsWith(`@${site}`) && !PERSONAL_MAIL.test(e) ? `Different domain from their website (${site}).` : "";
-  return { text: parts.filter(Boolean).join(" · "), warn, google: `https://www.google.com/search?q=${encodeURIComponent(`"${e}"`)}` };
+  return { text: parts.join(" · "), known, warn, google: `https://www.google.com/search?q=${encodeURIComponent(`"${e}"`)}` };
+}
+// Each name in "Hi …," and where it came from: the person found (Companies House, the site, Hunter, Claude), else as saved.
+function nameSources(l) {
+  const names = String(l.contactName || "").split(/\s*(?:,|&|\band\b)\s*/i).map((x) => x.trim()).filter(Boolean);
+  return names.map((n) => {
+    const p = (l.contacts || []).find((x) => firstNameOf(x.name || "").toLowerCase() === n.toLowerCase());
+    if (p) return `${n}: ${p.name}${p.role ? `, ${p.role}` : ""}${p.source ? ` (${p.source}${p.why && !/^Found by/.test(p.why) ? `: ${p.why}` : ""})` : ""}`;
+    return `${n}: ${l.nameFrom || "source not saved"}`;
+  });
+}
+// Looks for the address on their site (home and contact pages) and saves the page it's on.
+function EmailWhere({ l, onChange }) {
+  const [state, setState] = useState("");
+  if (!l.website || !l.emailAddress) return null;
+  async function look() {
+    setState("Looking…");
+    try {
+      const r = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ step: "email-where", website: l.website, email: l.emailAddress }) }).then((x) => x.json());
+      if (r.page) { onChange({ emailFrom: `Published on their website (${r.page})` }); setState(""); } else setState("Not on their home or contact pages: check on Google");
+    } catch { setState("Couldn’t check just now"); }
+  }
+  return state ? <span className="text-zinc-500">{state}</span> : <button onClick={look} className="text-blue-700 underline">find where on their site</button>;
 }
 // Text pasted from Claude: keep the body only (a "Subject:" line becomes the subject; greeting and sign-off dropped).
 function cleanPastedEmail(t) {
@@ -324,6 +347,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       if (fields.status !== "not-pursuing" && STALE_WHY.test(l.likelihoodWhy || "")) { l.likelihoodWhy = ""; l.caveats = String(l.caveats || "").split("; ").filter((x) => x && !STALE_WHY.test(x)).join("; "); }
     }
     if (!fields.statusBy && routeNoSite(l)) l.edits.status = now;
+    if ("emailAddress" in fields && fields.emailAddress !== prev.emailAddress && !("emailFrom" in fields)) l.emailFrom = "";
+    if ("contactName" in fields && fields.contactName !== prev.contactName && !("nameFrom" in fields)) l.nameFrom = "";
     const next = { ...leadsRef.current, [id]: l };
     leadsRef.current = next;
     save(next); push(id, l);
@@ -752,7 +777,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         if (same) Object.assign(same, { ...person, name: same.name, source: /Claude/.test(same.source || "") ? same.source : `${same.source} + Claude` }); else contacts.unshift(person);
         f.contacts = contacts;
         const current = String(f.emailAddress ?? l.emailAddress ?? "");
-        if (c.email && (!current || GENERIC_BOX_RE.test(current.split("@")[0]))) { f.emailAddress = c.email; f.contactName = firstNameOf(c.name); f.contactUnverified = false; if (["no-contact", "not-pursuing"].includes(l.status) && l.contactUnverified) f.status = "new"; }
+        if (c.email && (!current || GENERIC_BOX_RE.test(current.split("@")[0]))) { f.emailAddress = c.email; f.contactName = firstNameOf(c.name); f.emailFrom = `Claude: ${c.email_source || "no source given"}`; f.contactUnverified = false; if (["no-contact", "not-pursuing"].includes(l.status) && l.contactUnverified) f.status = "new"; }
       }
       if (it.email_body && !l.emailEdited) Object.assign(f, { emailPrevious: l.email, email: it.email_body, subject: it.email_subject || l.subject, emailEdited: false, claudeDraft: true });
       // Fill the lead's fields with what Claude confirmed (shown in orange in the drawer).
@@ -1313,7 +1338,7 @@ function Contacts({ l, onChange, onContacts, onHunter, cfgHunter = false, subjec
             <span key={i} className="inline-flex items-center gap-1 rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5">
               <span className="text-zinc-500">{c.label}:</span>
               {c.kind === "linkedin" ? <a href={c.value} target="_blank" rel="noreferrer" className="text-blue-700 underline">{c.value.replace(/^https?:\/\/(www\.)?/, "")}</a>
-                : c.kind === "email" ? <button onClick={() => onChange({ emailAddress: c.value })} className="text-blue-700 underline" title="Use as To">{c.value}</button>
+                : c.kind === "email" ? <button onClick={() => onChange({ emailAddress: c.value, emailFrom: c.label || "General inbox from their site" })} className="text-blue-700 underline" title="Use as To">{c.value}</button>
                 : <span>{c.value}</span>}
             </span>
           ))}
@@ -1632,9 +1657,9 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             </div>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">To</div>
-                <input value={l.emailAddress || ""} onChange={(e) => onChange({ emailAddress: e.target.value, ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && e.target.value.trim() ? { status: "new", contactUnverified: false } : {}) })} placeholder={l.emailNote || "email address"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
+                <input value={l.emailAddress || ""} onChange={(e) => onChange({ emailAddress: e.target.value, emailFrom: "Added by you", ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && e.target.value.trim() ? { status: "new", contactUnverified: false } : {}) })} placeholder={l.emailNote || "email address"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
               {<label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Name(s) for “Hi …,”</div>
-                <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value })} placeholder="e.g. Paul and Louise" className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>}
+                <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value, nameFrom: "Added by you" })} placeholder="e.g. Paul and Louise" className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>}
             </div>
             <label className="mt-2 block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Subject</div>
               <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
@@ -1971,19 +1996,20 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
               // Paste the address you found right here; it saves when you leave the box, press Enter or paste.
               const valid = (v) => /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(String(v || "").trim());
               // Saves the address only; you check the email and click Ready to send yourself.
-              const save = (v) => { const e = String(v || "").trim().toLowerCase(); if (!valid(e) || e === l.emailAddress) return; onChange({ emailAddress: e, contactUnverified: false, emailNote: "", ...(l.status === "no-contact" ? { status: "new" } : {}) }); };
+              const save = (v) => { const e = String(v || "").trim().toLowerCase(); if (!valid(e) || e === l.emailAddress) return; onChange({ emailAddress: e, emailFrom: "Added by you", contactUnverified: false, emailNote: "", ...(l.status === "no-contact" ? { status: "new" } : {}) }); };
               return (
                 <div className={`grid gap-2 rounded-md border px-2 py-2 sm:grid-cols-2 ${l.emailAddress ? "border-zinc-200" : "border-red-300 bg-red-50"}`}>
                   <label className="block text-xs"><span className={l.emailAddress ? "text-zinc-500" : "font-semibold text-red-700"}>{l.emailAddress ? "Send to" : "Email address (needed before it’s ready)"}</span>
                     <input key={`em:${l.id}`} type="email" defaultValue={l.emailAddress || ""} onChange={(e) => save(e.target.value)} onBlur={(e) => save(e.target.value)} onPaste={(e) => setTimeout(() => save(e.target.value), 0)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder="name@company.co.uk" className="mt-0.5 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm" /></label>
                   {(() => { const src = emailSource(l); return src && (
                     <div className="text-[11px] sm:col-span-2">
-                      <span className="text-zinc-600">Found: {src.text}</span> <a href={src.google} target="_blank" rel="noreferrer" className="text-blue-700 underline" title="See where this address is published">check on Google</a>
+                      <span className="text-zinc-600">Found: {src.text}</span> {!/website \(/.test(src.text) && <><EmailWhere l={l} onChange={onChange} /> · </>}<a href={src.google} target="_blank" rel="noreferrer" className="text-blue-700 underline" title="See where this address is published">check on Google</a>
                       {src.warn && <div className="mt-0.5 font-medium text-amber-800">{src.warn}</div>}
                     </div>
                   ); })()}
                   <label className="block text-xs"><span className="text-zinc-500">Name(s) for “Hi …,” (e.g. Paul and Louise)</span>
-                    <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value })} placeholder="Leave blank for “Hi there”" className="mt-0.5 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm" /></label>
+                    <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value, nameFrom: "Added by you" })} placeholder="Leave blank for “Hi there”" className="mt-0.5 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm" />
+                    {nameSources(l).map((t) => <span key={t} className="mt-0.5 block text-[11px] text-zinc-600">Found: {t}</span>)}</label>
                 </div>
               );
             })()}

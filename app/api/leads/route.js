@@ -1,5 +1,5 @@
 import { obviousDomain, leadTriggers, jobsSearch, jobsConfigured, placesSearch, placesConfigured, placesUsage, leadsEnrichOutside } from "@/lib/leads";
-import { areaFor, setPatchOutcodes, siteAddress, townFromAddress, verifyWebsite, websiteIsVerified, searchUsage, hunterUsage, applyTradingAddress, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
+import { areaFor, setPatchOutcodes, siteAddress, townFromAddress, verifyWebsite, websiteIsVerified, searchUsage, hunterUsage, applyTradingAddress, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findEmailAt, emailFromPage, emailWhere, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 50;
@@ -77,7 +77,7 @@ export async function POST(request) {
       if (!l.website && seo.foundWebsite) {
         const w = await checkWebsite(seo.foundWebsite);
         Object.assign(lead, { website: seo.foundWebsite, problem: w.problem, problemDetail: w.detail, platform: w.platform || "", year: w.year || 0, title: w.title || "", siteUrl: w.siteUrl || "", caveats: [l.caveats, "Website found by web search, not by name; double-check it is theirs"].filter(Boolean).join("; ") });
-        if (!lead.emailAddress) lead.emailAddress = await findEmail(seo.foundWebsite, "").catch(() => "");
+        if (!lead.emailAddress) { const f = await findEmailAt(seo.foundWebsite, "").catch(() => ({})); lead.emailAddress = f.email || ""; lead.emailFrom = emailFromPage(f.page); }
       }
       if (lead.problem) { Object.assign(lead, scoreLead(lead)); if (!lead.emailEdited) { const d = draftOutreach({ ...lead, links }); Object.assign(lead, { subject: d.subject, pitch: d.pitch, email: d.email, draftVersion: d.draftVersion }); } }
       return Response.json({ seo, lead });
@@ -110,7 +110,7 @@ export async function POST(request) {
       if (!lead.website) return Response.json({ error: "No website on this lead." }, { status: 400 });
       const w = await checkWebsite(lead.website);
       Object.assign(lead, { problem: w.problem, problemDetail: w.detail, platform: w.platform || "", year: w.year || 0, title: w.title || "", siteUrl: w.siteUrl || "" });
-      if (!lead.emailAddress) lead.emailAddress = await findEmail(lead.website, "").catch(() => "");
+      if (!lead.emailAddress) { const f = await findEmailAt(lead.website, "").catch(() => ({})); lead.emailAddress = f.email || ""; lead.emailFrom = emailFromPage(f.page); }
       if (lead.problem) { Object.assign(lead, scoreLead(lead)); if (!lead.email || b.redraft) { const d = draftOutreach({ ...lead, links }); Object.assign(lead, { subject: d.subject, pitch: d.pitch, email: d.email, draftVersion: d.draftVersion }); } }
       else { lead.likelihood = "Low"; lead.likelihoodWhy = "Site is current; no outreach planned"; }
       lead.checkedAt = new Date().toISOString();
@@ -137,6 +137,7 @@ export async function POST(request) {
       const town = "";
       return Response.json({ total, candidates: items.filter((c) => worthEnriching(c, { minAgeYears: minAge }) && inArea(c, { postcodes, town })), scanned: items.length });
     }
+    if (b.step === "email-where") return Response.json({ page: await emailWhere(String(b.website || "").slice(0, 200), String(b.email || "").slice(0, 200)) });
     if (b.step === "domain-check") return Response.json({ domain: await obviousDomain(String(b.name || "").slice(0, 120)) });
     if (b.step === "triggers") {
       // Rebrands and new directors/owners, a handful of companies per request.
