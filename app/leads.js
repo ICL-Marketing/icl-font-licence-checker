@@ -4,7 +4,7 @@ import { mailHref } from "@/app/mail";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 import { mergeDoc } from "@/lib/merge";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, reportProgress } from "@/app/claudeInbox";
@@ -1315,8 +1315,8 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
   const [view, setView] = useState(() => (reviewable || l.review ? "review" : "details"));
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
   // Older drafts carry the greeting inside the text; new ones get it written on the day.
-  const emailText = /^Hi\b/.test(l.email || "") ? withIclLine(l.email || "") : fullEmail(l, l.email || "");
-  const greetingPreview = /^Hi\b/.test(l.email || "") ? "" : `${firstNameOf(l.contactName) ? `Hi ${firstNameOf(l.contactName)},` : "Hi there,"}\n\n${dayGreeting()}`;
+  const emailText = /^Hi\b/.test(l.email || "") ? withIclLine(l.email || "", { optOut: true }) : fullEmail(l, l.email || "");
+  const greetingPreview = /^Hi\b/.test(l.email || "") ? "" : `${greetNames(l.contactName) ? `Hi ${greetNames(l.contactName)},` : "Hi there,"}\n\n${dayGreeting()}`;
   const genericBox = GENERIC_BOX_RE.test(String(l.emailAddress || "").split("@")[0]);
   const full = `Subject: ${l.subject || ""}\n\n${emailText}`;
   const outlook = mailHref(l.emailAddress || "", l.subject || "", emailText);
@@ -1590,14 +1590,14 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">To</div>
                 <input value={l.emailAddress || ""} onChange={(e) => onChange({ emailAddress: e.target.value, ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && e.target.value.trim() ? { status: "new", contactUnverified: false } : {}) })} placeholder={l.emailNote || "email address"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
-              {!genericBox && <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact first name</div>
-                <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value })} placeholder="Used for “Hi Steve,”" className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>}
+              {<label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Name(s) for “Hi …,”</div>
+                <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value })} placeholder="e.g. Paul and Louise" className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>}
             </div>
             <label className="mt-2 block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Subject</div>
               <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
             {greetingPreview && <pre className="mt-2 whitespace-pre-wrap rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1.5 font-sans text-sm text-zinc-600" title="Written automatically on the day you send: changes with the day of the week">{greetingPreview}</pre>}
             <AutoTextarea value={l.email || ""} onChange={(e) => onChange({ email: e.target.value, emailEdited: true })} minRows={4} className={`w-full border border-zinc-300 px-2 py-1 text-sm ${greetingPreview ? "rounded-b-md" : "mt-2 rounded-md"}`} />
-            <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{iclFooter(true)}</pre>
+            <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{`${iclFooter()}\n\n${optOutLine()}`}</pre>
             <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-zinc-500">
               {l.emailEdited ? <span>Edited by hand, so automatic redrafts leave it alone. <button onClick={() => onChange({ emailEdited: false, draftVersion: 0 })} className="underline">Let the app redraft it</button></span> : <span>Drafted by the app; redrafts automatically when the wording improves.</span>}
               {l.emailPrevious && <button onClick={() => onChange({ email: l.emailPrevious, emailPrevious: "", emailEdited: true })} className="underline">Restore the previous draft</button>}
@@ -1781,7 +1781,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
     return (c.key === "claude" ? S[l.problem] : S[c.key.replace(/^(you|own):/, "")]) || S.other;
   };
   const path = r.path || suggestPath(lead?.issue?.id || lead?.label || "", l);
-  const first = firstNameOf(l.contactName);
+  const first = greetNames(l.contactName);
   const prompt = lead ? draftPrompt({ l, first, leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => (r.also || []).includes(c.key) && c.key !== r.lead).map((c) => c.label), notes: r.notes || "", path, template: lead.issue?.body || "" }) : "";
   const FROM = { Checker: "bg-zinc-200 text-zinc-700", Claude: "bg-orange-100 text-orange-800", "Why now": "bg-violet-100 text-violet-800", You: "bg-blue-100 text-blue-800" };
   const head = (n, title, done) => (
@@ -1794,6 +1794,12 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
     if (open) window.open("https://claude.ai/new", "_blank", "noopener");
   }
   const greeting = `${first ? `Hi ${first},` : "Hi there,"}\n\n${dayGreeting()}`;
+  const genericInbox = GENERIC_BOX_RE.test(String(l.emailAddress || "").split("@")[0]);
+  useEffect(() => {
+    if (l.contactName || !genericInbox || l.review?.namesFilled) return;
+    const names = inboxNames(l);
+    if (names) { const t = setTimeout(() => onChange({ contactName: names, review: { ...(l.review || {}), namesFilled: true } }), 0); return () => clearTimeout(t); }
+  }, [l.id, l.emailAddress]); // eslint-disable-line react-hooks/exhaustive-deps
   // The email box only holds Claude's draft (or your own typing), never the app's automatic template.
   const draftText = r.drafted ? l.email || "" : "";
   // Address and email text both in: Ready to send, and on to the next lead.
@@ -1910,7 +1916,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
               <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} placeholder="Subject" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm font-medium" />
               <pre className="mt-2 whitespace-pre-wrap rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1 font-sans text-sm text-zinc-500">{greeting}</pre>
               <AutoTextarea value={draftText} placeholder="Paste Claude’s email here" onChange={(e) => onChange({ email: e.target.value, emailEdited: true, review: { ...r, drafted: r.drafted || new Date().toISOString() } })} onPaste={(e) => { const t = e.clipboardData.getData("text"); if (!t || draftText.trim()) return; e.preventDefault(); const c = cleanPastedEmail(t); onChange({ email: c.body, emailEdited: true, ...(c.subject && !r.subjectTyped ? { subject: c.subject } : {}), review: { ...r, drafted: new Date().toISOString() } }); }} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
-              <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{iclFooter(true)}</pre>
+              <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{`${iclFooter()}\n\n${optOutLine()}`}</pre>
             </div>
             {(() => {
               // Paste the address you found right here; it saves when you leave the box, press Enter or paste.
@@ -1927,7 +1933,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
                       {src.warn && <div className="mt-0.5 font-medium text-amber-800">{src.warn}</div>}
                     </div>
                   ); })()}
-                  <label className="block text-xs"><span className="text-zinc-500">First name (for “Hi …,”)</span>
+                  <label className="block text-xs"><span className="text-zinc-500">Name(s) for “Hi …,” (e.g. Paul and Louise)</span>
                     <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value })} placeholder="Leave blank for “Hi there”" className="mt-0.5 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm" /></label>
                 </div>
               );

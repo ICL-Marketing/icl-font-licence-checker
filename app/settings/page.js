@@ -6,7 +6,7 @@ import { TeamEditor, loadTeam, saveTeam, normaliseTeam } from "@/app/team";
 import { ClientsEditor, loadClients, saveClients } from "@/app/clients";
 import { normaliseClients } from "@/lib/clients";
 import { keysFor } from "@/app/launch";
-import { DEFAULT_SUBJECTS_SHARED, ICL_LINE, MAINTENANCE_DEFAULT } from "@/lib/leadsShared";
+import { DEFAULT_SUBJECTS_SHARED, ICL_LINE, MAINTENANCE_DEFAULT, OPT_OUT_DEFAULT } from "@/lib/leadsShared";
 import { MAIL_KEY } from "@/app/mail";
 
 export default function Settings() {
@@ -459,7 +459,7 @@ function MailChoice() {
 // Email templates: every subject line, the maintenance email and the closing paragraph, saved for the whole team.
 function TemplatesEditor() {
   const [subjects, setSubjects] = useState(SUBJECT_DEFAULTS);
-  const [tpl, setTpl] = useState({ footer: ICL_LINE, maintenance: { ...MAINTENANCE_DEFAULT } });
+  const [tpl, setTpl] = useState({ footer: ICL_LINE, optOut: OPT_OUT_DEFAULT, maintenance: { ...MAINTENANCE_DEFAULT } });
   const [state, setState] = useState("");
   const links = useRef(null);
   const loaded = useRef(false);
@@ -467,7 +467,7 @@ function TemplatesEditor() {
     Promise.all([fetch("/api/settings?key=lead-links").then((r) => r.json()).catch(() => ({})), fetch("/api/settings?key=email-templates").then((r) => r.json()).catch(() => ({}))]).then(([a, b]) => {
       links.current = a.value || {};
       if (a.value?.subjects) setSubjects({ ...SUBJECT_DEFAULTS, ...a.value.subjects });
-      if (b.value) setTpl({ footer: b.value.footer || ICL_LINE, maintenance: { subject: b.value.maintenance?.subject || MAINTENANCE_DEFAULT.subject, body: b.value.maintenance?.body || MAINTENANCE_DEFAULT.body } });
+      if (b.value) setTpl({ footer: b.value.footer || ICL_LINE, optOut: b.value.optOut || OPT_OUT_DEFAULT, maintenance: { subject: b.value.maintenance?.subject || MAINTENANCE_DEFAULT.subject, body: b.value.maintenance?.body || MAINTENANCE_DEFAULT.body } });
       setTimeout(() => { loaded.current = true; }, 0);
     });
   }, []);
@@ -502,6 +502,8 @@ function TemplatesEditor() {
         <h2 className="font-semibold">Closing paragraph</h2>
         <p className="mb-2 text-sm text-zinc-500">Added to the end of every email (leads and client ideas) when it is copied or opened.</p>
         <textarea value={tpl.footer} onChange={(e) => setT({ ...tpl, footer: e.target.value })} rows={3} className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" />
+        <label className="mt-3 block text-xs font-semibold text-zinc-600">Opt-out line (lead emails only, after the closing paragraph)
+          <input value={tpl.optOut} onChange={(e) => setT({ ...tpl, optOut: e.target.value })} className="mt-1 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm font-normal" /></label>
       </section>
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
         <h2 className="font-semibold">Subject lines</h2>
