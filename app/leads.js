@@ -105,6 +105,11 @@ const rankValue = (stored) => (!stored || (stored.manual === undefined && stored
 const handledByYou = (l) => !!l?.review || l?.statusBy === "you";
 const AUTO_PARK = ["not-pursuing", "no-contact"];
 const keepYourStatus = (all, before) => { for (const l of Object.values(all)) { const was = before[l.id]; if (was && l.status !== was && AUTO_PARK.includes(l.status) && !l.optedOut) { l.status = was; } } };
+// Not a limited company (no Companies House record): never cold-emailed, so parked whatever its column.
+const soleTrader = (l) => !l.companyNumber && (/not a limited company/i.test(l.caveats || "") || ["Google Maps", "Hiring", "Claude"].includes(l.source));
+function parkSoleTraders(all) {
+  for (const l of Object.values(all)) if (soleTrader(l) && !["not-pursuing", "lost", "won", "contacted", "replied", "meeting", "cold"].includes(l.status)) { l.status = "not-pursuing"; l.caveats = ["Sole trader (not a limited company): not emailed", ...String(l.caveats || "").split("; ").filter((x) => x && !/not a limited company/i.test(x))].join("; "); l.statusAt = l.updatedAt = new Date().toISOString(); }
+}
 const STALE_WHY = /site is current|no outreach planned/i;
 const humanConfirmed = (l) => !!l.websiteConfirmed || ["confirmed by you", "checked by Claude"].includes(l.websiteVerified || "");
 const siteDoubt = (l) => !!(l.website && l.websiteDoubt && !humanConfirmed(l));
@@ -219,12 +224,12 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       // Qualified was folded into To assess.
       for (const l of Object.values(local)) if (l.status === "qualified") { l.status = "new"; l.updatedAt = new Date().toISOString(); }
       // A Claude check made before the website was confirmed or replaced no longer applies.
-      for (const l of Object.values(local)) if (l.claude && l.website && l.websiteConfirmed && l.claude.website_is_theirs === false && l.website !== l.claude.correct_website) { l.claude = null; l.claudeFields = []; if (l.status === "not-pursuing" && !l.review?.done && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.statusAt = new Date().toISOString(); } l.updatedAt = new Date().toISOString(); }
+      for (const l of Object.values(local)) if (l.claude && l.website && l.websiteConfirmed && l.claude.website_is_theirs === false && l.website !== l.claude.correct_website) { l.claude = null; l.claudeFields = []; if (l.status === "not-pursuing" && !l.review?.done && !l.optedOut && !/under £|already a client|dormant|sole trader/i.test(parkReason(l))) { l.status = "new"; l.statusAt = new Date().toISOString(); } l.updatedAt = new Date().toISOString(); }
       // Claude said skip: parked for good, whichever column it was left in.
       for (const l of Object.values(local)) if (claudeSkip(l) && ["new", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.statusAt = l.updatedAt = new Date().toISOString(); }
       // Parked earlier only because Claude couldn't confirm the issue, though it said to contact them: bring back.
-      for (const l of Object.values(local)) if (l.status === "not-pursuing" && !l.review?.done && websiteUnknown(l) && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.websiteNeeded = true; l.statusAt = l.updatedAt = new Date().toISOString(); }
-      for (const l of Object.values(local)) if (l.status === "not-pursuing" && !l.review?.done && l.claude?.worth_contacting && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = l.emailAddress ? "new" : "no-contact"; l.contactUnverified = !l.emailAddress; l.statusAt = l.updatedAt = new Date().toISOString(); }
+      for (const l of Object.values(local)) if (l.status === "not-pursuing" && !l.review?.done && websiteUnknown(l) && !l.optedOut && !/under £|already a client|dormant|sole trader/i.test(parkReason(l))) { l.status = "new"; l.websiteNeeded = true; l.statusAt = l.updatedAt = new Date().toISOString(); }
+      for (const l of Object.values(local)) if (l.status === "not-pursuing" && !l.review?.done && l.claude?.worth_contacting && !l.optedOut && !/under £|already a client|dormant|sole trader/i.test(parkReason(l))) { l.status = l.emailAddress ? "new" : "no-contact"; l.contactUnverified = !l.emailAddress; l.statusAt = l.updatedAt = new Date().toISOString(); }
       for (const l of Object.values(local)) if (l.status === "no-contact" && contactExhausted(l)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); }
       // "info", "hello" and the like are inboxes, not people: the email opens "Hi there," instead.
       for (const l of Object.values(local)) if (l.status !== "not-pursuing" && STALE_WHY.test(l.likelihoodWhy || "")) { l.likelihoodWhy = ""; l.caveats = String(l.caveats || "").split("; ").filter((x) => x && !STALE_WHY.test(x)).join("; "); }
@@ -236,6 +241,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       // One-off: every lead imported from the Client Matrix sheet was closed as Lost (7 Oct 2026).
       for (const l of Object.values(local)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); }
       keepYourStatus(local, yoursLocal);
+      parkSoleTraders(local);
       leadsRef.current = local;
       setLeads(local);
       fetch("/api/results?kind=leads").then((r) => r.json()).then((j) => {
@@ -253,16 +259,17 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const l of Object.values(next)) if (maintenanceReady(l) && (["new", "qualified", "no-contact"].includes(l.status) || (l.status === "not-pursuing" && /site is current|no outreach planned/i.test(`${l.likelihoodWhy || ""} ${l.caveats || ""}`)))) { toMaintenance(l); push(l.id, l); }
         for (const l of Object.values(next)) if (!l.emailAddress && (l.contactUnverified || l.contactsTried) && ["new", "qualified"].includes(l.status)) { l.contactUnverified = true; l.status = parkStatus(l); l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "qualified") { l.status = "new"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
-        for (const l of Object.values(next)) if (l.claude && l.website && l.websiteConfirmed && l.claude.website_is_theirs === false && l.website !== l.claude.correct_website) { l.claude = null; l.claudeFields = []; if (l.status === "not-pursuing" && !l.review?.done && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.statusAt = new Date().toISOString(); } l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (l.claude && l.website && l.websiteConfirmed && l.claude.website_is_theirs === false && l.website !== l.claude.correct_website) { l.claude = null; l.claudeFields = []; if (l.status === "not-pursuing" && !l.review?.done && !l.optedOut && !/under £|already a client|dormant|sole trader/i.test(parkReason(l))) { l.status = "new"; l.statusAt = new Date().toISOString(); } l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (claudeSkip(l) && ["new", "no-contact"].includes(l.status)) { l.status = "not-pursuing"; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
-        for (const l of Object.values(next)) if (l.status === "not-pursuing" && !l.review?.done && websiteUnknown(l) && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = "new"; l.websiteNeeded = true; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
-        for (const l of Object.values(next)) if (l.status === "not-pursuing" && !l.review?.done && l.claude?.worth_contacting && !l.optedOut && !/under £|already a client|dormant/i.test(parkReason(l))) { l.status = l.emailAddress ? "new" : "no-contact"; l.contactUnverified = !l.emailAddress; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (l.status === "not-pursuing" && !l.review?.done && websiteUnknown(l) && !l.optedOut && !/under £|already a client|dormant|sole trader/i.test(parkReason(l))) { l.status = "new"; l.websiteNeeded = true; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (l.status === "not-pursuing" && !l.review?.done && l.claude?.worth_contacting && !l.optedOut && !/under £|already a client|dormant|sole trader/i.test(parkReason(l))) { l.status = l.emailAddress ? "new" : "no-contact"; l.contactUnverified = !l.emailAddress; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "no-contact" && contactExhausted(l)) { l.status = "not-pursuing"; l.contactUnverified = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!isFrozen(l) && l.contactName && !firstNameOf(l.contactName)) { l.contactName = ""; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!isFrozen(l) && l.seo?.searches?.some((x) => x.kind !== "trade")) { l.seo = { ...l.seo, searches: l.seo.searches.filter((x) => x.kind === "trade") }; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "not-pursuing" && !l.review?.done && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         keepYourStatus(next, yoursShared);
+        parkSoleTraders(next);
         save(next);
         leadsRef.current = next;
         setLeads(next);
@@ -554,6 +561,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         st.phase = `Checking ${x.name}…`; setRun({ ...st });
         try {
           const { lead } = await post({ step: "enrich-outside", item: x, knownSites, minAssets });
+          if (lead.skipped) { st.soleTraders = (st.soleTraders || 0) + 1; st.done++; setRun({ ...st }); continue; }
           // Matched to a company already on the board: just tag it.
           const have = leadsRef.current[lead.id];
           if (have) { if (!isFrozen(have)) update(have.id, { trigger: lead.trigger, triggerKind: lead.triggerKind, triggerAt: lead.triggerAt, ...(lead.google ? { google: lead.google } : {}), ...(lead.jobs ? { jobs: lead.jobs } : {}) }); }
@@ -561,7 +569,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         } catch (e) { if (stopRef.current) break; st.errors.push(`${x.name}: ${e.message}`); }
         st.done++; setRun({ ...st });
       }
-      st.phase = stopRef.current ? "Stopped." : `Done: ${st.found} new lead${st.found === 1 ? "" : "s"} from ${st.done} checked${st.parked ? `, ${st.parked} parked` : ""}.${mode === "maps" ? ` ${st.spent || 0} Google search${st.spent === 1 ? "" : "es"} used.` : ""}`;
+      st.phase = stopRef.current ? "Stopped." : `Done: ${st.found} new lead${st.found === 1 ? "" : "s"} from ${st.done} checked${st.parked ? `, ${st.parked} parked` : ""}${st.soleTraders ? `, ${st.soleTraders} sole trader${st.soleTraders === 1 ? "" : "s"} left out` : ""}.${mode === "maps" ? ` ${st.spent || 0} Google search${st.spent === 1 ? "" : "es"} used.` : ""}`;
       setRun({ ...st });
     } catch (e) { st.phase = `Stopped: ${e.message}`; setRun({ ...st }); }
     finally { onRunning?.(false); }
@@ -760,7 +768,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       const noSite = doneIds.filter((id) => { const x = leadsRef.current[id]; return x && !x.website && x.problem === "No website" && !isFrozen(x); });
       if (noSite.length && siteFollowUp) await afterPaste("Lead check", noSite, rescan);
       else if (rescan.length) await refreshLeads(rescan);
-      const need = doneIds.filter((id) => { const x = leadsRef.current[id]; return x && x.website && !x.emailAddress && !isFrozen(x) && !x.optedOut && !claudeSkip(x) && !/under £|already a client|dormant/i.test(parkReason(x)); });
+      const need = doneIds.filter((id) => { const x = leadsRef.current[id]; return x && x.website && !x.emailAddress && !isFrozen(x) && !x.optedOut && !claudeSkip(x) && !/under £|already a client|dormant|sole trader/i.test(parkReason(x)); });
       // A contact found here moves the lead to To assess (retryContacts does that for every lead it finds an address for).
       if (need.length && !stopRef.current) await retryContacts(need);
     }, 100);
@@ -811,7 +819,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       const at = new Date().toISOString();
       const rejected = (l.rejectedSites || []).map((x) => String(x).toLowerCase());
       if (it.website && it.confidence !== "low" && !rejected.includes(it.website)) {
-        const parkedForFacts = /under £|already a client|dormant/i.test(parkReason(l));
+        const parkedForFacts = /under £|already a client|dormant|sole trader/i.test(parkReason(l));
         update(l.id, { website: it.website, websiteConfirmed: true, websiteVerified: "checked by Claude", websiteEvidence: it.evidence || "checked by Claude", websiteNeeded: false, websiteDoubt: "", siteUrl: "", sitesCheckedAt: at, noWebsiteConfirmed: false, claude: null, claudeFields: [], ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}), ...(["not-pursuing", "no-contact"].includes(l.status) && !parkedForFacts ? { status: "new" } : {}), caveats: String(l.caveats || "").split("; ").filter((x) => x && !/no website|not found by name|confirm the website/i.test(x)).join("; ") });
         rescan.push(l.id); found++;
       } else if (it.website) {
@@ -1048,7 +1056,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
 }
 
 // The real reason a lead sits in Not pursuing, if there is one beyond a missing contact.
-const parkReason = (l) => { const m = `${l.caveats || ""}; ${l.likelihoodWhy || ""}`.split(/;\s*/).find((x) => /under £|already a client|site is current|dormant/i.test(x)); if (m) return m.trim().replace(/\.$/, ""); if (claudeSkip(l)) return "Not worth contacting (AI check)"; if (contactExhausted(l)) return "Verified email not found"; return ""; };
+const parkReason = (l) => { const m = `${l.caveats || ""}; ${l.likelihoodWhy || ""}`.split(/;\s*/).find((x) => /under £|already a client|site is current|dormant|sole trader/i.test(x)); if (m) return m.trim().replace(/\.$/, ""); if (claudeSkip(l)) return "Not worth contacting (AI check)"; if (contactExhausted(l)) return "Verified email not found"; return ""; };
 // First sentence only, no bracketed asides, kept short.
 const oneLine = (t) => { let x = String(t || "").replace(/\s*\([^)]*\)/g, "").replace(/\s+/g, " ").trim(); const m = x.match(/^(.+?[.!?])(\s|$)/); if (m) x = m[1]; return x.length > 170 ? `${x.slice(0, 167).replace(/\s+\S*$/, "")}…` : x; };
 // Only Claude's own verdict parks a lead: an unconfirmed issue is fine when Claude still says to contact them.
@@ -1057,8 +1065,8 @@ const websiteUnknown = (l) => !!l.claude && l.claude.website_is_theirs === false
 const claudeSkip = (l) => !!l.claude && !l.claude.worth_contacting && !websiteUnknown(l) && !l.websiteNeeded;
 // Parked for a reason Claude could change (contact, site, issue), not a fact like size, dormancy or being a client.
 // No website found yet and still worth one: open, not opted out, not parked for size, dormancy or being a client.
-const siteSearchable = (l) => !isFrozen(l) && !l.optedOut && !l.noWebsiteConfirmed && ["new", "no-contact", "not-pursuing"].includes(l.status || "new") && !/under £|already a client|dormant/i.test(parkReason(l));
-const recheckable = (l) => !isFrozen(l) && !l.optedOut && !(l.review?.done && l.status === "not-pursuing") && !claudeSkip(l) && (l.status === "no-contact" || (l.status === "not-pursuing" && !/under £|already a client|dormant/i.test(parkReason(l))));
+const siteSearchable = (l) => !isFrozen(l) && !l.optedOut && !l.noWebsiteConfirmed && ["new", "no-contact", "not-pursuing"].includes(l.status || "new") && !/under £|already a client|dormant|sole trader/i.test(parkReason(l));
+const recheckable = (l) => !isFrozen(l) && !l.optedOut && !(l.review?.done && l.status === "not-pursuing") && !claudeSkip(l) && (l.status === "no-contact" || (l.status === "not-pursuing" && !/under £|already a client|dormant|sole trader/i.test(parkReason(l))));
 // The same reason spelled out with the numbers, for the top of the lead page.
 function parkExplain(l) {
   const r = parkReason(l);
