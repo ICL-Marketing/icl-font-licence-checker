@@ -1686,6 +1686,8 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
     if (open) window.open("https://claude.ai/new", "_blank", "noopener");
   }
   const greeting = `${first ? `Hi ${first},` : "Hi there,"}\n\n${dayGreeting()}`;
+  // Address and email text both in: Ready to send, and on to the next lead.
+  const finishReady = (extra = {}) => { setR({ done: true, doneAt: new Date().toISOString(), drafted: r.drafted || new Date().toISOString() }, { status: "ready", ...extra }); onNext?.(true); };
   return (
     <div className="space-y-3">
       <div className="rounded-lg border border-zinc-200 p-3">
@@ -1774,12 +1776,13 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
             <div>
               <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} placeholder="Subject" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm font-medium" />
               <pre className="mt-2 whitespace-pre-wrap rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1 font-sans text-sm text-zinc-500">{greeting}</pre>
-              <AutoTextarea value={l.email || ""} onChange={(e) => onChange({ email: e.target.value, emailEdited: true })} onPaste={(e) => { const t = e.clipboardData.getData("text"); if (!t || (l.email || "").trim()) return; e.preventDefault(); const c = cleanPastedEmail(t); onChange({ email: c.body, emailEdited: true, ...(c.subject ? { subject: c.subject } : {}), review: { ...r, drafted: new Date().toISOString() } }); }} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
+              <AutoTextarea value={l.email || ""} onChange={(e) => onChange({ email: e.target.value, emailEdited: true })} onPaste={(e) => { const t = e.clipboardData.getData("text"); if (!t || (l.email || "").trim()) return; e.preventDefault(); const c = cleanPastedEmail(t); const f = { email: c.body, emailEdited: true, ...(c.subject ? { subject: c.subject } : {}) }; if (l.emailAddress && c.body) finishReady(f); else onChange({ ...f, review: { ...r, drafted: new Date().toISOString() } }); }} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
               <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{ICL_LINE}</pre>
             </div>
             {(() => {
               // Paste the address you found right here; it saves when you leave the box, press Enter or paste.
-              const save = (v) => { const e = String(v || "").trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(e) || e === l.emailAddress) return; onChange({ emailAddress: e, contactUnverified: false, emailNote: "", ...(l.status === "no-contact" ? { status: "new" } : {}) }); };
+              // With the email text already written, the address is the last piece: the lead goes to Ready to send.
+              const save = (v) => { const e = String(v || "").trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(e) || e === l.emailAddress) return; const f = { emailAddress: e, contactUnverified: false, emailNote: "" }; if ((l.email || "").trim()) finishReady(f); else onChange({ ...f, ...(l.status === "no-contact" ? { status: "new" } : {}) }); };
               return (
                 <div className={`grid gap-2 rounded-md border px-2 py-2 sm:grid-cols-2 ${l.emailAddress ? "border-zinc-200" : "border-red-300 bg-red-50"}`}>
                   <label className="block text-xs"><span className={l.emailAddress ? "text-zinc-500" : "font-semibold text-red-700"}>{l.emailAddress ? "Send to" : "Email address (needed before it’s ready)"}</span>
@@ -1794,7 +1797,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
               <span className="ml-auto" />
               <button onClick={() => { setR({ done: true, doneAt: new Date().toISOString() }, { status: "not-pursuing", likelihoodWhy: "Reviewed by hand: not worth it" }); onNext?.(true); }} className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Not worth it</button>
               {onNext && <button onClick={() => onNext(false)} className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Skip for now →</button>}
-              <button onClick={() => { setR({ done: true, doneAt: new Date().toISOString() }, { status: "ready" }); onNext?.(true); }} disabled={!l.emailAddress || !l.email} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Ready to send ✓{onNext ? " · next" : ""}</button>
+              <button onClick={() => finishReady()} disabled={!l.emailAddress || !l.email} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Ready to send ✓{onNext ? " · next" : ""}</button>
             </div>
           </div>
         )}
