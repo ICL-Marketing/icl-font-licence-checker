@@ -1248,6 +1248,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         onSite={(l, v) => { const h = String(v).trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""); if (!h.includes(".")) return; update(l.id, { youEditedAt: new Date().toISOString(), website: h, websiteConfirmed: true, websiteVerified: "confirmed by you", websiteEvidence: "confirmed by you", websiteNeeded: false, noWebsiteConfirmed: false, websiteDoubt: "", ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}) }); setTimeout(() => refreshLeads([l.id]), 50); }}
         onNoSite={(l) => update(l.id, { youEditedAt: new Date().toISOString(), website: "", noWebsiteConfirmed: true, websiteNeeded: false, problem: "No website", problemDetail: "Checked by hand: they have no website" })}
         onHunter={(l) => hunterLookup(l)}
+        onRank={(l, query, v) => update(l.id, { youEditedAt: new Date().toISOString(), searchTown: l.searchTown, ...rankFields(l, query, v) })}
         onEmail={(l, v) => { const e = v.toLowerCase(); if (/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(e)) update(l.id, { youEditedAt: new Date().toISOString(), emailAddress: e, emailFrom: "Added by you", contactUnverified: false }); }} /> :
       <Board onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} hideCols={showParked || filtering ? ["vetting"] : ["vetting", "not-pursuing", "lost"]} leads={onBoard} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status, statusBy: "you" }); }} />}
@@ -2261,7 +2262,7 @@ function FindSitesModal({ leads, preset, onClose, onApply }) {
 
 // Search rankings with Claude: the searches their customers really make, and where they come.
 // The vetting list: Claude does the first pass; anything it couldn't settle waits for you, with the next step in the row.
-function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, onEmail, onHunter }) {
+function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, onEmail, onHunter, onRank }) {
   const [shown, setShown] = useState(100);
   const all = sorted(leads);
   const waiting = all.filter((l) => !l.vetAt);
@@ -2276,12 +2277,12 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
     return null;
   };
   // Each lead waits in the first step it's stuck on: website, then contact, then Google.
-  const stepOf = (l) => { const c = vetChecks(l); return !c.site ? "site" : !c.contact ? "contact" : "search"; };
+  const stepOf = (l) => { const c = vetChecks(l); return !c.site ? "site" : !c.search ? "search" : "contact"; };
   const cols = [
     ["claude", "Waiting for Claude", "Not vetted yet: Claude does all three steps in order.", waiting],
     ["site", "1. Website", "Paste their site, confirm it, or mark no website. Nothing else is searched until this is done.", needsYou.filter((l) => stepOf(l) === "site")],
-    ["contact", "2. Contact", "Add an email: their site, Hunter, or one you found.", needsYou.filter((l) => stepOf(l) === "contact")],
-    ["search", "3. Google", "Check where they rank, or send it to the board as it is.", needsYou.filter((l) => stepOf(l) === "search")],
+    ["search", "2. Google", "Check where they rank (Claude → Search rankings, or by hand), or skip it.", needsYou.filter((l) => stepOf(l) === "search")],
+    ["contact", "3. Contact", "Add an email: their site, Hunter, or one you found. No-website leads land here straight after step 1.", needsYou.filter((l) => stepOf(l) === "contact")],
   ];
   const card = (l, col) => {
     const w = (l.seo?.searches || [])[0];
@@ -2296,7 +2297,8 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
           {l.emailAddress && <span className="text-zinc-600">{l.emailAddress}</span>}
         </div>
         {col === "site" || col === "contact" ? <div className="mt-1.5">{nextStep(l)}</div> : null}
-        {col === "search" && <div className="mt-1.5 flex flex-wrap items-center gap-2">{w ? <span className="text-zinc-600">{w.position ? `#${w.position}` : "Not on page 1"} for “{w.query}”</span> : <a href={`https://www.google.co.uk/search?q=${encodeURIComponent(q || l.business)}&gl=uk&pws=0`} target="_blank" rel="noopener" className="text-blue-700 hover:underline">Search Google</a>}<button onClick={() => onSend(l)} className="rounded border border-zinc-300 px-1.5 py-0.5 hover:bg-zinc-100">To board</button></div>}
+        {col === "search" && <div className="mt-1.5 flex flex-wrap items-center gap-2"><a href={`https://www.google.co.uk/search?q=${encodeURIComponent(q || l.business)}&gl=uk&pws=0`} target="_blank" rel="noopener" className="text-blue-700 hover:underline">Search “{q || l.business}”</a>
+          <select defaultValue="" onChange={(e) => { if (e.target.value) onRank(l, q || l.business, e.target.value); }} className="rounded border border-zinc-300 bg-white px-1 py-0.5 text-xs"><option value="">Where were they?</option><option value="top">Top</option><option value="top3">Top 3</option><option value="page1">Page 1</option><option value="none">Not on page 1</option></select></div>}
       </div>
     );
   };
@@ -2306,6 +2308,7 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
         <div key={id} className={`flex flex-col rounded-xl border p-2 ${id === "claude" ? "border-orange-200 bg-orange-50/40" : "border-zinc-200 bg-zinc-50"}`}>
           <div className="flex items-center gap-1.5 px-1 text-xs font-semibold text-zinc-700"><span>{label}</span><span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{items.length}</span></div>
           <div className="px-1 pb-2 text-[11px] text-zinc-500">{hint}</div>
+          {id === "search" && items.length > 0 && <button onClick={() => openClaude({ job: "rank-check", preset: items.map((l) => l.id) })} className="mb-2 w-full rounded-md bg-orange-600 px-2 py-1 text-xs font-medium text-white hover:bg-orange-700">Check {items.length} on Google with Claude</button>}
           {id === "claude" && items.length > 0 && <button onClick={() => onVet(items.map((l) => l.id))} className="mb-2 w-full rounded-md bg-orange-600 px-2 py-1 text-xs font-medium text-white hover:bg-orange-700">Vet {items.length} with Claude</button>}
           <div className="flex flex-col gap-2">{items.slice(0, shown).map((l) => card(l, id))}{items.length === 0 && <div className="rounded-md border border-dashed border-zinc-300 p-3 text-center text-[11px] text-zinc-400">Nothing here</div>}</div>
           {items.length > shown && <button onClick={() => setShown((n) => n + 100)} className="mt-2 text-xs text-zinc-600 hover:underline">Show {items.length - shown} more</button>}
