@@ -135,6 +135,9 @@ const vetChecks = (l) => ({
   contact: !!l.emailAddress,
   search: !l.website || !!(l.seo?.claudeAt || l.seo?.manual),
 });
+// Fields you change by hand: the lead gets a "Recently edited" tag in Vetting so it's easy to find again.
+const YOUR_EDITS = ["website", "websiteConfirmed", "noWebsiteConfirmed", "rejectedSites", "emailAddress", "contactName", "notes", "email", "subject"];
+const recentlyEdited = (l) => !!l.youEditedAt && Date.now() - new Date(l.youEditedAt).getTime() < 7 * 86400000;
 const vetted = (l) => { const c = vetChecks(l); return c.site && c.contact && c.search; };
 // Where a vetted lead goes on the board: a problem to raise, nothing wrong (maintenance pitch), or no website.
 const boardColumn = (l) => (!l.website ? "no-website" : l.problem ? "new" : "maintenance");
@@ -746,7 +749,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     for (const id of ids) {
       if (stopRef.current) break;
       const l = leadsRef.current[id]; if (!l) { st.done++; continue; }
-      const useHunter = !!cfg?.hunter && l.likelihood === "High" && !l.hunterTried && !!l.website && l.hunterOnFile !== 0;
+      const useHunter = !!cfg?.hunter && l.likelihood === "High" && !l.hunterTried && !!l.website && l.hunterOnFile !== 0 && vetChecks(l).site; // never spend Hunter on a site that may not be theirs
       st.phase = `Contacts for ${l.business}${useHunter ? " (Hunter)" : ""}…`; setRun({ ...st });
       try {
         const r = await post({ step: "contacts", lead: l, useHunter });
@@ -772,7 +775,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const contactsRunRef = useRef(false);
   useEffect(() => {
     if (contactsRunRef.current) return;
-    const todo = Object.values(leads).filter((l) => !l.contactsAt && !l.contactsTried && (l.companyNumber || l.website) && !["won", "lost", "not-pursuing"].includes(l.status));
+    const todo = Object.values(leads).filter((l) => !l.contactsAt && !l.contactsTried && (l.companyNumber || l.website) && !["won", "lost", "not-pursuing"].includes(l.status) && (l.status !== "vetting" || vetChecks(l).site));
     if (!todo.length) return;
     contactsRunRef.current = true;
     (async () => {
@@ -1242,14 +1245,14 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         </div>
       ); })()}
       {boardTab === "vetting" ? <VettingList leads={visible.filter((l) => l.status === "vetting")} onOpen={(id) => setOpen(id)} onVet={(ids) => openClaude({ job: "vet", preset: ids })} onSend={(l) => update(l.id, { status: boardColumn(l), statusBy: "you" })} onPark={(l) => update(l.id, { status: "not-pursuing", statusBy: "you", likelihoodWhy: "Vetting: not worth it" })}
-        onSite={(l, v) => { const h = String(v).trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""); if (!h.includes(".")) return; update(l.id, { website: h, websiteConfirmed: true, websiteVerified: "confirmed by you", websiteEvidence: "confirmed by you", websiteNeeded: false, noWebsiteConfirmed: false, websiteDoubt: "", ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}) }); setTimeout(() => refreshLeads([l.id]), 50); }}
-        onNoSite={(l) => update(l.id, { website: "", noWebsiteConfirmed: true, websiteNeeded: false, problem: "No website", problemDetail: "Checked by hand: they have no website" })}
+        onSite={(l, v) => { const h = String(v).trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""); if (!h.includes(".")) return; update(l.id, { youEditedAt: new Date().toISOString(), website: h, websiteConfirmed: true, websiteVerified: "confirmed by you", websiteEvidence: "confirmed by you", websiteNeeded: false, noWebsiteConfirmed: false, websiteDoubt: "", ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}) }); setTimeout(() => refreshLeads([l.id]), 50); }}
+        onNoSite={(l) => update(l.id, { youEditedAt: new Date().toISOString(), website: "", noWebsiteConfirmed: true, websiteNeeded: false, problem: "No website", problemDetail: "Checked by hand: they have no website" })}
         onHunter={(l) => hunterLookup(l)}
-        onEmail={(l, v) => { const e = v.toLowerCase(); if (/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(e)) update(l.id, { emailAddress: e, emailFrom: "Added by you", contactUnverified: false }); }} /> :
+        onEmail={(l, v) => { const e = v.toLowerCase(); if (/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(e)) update(l.id, { youEditedAt: new Date().toISOString(), emailAddress: e, emailFrom: "Added by you", contactUnverified: false }); }} /> :
       <Board onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} hideCols={showParked || filtering ? ["vetting"] : ["vetting", "not-pursuing", "lost"]} leads={onBoard} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status, statusBy: "you" }); }} />}
 
-      {current && <LeadDrawer key={current.id} onNoSite={async (extra = {}) => { if (await tryObviousDomain(current.id)) return false; update(current.id, { websiteNeeded: false, noWebsiteConfirmed: true, problem: "No website", problemDetail: "Checked by hand: they have no website", ...(["new", "qualified", "no-contact"].includes(current.status || "new") ? { status: "no-website" } : {}), ...extra }); return true; }} onFindSite={() => openClaude({ job: "find-sites", preset: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => openClaude({ job: "lead-check", preset: [current.id], column: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new" })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
+      {current && <LeadDrawer key={current.id} onNoSite={async (extra = {}) => { if (await tryObviousDomain(current.id)) return false; update(current.id, { websiteNeeded: false, noWebsiteConfirmed: true, problem: "No website", problemDetail: "Checked by hand: they have no website", ...(["new", "qualified", "no-contact"].includes(current.status || "new") ? { status: "no-website" } : {}), ...extra }); return true; }} onFindSite={() => openClaude({ job: "find-sites", preset: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => openClaude({ job: "lead-check", preset: [current.id], column: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new" })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, YOUR_EDITS.some((k) => k in f) ? { ...f, youEditedAt: new Date().toISOString() } : f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
   );
 }
@@ -2262,7 +2265,7 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
   const [shown, setShown] = useState(100);
   const all = sorted(leads);
   const waiting = all.filter((l) => !l.vetAt);
-  const needsYou = all.filter((l) => l.vetAt);
+  const needsYou = all.filter((l) => l.vetAt).sort((a, b) => (recentlyEdited(b) ? 1 : 0) - (recentlyEdited(a) ? 1 : 0));
   const chip = (ok, label, title) => <span title={title} className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${ok ? "bg-emerald-100 text-emerald-800" : "bg-red-50 text-red-700"}`}>{ok ? "✓" : "✗"} {label}</span>;
   const input = "w-48 rounded border border-zinc-300 px-2 py-0.5 text-xs";
   // The one thing to do next: find the site, confirm it, or add a contact.
@@ -2278,10 +2281,12 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
       <li key={l.id} className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm">
         <button onClick={() => onOpen(l.id)} className="min-w-0 text-left font-medium hover:underline">{l.business}</button>
         {businessLabel(l) && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-semibold text-white">{businessLabel(l)}</span>}
+        {recentlyEdited(l) && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[11px] font-semibold text-violet-800" title={`You edited this ${new Date(l.youEditedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}>Recently edited</span>}
         <span className="ml-auto flex flex-wrap items-center gap-1">
           {chip(c.site, l.website ? `Site: ${l.website}` : l.noWebsiteConfirmed ? "No website (confirmed)" : "Site: not found", l.website && !c.site ? "Not verified yet" : "")}
+          {!c.site ? <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[11px] font-semibold text-zinc-500" title="Contact and Google are only looked for once the website is settled, so no searches or credits are wasted">Contact and Google wait for the site</span> : <>
           {chip(c.contact, l.emailAddress ? `Contact: ${l.emailAddress}` : "Contact: none")}
-          {chip(c.search, !l.website ? "Google: n/a" : w && (l.seo?.claudeAt || l.seo?.manual) ? `Google: ${w.position ? `#${w.position}` : "not p1"} “${w.query}”` : "Google: not checked")}
+          {chip(c.search, !l.website ? "Google: n/a" : w && (l.seo?.claudeAt || l.seo?.manual) ? `Google: ${w.position ? `#${w.position}` : "not p1"} “${w.query}”` : "Google: not checked")}</>}
           {mine && nextStep(l)}
           <button onClick={() => onSend(l)} title="Put it on the board now, as it is" className="rounded border border-zinc-300 px-2 py-0.5 text-xs hover:bg-zinc-100">To board</button>
           <button onClick={() => onPark(l)} title="Not worth it" className="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-500 hover:bg-zinc-100">✕</button>
