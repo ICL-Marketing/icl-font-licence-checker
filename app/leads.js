@@ -4,7 +4,7 @@ import { mailHref } from "@/app/mail";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, businessLabel, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, businessLabel, subjectForText, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 import { mergeDoc } from "@/lib/merge";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, reportProgress, withTitle } from "@/app/claudeInbox";
@@ -1822,8 +1822,9 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
   const subjectOf = (c) => {
     if (!c) return "";
     if (c.issue) return draftFor(l, person, c.issue, subjects).subject;
-    const S = { ...DEFAULT_SUBJECTS_SHARED, ...subjects };
-    return (c.key === "claude" ? S[l.problem] : S[c.key.replace(/^(you|own):/, "")]) || S.other;
+    // Claude's issue: its own subject line, else the closest default to what the issue says (never the checker's problem).
+    if (c.key === "claude") return l.claude?.issue_subject || subjectForText(`${l.claude?.issue_label || ""} ${c.label || ""}`, subjects);
+    return subjectForText(c.key.replace(/^(you|own):/, ""), subjects);
   };
   const path = r.path || suggestPath(lead?.issue?.id || lead?.label || "", l);
   const first = greetNames(l.contactName);
@@ -1925,7 +1926,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
             </div>
             {lead && (
               <label className="block text-xs"><span className="text-zinc-500">Subject (from the main issue; <a href="/settings?section=emails" target="_blank" className="underline">edit the defaults</a>)</span>
-                <input value={l.subject || ""} onChange={(e) => setR({ subjectTyped: true }, { subject: e.target.value })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
+                <input value={(r.subjectTyped || !lead ? l.subject : subjectOf(lead)) || ""} onChange={(e) => setR({ subjectTyped: true }, { subject: e.target.value })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
             )}
             <div className="flex gap-2">
               {(() => { const addOwn = () => { const t = own.trim(); if (!t) return; setR({ own: [...new Set([...(r.own || []), t])], lead: r.lead || `own:${t}` }); setOwn(""); }; return <>
