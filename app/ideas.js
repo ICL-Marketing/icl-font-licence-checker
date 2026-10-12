@@ -67,6 +67,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   const view = "top"; // one table now; the All ideas and Replies views were retired
   const [manager, setManager] = useState("");
   const [service, setService] = useState("");
+  const [size, setSize] = useState(""); // "" all, or large / medium / small
   // Only ideas big enough to be worth pitching: over this many hours (0 = any size).
   const [minHours, setMinHoursState] = useState(() => { try { return Number(localStorage.getItem("flc-ideas-min-hours") || 0) || 0; } catch { return 0; } });
   const setMinHours = (v) => { setMinHoursState(v); try { localStorage.setItem("flc-ideas-min-hours", String(v)); } catch {} };
@@ -225,6 +226,21 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     update(id, { checking: false }); setRun({ ...st }); onRunning?.(false);
   }
 
+  // The wrong website on a client: swap it in Settings, drop the old site's ideas, check the new one, then open Claude research for them.
+  async function changeSite(g, oldSite, next) {
+    const c = clients.find((x) => x.id === g.clientId); if (!c) return;
+    const url = String(next || "").trim(); if (!url || host(url) === host(oldSite)) return;
+    const websites = [...new Set([...(c.websites || []).filter((w) => host(w) !== host(oldSite)), url])];
+    const nc = { ...c, websites };
+    onClientsChange?.(clients.map((x) => (x.id === c.id ? nc : x)));
+    const oldId = recId(c, oldSite);
+    if (recsRef.current[oldId]) { const nextRecs = { ...recsRef.current }; delete nextRecs[oldId]; recsRef.current = nextRecs; save(nextRecs); setRecs(nextRecs); if (sharedRef.current) fetch("/api/results", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "ideas", site: oldId }) }).catch(() => {}); }
+    stopRef.current = false; onRunning?.(true);
+    const st = { phase: `Checking ${host(url)}…`, done: 0, total: 1, found: 0, errors: [] }; setRun({ ...st });
+    try { await checkOne(nc, url, st); st.phase = `Done: ${c.name} now checked on ${host(url)}. Run Client research in the Claude window for new ideas.`; } catch (e) { st.phase = `Couldn't check ${host(url)}: ${e.message}`; }
+    st.done = 1; setRun({ ...st }); onRunning?.(false);
+    openClaude({ job: "client-research", preset: [c.id] });
+  }
   // Keep the client details current when Settings change (name, contacts, manager).
   useEffect(() => {
     const t = setTimeout(() => {
@@ -238,7 +254,9 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
 
   const running = !!run && !/^(Done|Stopped)/.test(run.phase);
   // Ideas for a client deleted in Settings drop out of view (the record is kept in case the client is re-added).
-  const liveRecs = clients.length ? Object.values(recs).filter((r) => clients.some((c) => c.id === r.clientId || (!r.clientId && c.name === r.name))) : Object.values(recs);
+  // A site taken off the client (or replaced) in Settings drops out with its ideas.
+  const onClientSite = (c, r) => !r.website || !(c.websites || []).length || (c.websites || []).some((w) => host(w) === host(r.website));
+  const liveRecs = clients.length ? Object.values(recs).filter((r) => clients.some((c) => (c.id === r.clientId || (!r.clientId && c.name === r.name)) && onClientSite(c, r))) : Object.values(recs);
   const cards = liveRecs.flatMap((r) => (r.ideas || []).map((i) => ({ ...i, recId: r.id, client: r.name, website: r.website, manager: r.manager })));
   const q = filter.trim().toLowerCase();
   const shown = cards.filter((c) => (!kind || c.kind === kind) && (!q || `${c.client} ${c.website} ${c.title} ${c.manager}`.toLowerCase().includes(q)));
@@ -255,7 +273,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     // Developer jobs show whatever their size (the big-ideas list leaves small ones out).
     const devJob = (i) => i.status === "queued" && (i.internal || (ours && ideaType(i) === "fix"));
     const jobs = queue.filter((i) => devJob(i) && (!service || service === "★" ? service !== "★" || i.starred : (i.service || serviceFor(i.title)) === service));
-    return { ...g, client, bb, ours, queue, top: [...jobs, ...topIdeas(queue.filter((i) => !devJob(i) && !badRuleKeys.has(i.key) && (!minHours || hoursFor(i) > minHours) && (service !== "★" || i.starred)), 50, service === "★" ? "" : service)], pick: monthlyPick(queue, month) }; })
+    return { ...g, client, bb, ours, queue, top: [...(size ? [] : jobs), ...topIdeas(queue.filter((i) => !devJob(i) && !badRuleKeys.has(i.key) && (!minHours || hoursFor(i) > minHours) && (service !== "★" || i.starred) && (!size || (i.size || "small") === size)), 50, service === "★" ? "" : service, { withSmall: !size || size === "small" })], pick: monthlyPick(queue, month) }; })
     .filter((g) => g.queue.length && (!manager || g.manager === manager) && (!q || `${g.name} ${g.manager} ${g.queue.map((i) => i.title).join(" ")}`.toLowerCase().includes(q)))
     .filter((g) => !service || g.top.length)
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -301,6 +319,14 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search clients or ideas" className="w-56 rounded-md border border-zinc-300 px-3 py-1.5 text-sm" />
         {managers.length > 0 && <select value={manager} onChange={(e) => setManager(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm"><option value="">All account managers</option>{managers.map((m) => <option key={m}>{m}</option>)}</select>}
+        <select value={size} onChange={(e) => setSize(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm"><option value="">All ideas</option><option value="large">Big ideas</option><option value="medium">Medium ideas</option><option value="small">Small ideas</option></select>
+        {manager && (() => {
+          // One email to the account manager with every idea (as filtered) for each of their clients.
+          const mine = groups.filter((g) => g.manager === manager && g.top.length);
+          const first = manager.split(" ")[0];
+          const body = `Hi ${first},\n\nHere are the ideas for your clients${size ? ` (${{ large: "big", medium: "medium", small: "small" }[size]} ideas)` : ""}:\n\n${mine.map((g) => `${g.name}${(g.recs.find((x) => x.website) || {}).website ? ` (${(g.recs.find((x) => x.website) || {}).website})` : ""}\n${g.top.map((i) => `- ${i.title} (${i.service || serviceFor(i.title)}, ~${hoursFor(i)} hrs${i.value ? `, ${i.value}` : ""})`).join("\n")}`).join("\n\n")}\n\nLet me know which ones you'd like to take forward.`;
+          return <a href={mailHref("", `Client ideas for your clients (${mine.length})`, body)} target="_blank" rel="noopener" title={`Opens Outlook with every idea for ${manager}'s ${mine.length} client${mine.length === 1 ? "" : "s"}`} className={`inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 ${mine.length ? "" : "pointer-events-none opacity-40"}`}><MailIcon className="h-4 w-4" /> Create email ({mine.length} client{mine.length === 1 ? "" : "s"})</a>;
+        })()}
         {view === "replies" && <select value={kind} onChange={(e) => setKind(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm"><option value="">All kinds</option>{Object.entries(IDEA_KINDS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>}
       </div>
 
@@ -326,7 +352,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
               {groups.length === 0 && <tr><td colSpan={2} className="p-4 text-zinc-500">No ideas yet. Use the Claude button at the top: Client research.</td></tr>}
               {groups.map((g) => (
                 <tr key={g.clientId || g.name} className="align-top">
-                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return w ? <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline">{w} <ExternalIcon /></a> : null; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button></div></td>
+                  <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return <span className="inline-flex items-center gap-1 text-[11px]">{w && <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700 hover:underline">{w} <ExternalIcon /></a>}{g.clientId && <button onClick={() => { const v = window.prompt(`${g.name}: the right website address`, w ? `https://${w}` : "https://"); if (v) changeSite(g, w || "", v); }} title="Wrong website? Change it here: the old site's ideas are dropped, the new one is checked and Claude research opens" className="rounded px-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">{w ? "edit" : "+ website"}</button>}</span>; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button></div></td>
                   <td className="max-w-0 px-3 py-3">
                   <div className="grid snap-x auto-cols-[calc((100%-2.25rem)/3.2)] grid-flow-col gap-3 overflow-x-auto pb-1">
                   {g.top.length === 0 && <div className="text-xs text-zinc-400">No big ideas yet.</div>}
