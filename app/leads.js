@@ -2262,7 +2262,8 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
     return null;
   };
   // Each lead waits in the first step it's stuck on: website, then contact, then Google.
-  const stepOf = (l) => { const c = vetChecks(l); return !c.site ? "site" : !c.search ? "search" : "contact"; };
+  // Google and Contact only ever hold leads with a website: no site means step 1, whatever else is known.
+  const stepOf = (l) => { const c = vetChecks(l); return !l.website || !c.site ? "site" : !c.search ? "search" : "contact"; };
   const cols = [
     ["claude", "Waiting for Claude", "Not vetted yet: Claude does all three steps in order.", waiting],
     ["site", "1. Website", "Paste their site, confirm it, or mark no website. Nothing else is searched until this is done.", needsYou.filter((l) => stepOf(l) === "site")],
