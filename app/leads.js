@@ -123,6 +123,14 @@ function toMaintenance(l) {
   l.caveats = String(l.caveats || "").split("; ").filter((x) => x && !/site is current/i.test(x)).join("; ");
   l.statusAt = l.updatedAt = new Date().toISOString();
 }
+// Only you put a lead in Ready to send. Anything else that lands it there waits in Email to draft for a quick check.
+function holdForCheck(l) {
+  if (l.status !== "ready" || l.statusBy === "you" || l.review?.done) return false;
+  l.status = "to-draft";
+  if (l.email) l.review = { ...(l.review || {}), step: 3, drafted: l.review?.drafted || new Date().toISOString() };
+  l.statusAt = l.updatedAt = new Date().toISOString();
+  return true;
+}
 // No website found (by Claude, the checks or you): its own column, and back to To assess once a site turns up.
 const noSiteReady = (l) => !l.website && l.problem === "No website" && !l.optedOut && !l.review?.done && l.statusBy !== "you" && !isFrozen(l) && !claudeSkip(l) && !soleTrader(l);
 function routeNoSite(l) {
@@ -287,6 +295,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       // One-off: every lead imported from the Client Matrix sheet was closed as Lost (7 Oct 2026).
       for (const l of Object.values(local)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); }
       for (const l of Object.values(local)) routeNoSite(l);
+      for (const l of Object.values(local)) holdForCheck(l);
       keepYourStatus(local, yoursLocal);
       parkSoleTraders(local);
       leadsRef.current = local;
@@ -316,6 +325,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const l of Object.values(next)) if (l.status === "not-pursuing" && !l.review?.done && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (routeNoSite(l)) push(l.id, l);
+        for (const l of Object.values(next)) if (holdForCheck(l)) push(l.id, l);
         keepYourStatus(next, yoursShared);
         parkSoleTraders(next);
         save(next);
@@ -358,6 +368,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       // "Site is current; no outreach planned" stops being true the moment someone decides to pursue it.
       if (fields.status !== "not-pursuing" && STALE_WHY.test(l.likelihoodWhy || "")) { l.likelihoodWhy = ""; l.caveats = String(l.caveats || "").split("; ").filter((x) => x && !STALE_WHY.test(x)).join("; "); }
     }
+    if (fields.status === "ready" && !fields.statusBy) { l.statusBy = ""; if (holdForCheck(l)) l.edits.status = now; }
     if (!fields.statusBy && routeNoSite(l)) l.edits.status = now;
     if ("emailAddress" in fields && fields.emailAddress !== prev.emailAddress && !("emailFrom" in fields)) l.emailFrom = "";
     if ("contactName" in fields && fields.contactName !== prev.contactName && !("nameFrom" in fields)) l.nameFrom = "";
@@ -1905,7 +1916,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
   // The email box only holds Claude's draft (or your own typing), never the app's automatic template.
   const draftText = r.drafted ? l.email || "" : "";
   // Address and email text both in: Ready to send, and on to the next lead.
-  const finishReady = (extra = {}) => { setR({ done: true, doneAt: new Date().toISOString(), drafted: r.drafted || new Date().toISOString() }, { status: "ready", ...extra }); onNext?.(true); };
+  const finishReady = (extra = {}) => { setR({ done: true, doneAt: new Date().toISOString(), drafted: r.drafted || new Date().toISOString() }, { status: "ready", statusBy: "you", ...extra }); onNext?.(true); };
   return (
     <div className="space-y-3">
       <div className="rounded-lg border border-zinc-200 p-3">
