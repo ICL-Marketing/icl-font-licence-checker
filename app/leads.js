@@ -1596,11 +1596,15 @@ function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
 // Free lead finding on your own Claude plan: copy a prompt, paste the JSON back, each find gets the usual checks.
 function FindLeadsModal({ area, miles, exclude, onClose }) {
   const [what, setWhat] = useState("");
-  const [count, setCount] = useState(10);
+  const [count, setCount] = useState(20);
+  // Defaults to the board's area; type any town or postcode to look somewhere else.
+  const [where, setWhere] = useState(area);
+  const [radius, setRadius] = useState(miles);
   const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState(false);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
-  const prompt = findLeadsPrompt({ what: what.trim(), area: `${area} (within about ${miles} miles)`, count, exclude });
+  const place = where.trim() || area;
+  const prompt = findLeadsPrompt({ what: what.trim(), area: `${place} (within about ${Number(radius) || miles} miles)`, count, exclude });
   async function copy(open) {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
     if (open) window.open("https://claude.ai/new", "_blank", "noopener");
@@ -1612,9 +1616,17 @@ function FindLeadsModal({ area, miles, exclude, onClose }) {
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <input value={what} onChange={(e) => setWhat(e.target.value)} placeholder="Any business, or e.g. restaurants, builders" className="min-w-[14rem] flex-1 rounded-md border border-zinc-300 px-2 py-1" />
               <span className="text-xs text-zinc-500">How many:</span>
-              {[5, 10, 20].map((n) => <button key={n} onClick={() => setCount(n)} className={`rounded-full border px-2 py-0.5 text-xs ${count === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{n}</button>)}
+              {[10, 20, 50].map((n) => <button key={n} onClick={() => setCount(n)} className={`rounded-full border px-2 py-0.5 text-xs ${count === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{n}</button>)}
             </div>
-            <p className="mt-1 text-[11px] text-zinc-500">Around {area}. Businesses already on the board are left out.</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <PinIcon className="h-4 w-4 text-zinc-400" />
+              <input value={where} onChange={(e) => setWhere(e.target.value)} placeholder="Town or postcode" className="min-w-[12rem] flex-1 rounded-md border border-zinc-300 px-2 py-1" />
+              <span className="text-xs text-zinc-500">within</span>
+              <input type="number" min={1} max={50} value={radius} onChange={(e) => setRadius(e.target.value)} className="w-16 rounded-md border border-zinc-300 px-2 py-1" />
+              <span className="text-xs text-zinc-500">miles</span>
+              {place !== area && <button onClick={() => { setWhere(area); setRadius(miles); }} className="text-xs text-zinc-500 underline">Back to {area}</button>}
+            </div>
+            <p className="mt-1 text-[11px] text-zinc-500">Any location works: it doesn’t change the board’s area. Businesses already on the board are left out.</p>
           </div>
           <div>
             <div className="flex items-center gap-2"><span className="font-semibold">2. Run it in Claude</span>
