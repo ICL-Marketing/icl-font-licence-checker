@@ -1777,6 +1777,8 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
     ...issues.map((i) => ({ key: `chk:${i.id}`, label: i.label, from: "Checker", issue: i })),
     ...(l.claude && (l.claude.angle || l.claude.issue_note) ? [{ key: "claude", label: oneLine(l.claude.angle || l.claude.issue_note), from: "Claude" }] : []),
     ...(l.trigger ? [{ key: "why-now", label: l.trigger, from: "Why now" }] : []),
+    // What you wrote in step 1 is an issue you can lead with too.
+    ...(String(r.notes || "").trim() ? [{ key: "note", label: String(r.notes).trim().replace(/\s+/g, " "), from: "You" }] : []),
     ...(r.seen || []).map((x) => ({ key: `you:${x}`, label: x, from: "You" })),
     ...(r.own || []).map((x) => ({ key: `own:${x}`, label: x, from: "You" })),
   ];
@@ -1891,7 +1893,10 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
                 <input value={l.subject || ""} onChange={(e) => setR({ subjectTyped: true }, { subject: e.target.value })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
             )}
             <div className="flex gap-2">
-              <input value={own} onChange={(e) => setOwn(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && own.trim()) { setR({ own: [...(r.own || []), own.trim()], lead: r.lead || `own:${own.trim()}` }); setOwn(""); } }} placeholder="Add your own issue and press Enter" className="flex-1 rounded-md border border-zinc-300 px-2 py-1 text-sm" />
+              {(() => { const addOwn = () => { const t = own.trim(); if (!t) return; setR({ own: [...new Set([...(r.own || []), t])], lead: r.lead || `own:${t}` }); setOwn(""); }; return <>
+              <input value={own} onChange={(e) => setOwn(e.target.value)} onBlur={addOwn} onKeyDown={(e) => { if (e.key === "Enter") addOwn(); }} placeholder="Add your own issue" className="flex-1 rounded-md border border-zinc-300 px-2 py-1 text-sm" />
+              <button onClick={addOwn} disabled={!own.trim()} className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40">Add</button>
+              </>; })()}
             </div>
             <div>
               <div className="text-xs text-zinc-500">Approach</div>
