@@ -161,7 +161,7 @@ function holdForCheck(l) {
   return true;
 }
 // No website found (by Claude, the checks or you): its own column, and back to To assess once a site turns up.
-const noSiteReady = (l) => !l.website && l.problem === "No website" && !l.optedOut && !l.review?.done && l.statusBy !== "you" && !isFrozen(l) && !claudeSkip(l) && !soleTrader(l);
+const noSiteReady = (l) => !l.website && (l.noWebsiteConfirmed || l.problem === "No website") && !l.optedOut && !l.review?.done && l.statusBy !== "you" && !isFrozen(l) && !claudeSkip(l) && !soleTrader(l);
 const CANT_FIND = "Can’t find them online";
 const cantFind = (l) => new RegExp(CANT_FIND.replace("’", "['’]"), "i").test(l.caveats || "");
 function routeNoSite(l) {
