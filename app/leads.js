@@ -90,6 +90,17 @@ function toMaintenance(l) {
   l.statusAt = l.updatedAt = new Date().toISOString();
 }
 const maintenanceReady = (l) => !!l.website && !l.problem && !l.optedOut && !l.review?.done && l.statusBy !== "you" && !isFrozen(l);
+// Where they came in a Google search you ran by hand: saved on the lead, and a poor showing becomes the search issue.
+function rankFields(l, query, v) {
+  if (!v) return { seo: null };
+  const position = { top: 1, top3: 2, page1: 5, none: null }[v];
+  const poor = position === null || position > 3;
+  const f = { seo: { manual: true, engine: "Checked by you on Google", checkedAt: new Date().toISOString(), searches: [{ kind: "trade", query, position, manual: true }] } };
+  if (poor && !l.problem) { f.problem = "Low search visibility"; f.problemDetail = `${position ? `#${position}` : "Not on page 1"} for “${query}”`; }
+  else if (!poor && l.problem === "Low search visibility") { f.problem = ""; f.problemDetail = ""; }
+  return f;
+}
+const rankValue = (stored) => (!stored || (stored.manual === undefined && stored.position === undefined) ? "" : stored.position === 1 ? "top" : stored.position === 2 || (stored.position && stored.position <= 3) ? "top3" : stored.position === null ? "none" : "page1");
 // A lead you've started reviewing or moved yourself: automatic checks never park it again.
 const handledByYou = (l) => !!l?.review || l?.statusBy === "you";
 const AUTO_PARK = ["not-pursuing", "no-contact"];
@@ -1452,15 +1463,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
               const autoTrade = l.tradeOverride || l.trade || (stored && town && stored.query.toLowerCase().endsWith(" " + town.toLowerCase()) ? stored.query.slice(0, -town.length - 1) : stored?.query || "");
               const query = [autoTrade, town].filter(Boolean).join(" ");
               const rank = !stored || stored.manual === undefined && stored.position === undefined ? "" : stored.position === 1 ? "top" : stored.position === 2 ? "top3" : stored.position === 5 ? "page1" : stored.position === null ? "none" : stored.position <= 3 ? "top3" : stored.position <= 10 ? "page1" : "none";
-              const setRank = (v) => {
-                if (!v) { onChange({ seo: null }); return; }
-                const position = { top: 1, top3: 2, page1: 5, none: null }[v];
-                const poor = position === null || position > 3;
-                const f = { seo: { manual: true, engine: "Checked by you on Google", checkedAt: new Date().toISOString(), searches: [{ kind: "trade", query, position, manual: true }] } };
-                if (poor && !l.problem) { f.problem = "Low search visibility"; f.problemDetail = `${position ? `#${position}` : "Not on page 1"} for “${query}”`; }
-                else if (!poor && l.problem === "Low search visibility") { f.problem = ""; f.problemDetail = ""; }
-                onChange(f);
-              };
+              const setRank = (v) => onChange(rankFields(l, query, v));
               return (
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                   <label className="inline-flex items-center gap-1 text-xs text-zinc-600">searching for
@@ -1776,6 +1779,24 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
               <a href={google} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 px-3 py-1.5 hover:bg-zinc-100"><SearchIcon className="h-4 w-4" /> Google them</a>
               {l.google?.mapsUrl && <a href={l.google.mapsUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 px-3 py-1.5 hover:bg-zinc-100"><PinIcon className="h-4 w-4" /> Google Maps</a>}
             </div>
+            {(() => {
+              const stored = l.seo?.searches?.find((x) => x.kind === "trade");
+              const trade = l.tradeOverride || l.trade || "";
+              const town = l.searchTown || (l.tradesElsewhere ? "" : l.tradingTown) || "";
+              const query = [trade, town].filter(Boolean).join(" ");
+              return (
+                <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-zinc-50 px-2 py-1.5 text-xs text-zinc-600">
+                  <span>Search Google for</span>
+                  <input key={`rt:${l.id}:${trade}`} defaultValue={trade} onBlur={(e) => { const v = e.target.value.trim(); if (v !== trade) onChange({ tradeOverride: v }); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder="what they do" className="w-32 rounded border border-zinc-300 bg-white px-1.5 py-0.5" />
+                  <span>in</span>
+                  <input key={`rw:${l.id}:${town}`} defaultValue={town} onBlur={(e) => { const v = e.target.value.trim(); if (v !== town) onChange({ searchTown: v }); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder="town" className="w-28 rounded border border-zinc-300 bg-white px-1.5 py-0.5" />
+                  {query && <a href={`https://www.google.com/search?q=${encodeURIComponent(query)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100"><SearchIcon className="h-3.5 w-3.5" /> Search</a>}
+                  {query && <select value={stored?.query?.toLowerCase() === query.toLowerCase() ? rankValue(stored) : ""} onChange={(e) => onChange(rankFields(l, query, e.target.value))} className="rounded-md border border-zinc-300 bg-white px-1.5 py-0.5">
+                    <option value="">Where do they come?</option><option value="top">Top result</option><option value="top3">In the top 3</option><option value="page1">On page 1, below the top 3</option><option value="none">Not on page 1</option>
+                  </select>}
+                </div>
+              );
+            })()}
             {l.website && humanConfirmed(l) ? (
               <p className="text-xs text-emerald-700">✓ Their website ({l.websiteVerified === "checked by Claude" ? "confirmed by Claude" : "confirmed by you"}). <button onClick={rejectWebsite} className="text-zinc-500 underline">Not theirs?</button></p>
             ) : l.website ? (
