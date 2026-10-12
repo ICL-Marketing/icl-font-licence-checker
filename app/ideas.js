@@ -4,7 +4,7 @@ import { mailHref } from "@/app/mail";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint } from "@/app/claudeInbox";
+import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, withTitle } from "@/app/claudeInbox";
 import { iclFooter, setEmailTemplates } from "@/lib/leadsShared";
 import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, greetingFor, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, BUILT_LABEL, ideaType, supportEmail, PLANS } from "@/lib/clientIdeas";
 
@@ -576,7 +576,7 @@ function ResearchModal({ feedback = [], clients, recs, preset, initialManager = 
     return { id: c.id, name: c.name, websites: c.websites || [], notes: c.notes || "", plan: c.plan ? PLANS[c.plan] : "", findings: findingsLine(rec) };
   });
   const liked = Object.values(recs).flatMap((r) => (r.ideas || []).filter((i) => i.starred).map((i) => ({ title: i.title, service: i.service })));
-  const prompt = items.length ? researchPrompt(items, feedback, liked) : "";
+  const prompt = items.length ? withTitle("Client research", items.length === 1 ? items[0].name : `${items.length} clients`, researchPrompt(items, feedback, liked)) : "";
   async function copy(open) {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
     if (open) window.open("https://claude.ai/new", "_blank", "noopener");

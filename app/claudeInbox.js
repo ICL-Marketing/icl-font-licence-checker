@@ -31,7 +31,7 @@ export function useClaudeJob(id, job) {
 // Open the Claude window: { tab: "prompt" | "paste", job, preset: [ids], column }.
 export const openClaude = (detail = {}) => window.dispatchEvent(new CustomEvent("open-claude-inbox", { detail }));
 
-export const KIND_LABEL = { "lead-check": "Lead check", "find-sites": "Website search", "find-leads": "New leads", draft: "Email draft", "client-research": "Client research" };
+export const KIND_LABEL = { "rank-check": "Search rankings", "lead-check": "Lead check", "find-sites": "Website search", "find-leads": "New leads", draft: "Email draft", "client-research": "Client research" };
 
 function jsonOf(text) {
   const t = String(text || "").trim();
@@ -49,6 +49,7 @@ export function detectReply(text) {
   const list = Array.isArray(d) ? d : Array.isArray(d.leads) ? d.leads : Array.isArray(d.clients) ? d.clients : [d];
   const x = list.find((o) => o && typeof o === "object") || {};
   if ("client_id" in x) return "client-research";
+  if ("lead_id" in x && Array.isArray(x.searches)) return "rank-check";
   if ("lead_id" in x && ("has_website" in x || "other_presence" in x)) return "find-sites";
   if ("lead_id" in x) return "lead-check";
   if ("name" in x) return "find-leads";
@@ -66,6 +67,12 @@ export function markSent(kind, ids) {
 }
 export function sentIds(kind) { const s = loadSent()[kind] || {}; const now = Date.now(); return new Set(Object.entries(s).filter(([, t]) => now - t < 2 * 86400000).map(([id]) => id)); }
 export const openInbox = () => openClaude({ tab: "paste" });
+// A title line at the top of every prompt, so Claude names the chat after the job ("ICL · Find websites · 33 leads · 12 Oct 14:05").
+export function withTitle(job, detail, prompt) {
+  if (!prompt) return "";
+  const at = new Date().toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return `ICL · ${job}${detail ? ` · ${detail}` : ""} · ${at}\n\n${prompt}`;
+}
 // Background work after a paste reports here; the Claude window shows a bar per job.
 export const reportProgress = (id, label, done, total) => window.dispatchEvent(new CustomEvent("claude-progress", { detail: { id, label, done, total } }));
 

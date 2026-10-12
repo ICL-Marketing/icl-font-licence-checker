@@ -4,10 +4,10 @@ import { mailHref } from "@/app/mail";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 import { mergeDoc } from "@/lib/merge";
-import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, reportProgress } from "@/app/claudeInbox";
+import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, reportProgress, withTitle } from "@/app/claudeInbox";
 
 // Website leads: local businesses whose site is letting them down, found
 // through Companies House and worked through a pipeline board.
@@ -110,6 +110,8 @@ const soleTrader = (l) => !l.companyNumber && (/not a limited company/i.test(l.c
 function parkSoleTraders(all) {
   for (const l of Object.values(all)) if (soleTrader(l) && !["not-pursuing", "lost", "won", "contacted", "replied", "meeting", "cold"].includes(l.status)) { l.status = "not-pursuing"; l.caveats = ["Sole trader (not a limited company): not emailed", ...String(l.caveats || "").split("; ").filter((x) => x && !/not a limited company/i.test(x))].join("; "); l.statusAt = l.updatedAt = new Date().toISOString(); }
 }
+// Leads worth a rankings check: open, with a website.
+const rankable = (l) => !!l.website && !isFrozen(l) && !l.optedOut && ["new", "no-contact", "maintenance", "ready"].includes(l.status || "new");
 const STALE_WHY = /site is current|no outreach planned/i;
 const humanConfirmed = (l) => !!l.websiteConfirmed || ["confirmed by you", "checked by Claude"].includes(l.websiteVerified || "");
 const siteDoubt = (l) => !!(l.website && l.websiteDoubt && !humanConfirmed(l));
@@ -838,6 +840,25 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   // The prompts this page can write, all reached from the one Claude button at the top.
   useClaudeJob("lead-check", { label: "Check leads", order: 1, count: () => list.filter((l) => (l.status || "new") === "new" && !l.claude).length, render: (o, close) => <LeadCheckModal leads={list} preset={o.preset || []} column={o.column || "new"} onClose={close} onApply={applyLeadCheck} /> });
   useClaudeJob("find-sites", { label: "Find websites", order: 2, count: () => list.filter((l) => !l.website && siteSearchable(l) && !l.sitesCheckedAt).length, render: (o, close) => <FindSitesModal leads={list} preset={o.preset || []} onClose={close} onApply={applySites} /> });
+  useClaudeJob("rank-check", { label: "Search rankings", order: 3, count: () => list.filter((l) => rankable(l) && !l.seo?.claudeAt).length, render: (o, close) => <RankModal leads={list} preset={o.preset || []} onClose={close} /> });
+  // Where they came for the searches their customers make: the weakest becomes the search issue.
+  useClaudeHandler("rank-check", (text) => {
+    const list2 = parseRankReply(text);
+    if (!list2.length) throw new Error("No leads in that reply. Make sure Claude kept the lead_id values.");
+    let done = 0, weak = 0, strong = 0;
+    for (const it of list2) {
+      const l = leadsRef.current[it.lead_id];
+      if (!l || isFrozen(l) || !it.weakest) continue;
+      const at = new Date().toISOString();
+      const w = it.weakest;
+      const f = { seo: { manual: false, engine: "Checked by Claude", checkedAt: at, claudeAt: at, local: it.local, services: it.services, searches: [{ kind: "trade", query: w.query, position: w.position }, ...it.searches.filter((x) => x.query !== w.query).map((x) => ({ kind: "extra", ...x }))] } };
+      const poor = w.position === null || w.position > 3;
+      if (poor) { weak++; if (!l.problem || l.problem === "Low search visibility") { f.problem = "Low search visibility"; f.problemDetail = `${w.position ? `#${w.position}` : "Not on page 1"} for “${w.query}”`; if (l.status === "maintenance" && !handledByYou(l)) f.status = l.emailAddress ? "new" : "no-contact"; } }
+      else { strong++; if (l.problem === "Low search visibility") { f.problem = ""; f.problemDetail = ""; } }
+      update(l.id, f); done++;
+    }
+    return `${done} lead${done === 1 ? "" : "s"} checked · ${weak} not in the top 3 for a key search · ${strong} top 3 for everything tried`;
+  });
   useClaudeJob("find-leads", { label: "Find new leads", order: 3, render: (o, close) => <FindLeadsModal area={areaCentres.join(", ")} miles={areaMiles} exclude={list.slice(-80).map((l) => l.business)} onClose={close} /> });
   // Replies pasted into the one "Paste from Claude" box land here, whichever prompt they came from.
   useClaudeHandler("lead-check", (text) => {
@@ -1671,7 +1692,7 @@ function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
     contacts: (l.contacts || []).slice(0, 5).map((p) => `${p.name} (${p.role}${p.email ? `, ${p.email}` : ""})`).join("; "),
     parked: l.status === "not-pursuing" ? parkExplain(l) : l.status === "no-contact" ? "No verified email address found yet" : "",
   }));
-  const prompt = items.length ? leadCheckPrompt(items) : "";
+  const prompt = items.length ? withTitle("Check leads", `${items.length} lead${items.length === 1 ? "" : "s"}`, leadCheckPrompt(items)) : "";
   async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("lead-check", picked); setSent(sentIds("lead-check")); if (size !== "all" && size !== "recheck") nextBatch(size, picked); }
   const [sent, setSent] = useState(() => sentIds("lead-check"));
   // Numbers and "all new" pick unchecked leads only; "re-check all" takes every lead in the column, unchecked first.
@@ -1722,7 +1743,7 @@ function FindLeadsModal({ area, miles, exclude, onClose }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
   const place = where.trim() || area;
-  const prompt = findLeadsPrompt({ what: what.trim(), area: `${place} (within about ${Number(radius) || miles} miles)`, count, exclude });
+  const prompt = withTitle("Find new leads", [what.trim(), place].filter(Boolean).join(" in "), findLeadsPrompt({ what: what.trim(), area: `${place} (within about ${Number(radius) || miles} miles)`, count, exclude }));
   async function copy(open) {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
     if (open) window.open("https://claude.ai/new", "_blank", "noopener");
@@ -1792,7 +1813,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
   };
   const path = r.path || suggestPath(lead?.issue?.id || lead?.label || "", l);
   const first = greetNames(l.contactName);
-  const prompt = lead ? draftPrompt({ l, first, leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => (r.also || []).includes(c.key) && c.key !== r.lead).map((c) => c.label), notes: r.notes || "", path, template: lead.issue?.body || "" }) : "";
+  const prompt = lead ? withTitle("Email draft", l.business, draftPrompt({ l, first, leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => (r.also || []).includes(c.key) && c.key !== r.lead).map((c) => c.label), notes: r.notes || "", path, template: lead.issue?.body || "" })) : "";
   const FROM = { Checker: "bg-zinc-200 text-zinc-700", Claude: "bg-orange-100 text-orange-800", "Why now": "bg-violet-100 text-violet-800", You: "bg-blue-100 text-blue-800" };
   const head = (n, title, done) => (
     <button onClick={() => setR({ step: n })} className={`flex w-full items-center gap-2 text-left text-sm font-semibold ${step === n ? "text-zinc-900" : "text-zinc-500 hover:text-zinc-900"}`}>
@@ -1981,7 +2002,7 @@ function FindSitesModal({ leads, preset, onClose, onApply }) {
     rejected: (l.rejectedSites || []).join(", "),
   }));
   // One prompt does both jobs: find the website, then the full lead check (contact, verdict, email).
-  const prompt = items.length ? leadCheckPrompt(items, { findSite: true }) : "";
+  const prompt = items.length ? withTitle("Find websites", `${items.length} lead${items.length === 1 ? "" : "s"}`, leadCheckPrompt(items, { findSite: true })) : "";
   // Copying sends the batch to Claude and moves straight on to the next one, so several can run at once.
   async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("find-sites", picked); nextBatch(size, picked); }
   const nextBatch = (n, done = []) => { setSize(n); const waiting = sentIds("find-sites"); setPicked(pool.filter((l) => !l.sitesCheckedAt && !done.includes(l.id) && !waiting.has(l.id)).slice(0, n === "all" ? undefined : n).map((l) => l.id)); };
@@ -2012,5 +2033,46 @@ function FindSitesModal({ leads, preset, onClose, onApply }) {
             <PasteHint className="mt-1" />
           </div>
         </div>
+  );
+}
+
+// Search rankings with Claude: the searches their customers really make, and where they come.
+function RankModal({ leads, preset, onClose }) {
+  const pool = sorted(leads.filter(rankable)).sort((a, b) => (a.seo?.claudeAt ? 1 : 0) - (b.seo?.claudeAt ? 1 : 0));
+  const [size, setSize] = useState("all");
+  const [picked, setPicked] = useState(() => (preset.length ? preset : pool.filter((l) => !l.seo?.claudeAt && !sentIds("rank-check").has(l.id)).map((l) => l.id)));
+  const [copied, setCopied] = useState(false);
+  useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
+  const items = picked.map((id) => leads.find((l) => l.id === id)).filter(Boolean).map((l) => ({ id: l.id, business: l.business, website: l.website, what: l.tradeOverride || l.whatTheyDo || l.trade || "", town: l.searchTown || (l.tradesElsewhere ? "" : l.tradingTown) || "" }));
+  const prompt = items.length ? withTitle("Search rankings", `${items.length} lead${items.length === 1 ? "" : "s"}`, rankCheckPrompt(items)) : "";
+  const nextBatch = (n, done = []) => { setSize(n); const waiting = sentIds("rank-check"); setPicked(pool.filter((l) => !l.seo?.claudeAt && !done.includes(l.id) && !waiting.has(l.id)).slice(0, n === "all" ? undefined : n).map((l) => l.id)); };
+  async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("rank-check", picked); if (size !== "all") nextBatch(size, picked); }
+  const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  return (
+    <div className="space-y-4 text-sm">
+      <div>
+        <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">1. Pick leads</span><span className="text-xs text-zinc-500">Next unchecked:</span>
+          {[50, 100].map((n) => <button key={n} onClick={() => nextBatch(n)} className={`rounded-full border px-2 py-0.5 text-xs ${size === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{n}</button>)}
+          <button onClick={() => nextBatch("all")} className={`rounded-full border px-2 py-0.5 text-xs ${size === "all" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>All ({pool.filter((l) => !l.seo?.claudeAt).length})</button>
+        </div>
+        <div className="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
+          {pool.map((l) => <button key={l.id} onClick={() => toggle(l.id)} className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(l.id) ? "border-sky-500 bg-sky-100 text-sky-900" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{l.business}{l.seo?.claudeAt ? " ✓" : ""}</button>)}
+        </div>
+        <p className="mt-1 text-[11px] text-zinc-500">{picked.length} picked · ✓ checked before. Claude finds each one’s top services, searches them where customers would (local businesses: service + their town), and tries the next service if they’re already top 3.</p>
+      </div>
+      <div>
+        <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">2. Run it in Claude</span>
+          <span className="ml-auto flex gap-2">
+            <button onClick={() => copy(false)} disabled={!prompt} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-40">{copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />} Copy prompt</button>
+            <button onClick={() => copy(true)} disabled={!prompt} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"><ExternalIcon /> Copy and open Claude</button>
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-zinc-500">For exact Google positions, paste it into Claude in Chrome (it can open Google itself). Claude chat with web search on works too, with positions close to Google’s.</p>
+      </div>
+      <div>
+        <span className="font-semibold">3. Paste the reply</span>
+        <PasteHint className="mt-1" />
+      </div>
+    </div>
   );
 }
