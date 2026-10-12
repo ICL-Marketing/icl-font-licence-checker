@@ -1803,11 +1803,11 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
         </div></div>
         <div className="shrink-0 flex flex-wrap items-center gap-2 border-t border-zinc-200 bg-white px-5 py-3 text-xs shadow-[0_-6px_12px_-8px_rgba(0,0,0,0.15)]">
           {(() => {
-            // One obvious next step for where the lead is; everything else lives under More.
+            // One obvious next step for where the lead is; everything else is a link underneath.
             const btn = "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-white";
             if (l.optedOut || isFrozen(l)) return null;
             if (l.status === "ready" && l.email && l.emailAddress && websiteIsVerified(l)) return <a href={outlook} target="_blank" rel="noopener" onClick={() => onChange({ status: "contacted", sentAt: new Date().toISOString() })} className={`${btn} bg-emerald-600 hover:bg-emerald-700`}><MailIcon className="h-4 w-4" /> Open in Outlook and mark as sent</a>;
-            if (!["new", "find-site", "to-draft", "no-contact", "maintenance", "no-website"].includes(l.status || "new")) return null;
+            if (!["vetting", "new", "find-site", "to-draft", "no-contact", "maintenance", "no-website"].includes(l.status || "new")) return null;
             if (!l.website && siteSearchable(l)) return <button onClick={onFindSite} className={`${btn} bg-amber-600 hover:bg-amber-700`}><SearchIcon className="h-4 w-4" /> Find their website with Claude</button>;
             if (!l.claude) return <button onClick={onClaude} className={`${btn} bg-orange-600 hover:bg-orange-700`}><SearchIcon className="h-4 w-4" /> Check with Claude</button>;
             if (!l.review?.done) return <button onClick={() => setView("review")} className={`${btn} bg-zinc-900 hover:bg-zinc-700`}><PlayIcon className="h-4 w-4" /> {l.review?.step > 1 ? `Continue review (step ${l.review.step} of 3)` : "Review this lead"}</button>;
@@ -1815,26 +1815,28 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
           })()}
           {l.checking && <span className="inline-flex items-center gap-1 text-blue-700"><SpinnerIcon className="h-3.5 w-3.5" /> Working…</span>}
           {l.error && <span className="text-red-700">{l.error}</span>}
-          <details className="relative ml-auto">
-            <summary className="cursor-pointer list-none rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-zinc-700 hover:bg-zinc-100">More ▾</summary>
-            <div className="absolute bottom-full right-0 z-10 mb-1 flex w-56 flex-col items-stretch gap-1 rounded-lg border border-zinc-200 bg-white p-2 shadow-lg">
-              {["new", "no-contact", "not-pursuing"].includes(l.status) && !isFrozen(l) && <button onClick={onClaude} className="rounded px-2 py-1 text-left hover:bg-zinc-100">Check with Claude</button>}
-              {!l.website && siteSearchable(l) && <button onClick={onFindSite} className="rounded px-2 py-1 text-left hover:bg-zinc-100">Find website with Claude</button>}
-              <button onClick={() => onRefresh()} disabled={l.checking} className="rounded px-2 py-1 text-left hover:bg-zinc-100 disabled:opacity-40">Rescan this lead</button>
-              {l.website && <button onClick={() => onRecheck(false)} disabled={l.checking} className="rounded px-2 py-1 text-left hover:bg-zinc-100 disabled:opacity-40">Re-check website only</button>}
-              {l.problem && <button onClick={() => onRecheck(true)} disabled={l.checking} className="rounded px-2 py-1 text-left hover:bg-zinc-100 disabled:opacity-40">Redraft email</button>}
-              <div className="my-1 border-t border-zinc-100" />
+          {!isFrozen(l) && l.status !== "not-pursuing" && <button onClick={() => { onChange({ status: "not-pursuing", statusBy: "you", likelihoodWhy: "Reviewed by hand: not worth it" }); onClose(); }} title="Moves it to Not pursuing and closes it" className="rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100">Not worth it</button>}
+          {/* Everything else, as plain links (no menu to open). */}
+          <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            {(() => { const link = "text-blue-700 underline-offset-2 hover:underline disabled:opacity-40"; return <>
+              {l.claude && ["vetting", "new", "no-contact", "not-pursuing"].includes(l.status) && !isFrozen(l) && <button onClick={onClaude} className={link}>Check again with Claude</button>}
+              
+              <button onClick={() => onRefresh()} disabled={l.checking} className={link}>Rescan this lead</button>
+              {l.website && <button onClick={() => onRecheck(false)} disabled={l.checking} className={link}>Re-check website only</button>}
+              {l.problem && <button onClick={() => onRecheck(true)} disabled={l.checking} className={link}>Redraft email</button>}
+            </>; })()}
+            <span className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">
               {!l.optedOut
-            ? optingOut
-              ? <span className="inline-flex items-center gap-1"><button onClick={() => { setOptingOut(false); onChange({ optedOut: true, optedOutAt: new Date().toISOString(), status: "lost", notesLog: [...(l.notesLog || []), { at: new Date().toISOString(), text: "Asked not to be contacted" }] }); }} className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2 py-1 font-medium text-white">Move to Lost</button><button onClick={() => setOptingOut(false)} className="rounded-md border border-zinc-300 px-2 py-1">Keep</button></span>
-              : <button onClick={() => setOptingOut(true)} className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2.5 py-1 text-red-700 hover:bg-red-50" title="They asked not to hear from us: the lead moves to Lost and is never chased or emailed from here again">Do not contact</button>
-            : <button onClick={() => onChange({ optedOut: false })} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-zinc-600 hover:bg-zinc-100">Undo opt-out</button>}
+                ? optingOut
+                  ? <span className="inline-flex items-center gap-1"><span className="text-zinc-600">Never contact them?</span><button onClick={() => { setOptingOut(false); onChange({ optedOut: true, optedOutAt: new Date().toISOString(), status: "lost", notesLog: [...(l.notesLog || []), { at: new Date().toISOString(), text: "Asked not to be contacted" }] }); onClose(); }} className="rounded-md bg-red-600 px-2 py-0.5 font-medium text-white">Move to Lost</button><button onClick={() => setOptingOut(false)} className="rounded-md border border-zinc-300 px-2 py-0.5">Keep</button></span>
+                  : <button onClick={() => setOptingOut(true)} className="text-red-700 hover:underline" title="They asked not to hear from us: the lead moves to Lost and is never chased or emailed from here again">Do not contact</button>
+                : <button onClick={() => onChange({ optedOut: false })} className="text-zinc-600 hover:underline">Undo opt-out</button>}
               {asking
-                ? <span className="flex gap-1"><button onClick={onRemove} className="flex-1 rounded-md bg-red-600 px-2 py-1 font-medium text-white">Delete</button><button onClick={() => setAsking(false)} className="rounded-md border border-zinc-300 px-2 py-1">Keep</button></span>
-                : <button onClick={() => setAsking(true)} className="rounded px-2 py-1 text-left text-zinc-500 hover:bg-red-50 hover:text-red-700">Delete lead</button>}
-              {l.checkedAt && <span className="px-2 pt-1 text-[11px] text-zinc-400">Last checked {new Date(l.checkedAt).toLocaleDateString("en-GB")}</span>}
-            </div>
-          </details>
+                ? <span className="inline-flex items-center gap-1"><button onClick={onRemove} className="rounded-md bg-red-600 px-2 py-0.5 font-medium text-white">Delete</button><button onClick={() => setAsking(false)} className="rounded-md border border-zinc-300 px-2 py-0.5">Keep</button></span>
+                : <button onClick={() => setAsking(true)} className="text-zinc-500 hover:text-red-700 hover:underline">Delete lead</button>}
+              {l.checkedAt && <span className="text-[11px] text-zinc-400">Last checked {new Date(l.checkedAt).toLocaleDateString("en-GB")}</span>}
+            </span>
+          </div>
         </div>
       </div>
     </div>
