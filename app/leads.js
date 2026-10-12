@@ -173,7 +173,22 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     } catch { setAreaState({ busy: false, error: "Couldn't map that area. Check the connection.", outcodes: 0 }); }
   }
   const [pending, setPending] = useState(null); // interrupted scan found on load
-  const [open, setOpen] = useState(null);
+  const [open, setOpenState] = useState(null);
+  // Every lead has its own address (?tab=leads&lead=…): opening one updates it, Back closes it, links open it.
+  const setOpen = (id) => {
+    setOpenState(id);
+    try {
+      const u = new URL(window.location.href);
+      if ((u.searchParams.get("lead") || null) === (id || null)) return;
+      if (id) { u.searchParams.set("tab", "leads"); u.searchParams.set("lead", id); window.history.pushState({ lead: id }, "", u.search); }
+      else { u.searchParams.delete("lead"); window.history.pushState({}, "", u.search); }
+    } catch {}
+  };
+  useEffect(() => {
+    const onPop = () => { const id = new URLSearchParams(window.location.search).get("lead"); setOpenState(id || null); };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   const [leadSource, setLeadSourceState] = useState(() => { try { return localStorage.getItem("flc-leads-source") || "all"; } catch { return "all"; } });
   const setLeadSource = (v) => { setLeadSourceState(v); try { localStorage.setItem("flc-leads-source", v); } catch {} };
   const [mapsWhat, setMapsWhatState] = useState(() => { try { return localStorage.getItem("flc-leads-maps") || ""; } catch { return ""; } });
@@ -705,7 +720,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         if (it.correct_website && it.correct_website !== site) { f.website = it.correct_website; f.websiteConfirmed = true; f.websiteVerified = "checked by Claude"; f.websiteEvidence = it.website_evidence; rescan.push(l.id); }
         else { f.website = ""; f.websiteConfirmed = false; f.websiteVerified = ""; f.problem = "No website"; f.problemDetail = `${site} belongs to a different business; Claude couldn't find their real site`; f.websiteNeeded = true; }
         if (l.emailAddress && site && l.emailAddress.endsWith("@" + site)) { f.emailAddress = ""; f.contactName = ""; }
-      } else if (!l.website && it.correct_website) { f.website = it.correct_website; f.websiteConfirmed = true; f.websiteVerified = "checked by Claude"; f.websiteEvidence = it.website_evidence; rescan.push(l.id); }
+      } else if (!l.website && it.correct_website) { if (l.problem === "No website") { f.problem = ""; f.problemDetail = ""; } f.website = it.correct_website; f.websiteConfirmed = true; f.websiteVerified = "checked by Claude"; f.websiteEvidence = it.website_evidence; rescan.push(l.id); }
       else if (l.website && !websiteIsVerified(l)) { f.websiteVerified = "checked by Claude"; f.websiteEvidence = it.website_evidence; f.websiteDoubt = ""; }
       const c = it.contact;
       if (c.name && (c.email || c.linkedin)) {
@@ -867,6 +882,21 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   // Leaving mid-scan loses nothing (it can be continued), but warn anyway.
   // A run is in progress only while its loop is going; summary lines (Done, Stopped, floor changes) are not runs.
   const running = !!run && run.kind !== "floor" && !/^(Done|Stopped)/.test(run.phase);
+  // A website on file but still marked "No website" (an older Claude check): rescan so the real problem is found.
+  const stuckRef = useRef(false);
+  useEffect(() => {
+    if (stuckRef.current || !list.length || running) return;
+    stuckRef.current = true;
+    const ids = list.filter((l) => l.website && l.problem === "No website" && !isFrozen(l) && !["ready", "contacted", "replied", "meeting"].includes(l.status)).map((l) => l.id);
+    if (ids.length) setTimeout(() => refreshLeads(ids), 1500);
+  }, [list.length, running]); // eslint-disable-line react-hooks/exhaustive-deps
+  const linkedRef = useRef(false);
+  useEffect(() => {
+    if (linkedRef.current || !list.length) return;
+    linkedRef.current = true;
+    const id = new URLSearchParams(window.location.search).get("lead");
+    if (id && leadsRef.current[id]) setTimeout(() => setOpenState(id), 0);
+  }, [list.length]);
   // Admin jobs live in Settings → Lead maintenance, which opens this page with ?admin=rescan or ?admin=contacts.
   const adminRef = useRef(false);
   useEffect(() => {
@@ -1096,7 +1126,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                     : l.likelihood && <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${LIKELY[l.likelihood]}`} title={l.likelihoodWhy || ""}>{l.likelihood}</span>)}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
-                  {l.problem && <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
+                  {l.problem && !(l.website && l.problem === "No website") && <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
                   {l.review?.step > 1 && !l.review?.done && ["new", "no-contact"].includes(c.id) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="Review in progress">Step {l.review.step}/3</span>}
                   {TRIGGER_TAG[l.triggerKind] && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 font-semibold text-violet-800" title={l.trigger}>{TRIGGER_TAG[l.triggerKind]}</span>}
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
@@ -1339,7 +1369,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
           <div className="min-w-0 flex-1">
             <input value={l.business || ""} onChange={(e) => onChange({ business: e.target.value })} className="w-full rounded border border-transparent text-lg font-semibold hover:border-zinc-300 focus:border-zinc-400" />
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-              {l.problem && <span className={`rounded-full px-2 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
+              {l.problem && !(l.website && l.problem === "No website") && <span className={`rounded-full px-2 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
               <span className="inline-flex items-center gap-1">
                 <input key={`${l.id}:${l.website || ""}`} defaultValue={l.website || ""} onBlur={(e) => commitWebsite(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitWebsite(e.currentTarget.value); e.currentTarget.blur(); } }} onPaste={(e) => { const t = e.clipboardData?.getData("text"); if (t && /\./.test(t)) { e.preventDefault(); e.currentTarget.value = t.trim(); commitWebsite(t); } }} placeholder="website (paste or type to correct)" title="Paste or type their website. It counts as confirmed by you and the lead is rescanned straight away." style={{ width: `${Math.max(10, (l.website || "").length + 1)}ch` }} className="rounded border border-transparent px-1 text-xs text-blue-700 hover:border-zinc-300 focus:border-zinc-400" />
                 {site && <a href={site} target="_blank" rel="noreferrer" aria-label="Open website" className="-ml-1 text-blue-700"><ExternalIcon /></a>}

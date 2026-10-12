@@ -76,7 +76,7 @@ export default function Home() {
   const TAB_SLUG = { design: "design", fonts: "fonts", images: "images", launch: "launch", post: "post-launch", leads: "leads", ideas: "client-ideas" };
   const setArea = (id) => {
     setAreaState(id);
-    try { const u = new URL(window.location.href); u.searchParams.set("tab", TAB_SLUG[id]); const sel = selected[id]; if (sel) u.searchParams.set("site", sel); else u.searchParams.delete("site"); window.history.replaceState(null, "", u.search); } catch {}
+    try { const u = new URL(window.location.href); u.searchParams.set("tab", TAB_SLUG[id]); u.searchParams.delete("lead"); u.searchParams.delete("idea"); const sel = selected[id]; if (sel) u.searchParams.set("site", sel); else u.searchParams.delete("site"); window.history.replaceState(null, "", u.search); } catch {}
   };
   // One report page per site: which site is open in each area (null = the list).
   const [selected, setSelected] = useState({ fonts: null, images: null });

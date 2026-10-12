@@ -38,7 +38,25 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   const sharedRef = useRef(false);
   const [run, setRun] = useState(null);
   const stopRef = useRef(false);
-  const [open, setOpen] = useState(null); // { id, key }
+  const [open, setOpenState] = useState(null); // { id, key }
+  // Every idea has its own address (?tab=client-ideas&idea=site~key).
+  const setOpen = (o) => {
+    setOpenState(o);
+    try {
+      const u = new URL(window.location.href);
+      const v = o ? `${o.id}~${o.key}` : null;
+      if ((u.searchParams.get("idea") || null) === v) return;
+      if (v) { u.searchParams.set("tab", "client-ideas"); u.searchParams.set("idea", v); } else u.searchParams.delete("idea");
+      window.history.pushState({}, "", u.search);
+    } catch {}
+  };
+  const fromUrl = () => { const v = new URLSearchParams(window.location.search).get("idea"); if (!v) return null; const i = v.lastIndexOf("~"); return i > 0 ? { id: v.slice(0, i), key: v.slice(i + 1) } : null; };
+  useEffect(() => {
+    const onPop = () => setOpenState(fromUrl());
+    window.addEventListener("popstate", onPop);
+    const t = setTimeout(() => { const o = fromUrl(); if (o) setOpenState(o); }, 600);
+    return () => { window.removeEventListener("popstate", onPop); clearTimeout(t); };
+  }, []);
   const [filter, setFilter] = useState("");
   const [kind, setKind] = useState("");
   const [cfg, setCfg] = useState(null); // { ai, aiUsage }
