@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint } from "@/app/claudeInbox";
-import { iclFooter } from "@/lib/leadsShared";
+import { iclFooter, setEmailTemplates } from "@/lib/leadsShared";
 import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, greetingFor, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, BUILT_LABEL, ideaType, supportEmail, PLANS } from "@/lib/clientIdeas";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
@@ -93,6 +93,8 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     }).catch(() => {});
   }, []);
 
+  // Closing paragraph (and other wording) from Settings → Email templates.
+  useEffect(() => { fetch("/api/settings?key=email-templates").then((r) => r.json()).then((j) => { if (j.shared && j.value) setEmailTemplates(j.value); }).catch(() => {}); }, []);
   // One field on a client in Settings (e.g. who built their site), saved for the whole team.
   const setClientField = (id, fields) => onClientsChange?.(clients.map((c) => (c.id === id ? { ...c, ...fields } : c)));
   // Support plan: saved on the client, copied onto their sites, and the ideas worked out again (no plan → maintenance idea).

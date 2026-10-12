@@ -6,7 +6,7 @@ import { TeamEditor, loadTeam, saveTeam, normaliseTeam } from "@/app/team";
 import { ClientsEditor, loadClients, saveClients } from "@/app/clients";
 import { normaliseClients } from "@/lib/clients";
 import { keysFor } from "@/app/launch";
-import { DEFAULT_SUBJECTS_SHARED, iclFooter } from "@/lib/leadsShared";
+import { DEFAULT_SUBJECTS_SHARED, ICL_LINE, MAINTENANCE_DEFAULT } from "@/lib/leadsShared";
 import { MAIL_KEY } from "@/app/mail";
 
 export default function Settings() {
@@ -131,17 +131,13 @@ export default function Settings() {
           )}
         </section>
       )}
+      {section === "templates" && <TemplatesEditor />}
       {section === "emails" && (
         <>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
             <h2 className="font-semibold">Opening emails</h2>
             <p className="mb-3 text-sm text-zinc-500">Outlook on the web can’t be told which font to use, so the text can come out a different size from your signature. The Outlook app always uses your own default font. This choice is saved on this computer only.</p>
             <MailChoice />
-          </section>
-          <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
-            <h2 className="font-semibold">Closing paragraph</h2>
-            <p className="mb-2 text-sm text-zinc-500">Added to the end of every email when it is copied or opened.</p>
-            <p className="rounded-md bg-zinc-50 px-3 py-2 text-sm text-zinc-700">{iclFooter(true)}</p>
           </section>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
             <h2 className="font-semibold">Email subjects and details</h2>
@@ -279,7 +275,7 @@ export default function Settings() {
   );
 }
 
-const SECTIONS = [["team", "Team"], ["clients", "Clients"], ["emails", "Emails"], ["leads", "Lead maintenance"], ["archived", "Archived checks"], ["connections", "Connections"]];
+const SECTIONS = [["team", "Team"], ["clients", "Clients"], ["templates", "Email templates"], ["emails", "Email details"], ["leads", "Lead maintenance"], ["archived", "Archived checks"], ["connections", "Connections"]];
 
 function StatusRow({ ok, label, detail }) {
   return (
@@ -401,15 +397,6 @@ function LinksEditor() {
         </div>
         <p className="mt-1 text-[11px] text-zinc-500">Replied or Meeting at any point stops the clock. Moves happen when someone opens the Website Leads tab.</p>
       </div>
-      <div>
-        <div className="text-xs font-semibold text-zinc-600">Email subjects</div>
-        <div className="mt-1 grid gap-1.5 sm:grid-cols-2">
-          {Object.keys(SUBJECT_DEFAULTS).map((k) => (
-            <label key={k} className="flex items-center gap-2 text-sm"><span className="w-32 shrink-0 text-xs text-zinc-500">{SUBJECT_LABELS[k] || k}</span>
-              <input value={subjects[k] || ""} onChange={(e) => setSubjects({ ...subjects, [k]: e.target.value })} className="min-w-0 flex-1 rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
-          ))}
-        </div>
-      </div>
       <p className={`text-xs ${saveState === "failed" ? "text-red-700" : "text-zinc-500"}`}>{saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "failed" ? "Could not save. Check the shared storage connection and try again." : "Changes save automatically."}</p>
     </div>
   );
@@ -466,5 +453,67 @@ function MailChoice() {
     <div className="inline-flex rounded-md border border-zinc-300 p-0.5 text-sm">
       {[["web", "Outlook on the web"], ["app", "Outlook app (your default font)"]].map(([k, label]) => <button key={k} onClick={() => pick(k)} className={`rounded px-3 py-1 ${v === k ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>{label}</button>)}
     </div>
+  );
+}
+
+// Email templates: every subject line, the maintenance email and the closing paragraph, saved for the whole team.
+function TemplatesEditor() {
+  const [subjects, setSubjects] = useState(SUBJECT_DEFAULTS);
+  const [tpl, setTpl] = useState({ footer: ICL_LINE, maintenance: { ...MAINTENANCE_DEFAULT } });
+  const [state, setState] = useState("");
+  const links = useRef(null);
+  const loaded = useRef(false);
+  useEffect(() => {
+    Promise.all([fetch("/api/settings?key=lead-links").then((r) => r.json()).catch(() => ({})), fetch("/api/settings?key=email-templates").then((r) => r.json()).catch(() => ({}))]).then(([a, b]) => {
+      links.current = a.value || {};
+      if (a.value?.subjects) setSubjects({ ...SUBJECT_DEFAULTS, ...a.value.subjects });
+      if (b.value) setTpl({ footer: b.value.footer || ICL_LINE, maintenance: { subject: b.value.maintenance?.subject || MAINTENANCE_DEFAULT.subject, body: b.value.maintenance?.body || MAINTENANCE_DEFAULT.body } });
+      setTimeout(() => { loaded.current = true; }, 0);
+    });
+  }, []);
+  const timer = useRef(null);
+  function saveSoon(nextSubjects, nextTpl) {
+    if (!loaded.current) return;
+    setState("saving");
+    clearTimeout(timer.current);
+    timer.current = setTimeout(async () => {
+      try {
+        const post = (key, value) => fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key, value }) }).then((r) => { if (!r.ok) throw new Error(); });
+        links.current = { ...(links.current || {}), subjects: nextSubjects };
+        await Promise.all([post("lead-links", links.current), post("email-templates", nextTpl)]);
+        setState("saved");
+      } catch { setState("failed"); }
+    }, 700);
+  }
+  const setSub = (k, v) => { const n = { ...subjects, [k]: v }; setSubjects(n); saveSoon(n, tpl); };
+  const setT = (n) => { setTpl(n); saveSoon(subjects, n); };
+  const labels = { "licence-font": "Font licence", "licence-image": "Stock image", seo: "Search ranking", other: "Anything else (default)", maintenance: "Website maintenance" };
+  return (
+    <>
+      <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+        <h2 className="font-semibold">Website maintenance email</h2>
+        <p className="mb-3 text-sm text-zinc-500">Used for leads in the Web maintenance column (nothing wrong with their site). Greeting, closing paragraph and signature are added on send. Emails you haven’t edited follow changes here.</p>
+        <label className="block text-xs font-semibold text-zinc-600">Subject
+          <input value={tpl.maintenance.subject} onChange={(e) => setT({ ...tpl, maintenance: { ...tpl.maintenance, subject: e.target.value } })} className="mt-1 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm font-normal" /></label>
+        <label className="mt-2 block text-xs font-semibold text-zinc-600">Email
+          <textarea value={tpl.maintenance.body} onChange={(e) => setT({ ...tpl, maintenance: { ...tpl.maintenance, body: e.target.value } })} rows={7} className="mt-1 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm font-normal" /></label>
+      </section>
+      <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+        <h2 className="font-semibold">Closing paragraph</h2>
+        <p className="mb-2 text-sm text-zinc-500">Added to the end of every email (leads and client ideas) when it is copied or opened.</p>
+        <textarea value={tpl.footer} onChange={(e) => setT({ ...tpl, footer: e.target.value })} rows={3} className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" />
+      </section>
+      <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+        <h2 className="font-semibold">Subject lines</h2>
+        <p className="mb-3 text-sm text-zinc-500">The subject for each issue. In Review, the issue you mark as Main sets the subject.</p>
+        <div className="grid gap-1.5 sm:grid-cols-2">
+          {Object.keys(SUBJECT_DEFAULTS).filter((k) => k !== "maintenance").map((k) => (
+            <label key={k} className="flex items-center gap-2 text-sm"><span className="w-40 shrink-0 text-xs text-zinc-500">{labels[k] || k}</span>
+              <input value={subjects[k] || ""} onChange={(e) => setSub(k, e.target.value)} className="min-w-0 flex-1 rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
+          ))}
+        </div>
+      </section>
+      <p className={`mt-3 text-xs ${state === "failed" ? "text-red-700" : "text-zinc-500"}`}>{state === "saving" ? "Saving…" : state === "saved" ? "Saved for the whole team" : state === "failed" ? "Couldn’t save. Check the shared storage connection." : "Changes save as you type."}</p>
+    </>
   );
 }
