@@ -126,6 +126,8 @@ function toMaintenance(l) {
 // The search an issue names ("Not found for "fitted kitchens northallerton""), and a Google UK link to check it by hand.
 const searchIn = (t) => (String(t || "").match(/\bfor\s+["“‘']([^"”’']{3,80})["”’']/i) || [])[1] || "";
 const googleUk = (q) => `https://www.google.co.uk/search?q=${encodeURIComponent(q)}&gl=uk&pws=0`;
+// What the app adds under the email when it's sent: the paragraph about us (unless the email already covers it) and the opt-out line.
+const addedBelow = (body) => { const b = String(body || "").trimEnd(); return withIclLine(b || "x", { optOut: true }).slice((b || "x").length).trim(); };
 // Only you put a lead in Ready to send. Anything else that lands it there waits in Email to draft for a quick check.
 function holdForCheck(l) {
   if (l.status !== "ready" || l.statusBy === "you" || l.review?.done) return false;
@@ -1708,7 +1710,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
               <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
             {greetingPreview && <pre className="mt-2 whitespace-pre-wrap rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1.5 font-sans text-sm text-zinc-600" title="Written automatically on the day you send: changes with the day of the week">{greetingPreview}</pre>}
             <AutoTextarea value={l.email || ""} onChange={(e) => onChange({ email: e.target.value, emailEdited: true })} minRows={4} className={`w-full border border-zinc-300 px-2 py-1 text-sm ${greetingPreview ? "rounded-b-md" : "mt-2 rounded-md"}`} />
-            <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{`${iclFooter()}\n\n${optOutLine()}`}</pre>
+            <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{addedBelow(l.email)}</pre>
             <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-zinc-500">
               {l.emailEdited ? <span>Edited by hand, so automatic redrafts leave it alone. <button onClick={() => onChange({ emailEdited: false, draftVersion: 0 })} className="underline">Let the app redraft it</button></span> : <span>Drafted by the app; redrafts automatically when the wording improves.</span>}
               {l.emailPrevious && <button onClick={() => onChange({ email: l.emailPrevious, emailPrevious: "", emailEdited: true })} className="underline">Restore the previous draft</button>}
@@ -1869,6 +1871,15 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
   const r = l.review || {};
   const step = r.step || 1;
   const setR = (patch, extra = {}) => onChange({ review: { ...r, ...patch }, ...extra });
+  // Web maintenance: nothing to pick, the maintenance email is written already (Settings → Email templates). Straight to the email.
+  const maint = l.status === "maintenance";
+  useEffect(() => {
+    if (!maint || (r.step === 3 && r.lead === "chk:maintenance" && r.drafted)) return;
+    const t = emailTemplates().maintenance;
+    const at = new Date().toISOString();
+    const timer = setTimeout(() => onChange({ review: { ...r, step: 3, lead: "chk:maintenance", path: "maintenance", siteChecked: true, drafted: r.drafted || at }, issueId: "maintenance", ...(l.emailEdited ? {} : { email: t.body, subject: t.subject }) }), 0);
+    return () => clearTimeout(timer);
+  }, [l.id, maint]); // eslint-disable-line react-hooks/exhaustive-deps
   const [own, setOwn] = useState("");
   const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState(false);
@@ -1929,7 +1940,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
   const finishReady = (extra = {}) => { setR({ done: true, doneAt: new Date().toISOString(), drafted: r.drafted || new Date().toISOString() }, { status: "ready", statusBy: "you", ...extra }); onNext?.(true); };
   return (
     <div className="space-y-3">
-      <div className="rounded-lg border border-zinc-200 p-3">
+      {!maint && <div className="rounded-lg border border-zinc-200 p-3">
         {head(1, "Look at their website", siteOk)}
         {step === 1 && (
           <div className="mt-3 space-y-3 text-sm">
@@ -1982,9 +1993,9 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
             <div className="flex justify-end"><button onClick={() => setR({ step: 2, siteChecked: true })} disabled={!siteOk} title={siteOk ? "" : "Answer the website question first"} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: pick the issue →</button></div>
           </div>
         )}
-      </div>
+      </div>}
 
-      <div className="rounded-lg border border-zinc-200 p-3">
+      {!maint && <div className="rounded-lg border border-zinc-200 p-3">
         {head(2, "Pick what to raise and how", !!r.lead && step > 2)}
         {step === 2 && (
           <div className="mt-3 space-y-3 text-sm">
@@ -2027,18 +2038,19 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
             {lead?.key !== "chk:maintenance" && <div className="flex justify-end"><button onClick={() => { setR({ step: 3, path }, { draftBrief: brief, status: "to-draft", ...(r.subjectTyped ? {} : { subject: subjectOf(lead) }) }); onNext?.(false); }} disabled={!lead} title="Save the issue and approach, move it to Email to draft and go to the next lead. Claude writes all of those emails in one prompt." className="text-xs font-medium text-blue-700 underline disabled:opacity-40">or add to the email batch and go to the next lead →</button></div>}
           </div>
         )}
-      </div>
+      </div>}
 
       <div className="rounded-lg border border-zinc-200 p-3">
         {head(3, "Draft the email", !!r.done)}
         {step === 3 && lead && (
           <div className="mt-3 space-y-3 text-sm">
+            {maint ? <p className="text-xs text-zinc-500">Web maintenance email, ready to go: check it, add the address and name, then Ready to send. Change the wording for everyone in <a href="/settings?section=templates" className="text-blue-700 underline">Settings → Email templates</a>.</p> : <>
             <p className="text-xs text-zinc-500">Leading with <b className="text-zinc-800">{lead.label}</b> · {(REVIEW_PATHS.find((p) => p.id === path) || {}).label}</p>
             <div className="flex flex-wrap gap-2">
               <button onClick={() => copy(true)} className="inline-flex items-center gap-1.5 rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium text-white"><ExternalIcon className="h-3.5 w-3.5" /> Copy prompt and open Claude</button>
               <button onClick={() => copy(false)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100">{copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />} Copy prompt</button>
             </div>
-            <p className="text-xs text-zinc-600">Claude replies with just the email text: paste it straight into the email box below.</p>
+            <p className="text-xs text-zinc-600">Claude replies with just the email text: paste it straight into the email box below.</p> </>}
             {msg && <p className="text-xs text-zinc-600">{msg}</p>}
             {(() => {
               // Paste the address you found right here; it saves when you leave the box, press Enter or paste.
@@ -2067,7 +2079,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
                 <div className="mt-2">{dayGreeting()}</div>
               </div>
               <AutoTextarea value={draftText} placeholder="Paste Claude’s email here" onChange={(e) => onChange({ email: e.target.value, emailEdited: true, review: { ...r, drafted: r.drafted || new Date().toISOString() } })} onPaste={(e) => { const t = e.clipboardData.getData("text"); if (!t || draftText.trim()) return; e.preventDefault(); const c = cleanPastedEmail(t); onChange({ email: c.body, emailEdited: true, ...(c.subject && !r.subjectTyped ? { subject: c.subject } : {}), review: { ...r, drafted: new Date().toISOString() } }); }} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
-              <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{`${iclFooter()}\n\n${optOutLine()}`}</pre>
+              <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{addedBelow(l.email)}</pre>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => setR({ step: 2 })} className="text-xs text-zinc-500 hover:text-zinc-900">← Back</button>
