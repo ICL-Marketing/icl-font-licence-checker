@@ -2,7 +2,7 @@
 // One place to paste every Claude reply. Each prompt's reply has its own shape, so the inbox works out
 // which job it belongs to (lead check, website search, new leads, an email draft, client research)
 // and hands it to the part of the app that registered for it.
-import { useEffect, useRef, useState } from "react";
+import { Component, useEffect, useRef, useState } from "react";
 import { CloseIcon } from "@/app/icons";
 
 const handlers = new Map(); // kind -> (text) => summary string (or a promise of one)
@@ -72,6 +72,26 @@ export function withTitle(job, detail, prompt) {
   if (!prompt) return "";
   const at = new Date().toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   return `ICL · ${job}${detail ? ` · ${detail}` : ""} · ${at}\n\n${prompt}`;
+}
+// A problem inside one prompt panel shows its message here instead of taking the whole app down.
+class PanelGuard extends Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    const e = this.state.error;
+    if (!e) return this.props.children;
+    const detail = `${e.message}\n${String(e.stack || "").split("\n").slice(0, 6).join("\n")}`;
+    return (
+      <div className="space-y-2 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+        <p className="font-semibold">This panel hit a problem: {e.message}</p>
+        <p>Copy the details and send them over, then try again.</p>
+        <div className="flex gap-2">
+          <button onClick={() => navigator.clipboard?.writeText(detail).catch(() => {})} className="rounded-md border border-red-300 bg-white px-2 py-1 hover:bg-red-100">Copy details</button>
+          <button onClick={() => this.setState({ error: null })} className="rounded-md border border-red-300 bg-white px-2 py-1 hover:bg-red-100">Try again</button>
+        </div>
+      </div>
+    );
+  }
 }
 // Background work after a paste reports here; the Claude window shows a bar per job.
 export const reportProgress = (id, label, done, total) => window.dispatchEvent(new CustomEvent("claude-progress", { detail: { id, label, done, total } }));
@@ -145,7 +165,7 @@ export function ClaudeInbox() {
                 <div className="flex flex-wrap gap-1.5">
                   {list.map(([id, j]) => { const n = j.count(); return <button key={id} onClick={() => setJob((x) => ({ id, opts: {}, n: x.n + 1 }))} className={`rounded-full border px-3 py-1 text-xs font-medium ${currentId === id ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{j.label}{n ? ` (${n})` : ""}</button>; })}
                 </div>
-                {current ? <div key={`${currentId}:${job.n}`}>{current.render(currentId === job.id ? job.opts : {}, close)}</div> : <p className="text-xs text-zinc-500">Open Website Leads or Client Ideas once to load their prompts.</p>}
+                {current ? <PanelGuard key={`${currentId}:${job.n}`}>{current.render(currentId === job.id ? job.opts : {}, close)}</PanelGuard> : <p className="text-xs text-zinc-500">Open Website Leads or Client Ideas once to load their prompts.</p>}
               </div>
             )}
             {tab === "paste" && <div className="space-y-3 px-5 py-4 text-sm">

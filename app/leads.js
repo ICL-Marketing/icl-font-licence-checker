@@ -89,6 +89,16 @@ function toMaintenance(l) {
   l.caveats = String(l.caveats || "").split("; ").filter((x) => x && !/site is current/i.test(x)).join("; ");
   l.statusAt = l.updatedAt = new Date().toISOString();
 }
+// No website found (by Claude, the checks or you): its own column, and back to To assess once a site turns up.
+const noSiteReady = (l) => !l.website && l.problem === "No website" && !l.optedOut && !l.review?.done && l.statusBy !== "you" && !isFrozen(l) && !claudeSkip(l) && !soleTrader(l);
+function routeNoSite(l) {
+  const was = l.status || "new";
+  if (noSiteReady(l) && ["new", "qualified", "no-contact"].includes(was)) l.status = "no-website";
+  else if (was === "no-website" && l.website && l.statusBy !== "you") l.status = l.emailAddress ? "new" : "no-contact";
+  if (l.status === was) return false;
+  l.statusAt = l.updatedAt = new Date().toISOString();
+  return true;
+}
 const maintenanceReady = (l) => !!l.website && !l.problem && !l.optedOut && !l.review?.done && l.statusBy !== "you" && !isFrozen(l);
 // Where they came in a Google search you ran by hand: saved on the lead, and a poor showing becomes the search issue.
 function rankFields(l, query, v) {
@@ -242,6 +252,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       for (const l of Object.values(local)) if (l.status === "not-pursuing" && !l.review?.done && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); }
       // One-off: every lead imported from the Client Matrix sheet was closed as Lost (7 Oct 2026).
       for (const l of Object.values(local)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); }
+      for (const l of Object.values(local)) routeNoSite(l);
       keepYourStatus(local, yoursLocal);
       parkSoleTraders(local);
       leadsRef.current = local;
@@ -270,6 +281,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const l of Object.values(next)) if (!isFrozen(l) && l.seo?.searches?.some((x) => x.kind !== "trade")) { l.seo = { ...l.seo, searches: l.seo.searches.filter((x) => x.kind === "trade") }; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "not-pursuing" && !l.review?.done && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (routeNoSite(l)) push(l.id, l);
         keepYourStatus(next, yoursShared);
         parkSoleTraders(next);
         save(next);
@@ -312,6 +324,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       // "Site is current; no outreach planned" stops being true the moment someone decides to pursue it.
       if (fields.status !== "not-pursuing" && STALE_WHY.test(l.likelihoodWhy || "")) { l.likelihoodWhy = ""; l.caveats = String(l.caveats || "").split("; ").filter((x) => x && !STALE_WHY.test(x)).join("; "); }
     }
+    if (!fields.statusBy && routeNoSite(l)) l.edits.status = now;
     const next = { ...leadsRef.current, [id]: l };
     leadsRef.current = next;
     save(next); push(id, l);
@@ -1069,7 +1082,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       <Board onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} hideCols={showParked || filtering ? [] : ["not-pursuing", "lost"]} leads={onBoard} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status, statusBy: "you" }); }} />
 
-      {current && <LeadDrawer key={current.id} onNoSite={async (extra = {}) => { if (await tryObviousDomain(current.id)) return false; update(current.id, { websiteNeeded: false, noWebsiteConfirmed: true, problem: "No website", problemDetail: "Checked by hand: they have no website", ...extra }); return true; }} onFindSite={() => openClaude({ job: "find-sites", preset: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => openClaude({ job: "lead-check", preset: [current.id], column: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new" })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
+      {current && <LeadDrawer key={current.id} onNoSite={async (extra = {}) => { if (await tryObviousDomain(current.id)) return false; update(current.id, { websiteNeeded: false, noWebsiteConfirmed: true, problem: "No website", problemDetail: "Checked by hand: they have no website", ...(["new", "qualified", "no-contact"].includes(current.status || "new") ? { status: "no-website" } : {}), ...extra }); return true; }} onFindSite={() => openClaude({ job: "find-sites", preset: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => openClaude({ job: "lead-check", preset: [current.id], column: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new" })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
   );
 }
@@ -1121,6 +1134,9 @@ const PLACES = {
 // Anything moved into a column in the last day sits at the top (newest first); the rest by likelihood and size.
 // Newest arrival in the column first (moved or added), then likelihood and size for ties.
 const arrived = (l) => Date.parse(l.statusAt || l.addedAt || "") || 0;
+// Batches of Claude work start with To assess, then the other open columns.
+const COL_RANK = { new: 0, "no-contact": 1, "no-website": 2, maintenance: 3, ready: 4 };
+const colRank = (l) => COL_RANK[l.status || "new"] ?? 9;
 const sorted = (list) => list.slice().sort((a, b) => arrived(b) - arrived(a) || ({ High: 0, Medium: 1, Low: 2 }[a.likelihood] ?? 3) - ({ High: 0, Medium: 1, Low: 2 }[b.likelihood] ?? 3) || (b.netAssets || 0) - (a.netAssets || 0));
 
 function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn, onOpen, onMove, onReview, hideCols = [] }) {
@@ -1140,7 +1156,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
             <span>{c.label}</span><span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{c.items.length}</span>
           </div>
           <div className="px-1 pb-2 text-[11px] font-normal text-zinc-500">{c.hint}</div>
-          {["new", "no-contact", "maintenance"].includes(c.id) && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.id)} title="Go through these one at a time: look at the site, pick the issue and approach, then draft the email with Claude" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
+          {["new", "no-contact", "maintenance", "no-website"].includes(c.id) && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.id)} title="Go through these one at a time: look at the site, pick the issue and approach, then draft the email with Claude" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
           <div className="flex flex-1 flex-col gap-2">
             {c.items.slice(0, shown[c.id] || 60).map((l) => (
               <div key={l.id} draggable onDragStart={(e) => { e.dataTransfer.setData("text/lead", l.id); e.dataTransfer.effectAllowed = "move"; }} onClick={() => onOpen(l.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") onOpen(l.id); }}
@@ -1337,7 +1353,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
   const [optingOut, setOptingOut] = useState(false);
-  const reviewable = ["new", "no-contact", "maintenance"].includes(l.status) && !isFrozen(l);
+  const reviewable = ["new", "no-contact", "maintenance", "no-website"].includes(l.status) && !isFrozen(l);
   // Opening a lead always lands on the Review tab (where it has one).
   const [view, setView] = useState(() => (reviewable || l.review ? "review" : "details"));
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
@@ -1639,7 +1655,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             const btn = "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-white";
             if (l.optedOut || isFrozen(l)) return null;
             if (l.status === "ready" && l.email && l.emailAddress && websiteIsVerified(l)) return <a href={outlook} target="_blank" rel="noopener" onClick={() => onChange({ status: "contacted", sentAt: new Date().toISOString() })} className={`${btn} bg-emerald-600 hover:bg-emerald-700`}><MailIcon className="h-4 w-4" /> Open in Outlook and mark as sent</a>;
-            if (!["new", "no-contact", "maintenance"].includes(l.status || "new")) return null;
+            if (!["new", "no-contact", "maintenance", "no-website"].includes(l.status || "new")) return null;
             if (!l.website && siteSearchable(l)) return <button onClick={onFindSite} className={`${btn} bg-amber-600 hover:bg-amber-700`}><SearchIcon className="h-4 w-4" /> Find their website with Claude</button>;
             if (!l.claude) return <button onClick={onClaude} className={`${btn} bg-orange-600 hover:bg-orange-700`}><SearchIcon className="h-4 w-4" /> Check with Claude</button>;
             if (!l.review?.done) return <button onClick={() => setView("review")} className={`${btn} bg-zinc-900 hover:bg-zinc-700`}><PlayIcon className="h-4 w-4" /> {l.review?.step > 1 ? `Continue review (step ${l.review.step} of 3)` : "Review this lead"}</button>;
@@ -1986,7 +2002,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
 
 // Find websites with Claude: free on your own plan. Picks leads with no website, Claude finds the real one or confirms there isn't one.
 function FindSitesModal({ leads, preset, onClose, onApply }) {
-  const pool = sorted(leads.filter((l) => !l.website && siteSearchable(l))).sort((a, b) => (a.sitesCheckedAt ? 1 : 0) - (b.sitesCheckedAt ? 1 : 0));
+  const pool = sorted(leads.filter((l) => !l.website && siteSearchable(l))).sort((a, b) => (a.sitesCheckedAt ? 1 : 0) - (b.sitesCheckedAt ? 1 : 0) || colRank(a) - colRank(b));
   const [size, setSize] = useState("all");
   const [picked, setPicked] = useState(() => (preset.length ? preset : pool.filter((l) => !l.sitesCheckedAt && !sentIds("find-sites").has(l.id)).map((l) => l.id)));
   const [msg, setMsg] = useState("");
@@ -2036,7 +2052,8 @@ function FindSitesModal({ leads, preset, onClose, onApply }) {
 
 // Search rankings with Claude: the searches their customers really make, and where they come.
 function RankModal({ leads, preset, onClose }) {
-  const pool = sorted(leads.filter(rankable)).sort((a, b) => (a.seo?.claudeAt ? 1 : 0) - (b.seo?.claudeAt ? 1 : 0));
+  // To assess first, then the other open columns; anything already checked goes last.
+  const pool = sorted(leads.filter(rankable)).sort((a, b) => (a.seo?.claudeAt ? 1 : 0) - (b.seo?.claudeAt ? 1 : 0) || colRank(a) - colRank(b));
   const [size, setSize] = useState("all");
   const [picked, setPicked] = useState(() => (preset.length ? preset : pool.filter((l) => !l.seo?.claudeAt && !sentIds("rank-check").has(l.id)).map((l) => l.id)));
   const [copied, setCopied] = useState(false);
