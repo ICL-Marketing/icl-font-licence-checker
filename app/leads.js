@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, ICL_LINE, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, DEFAULT_SUBJECTS_SHARED, ICL_LINE, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, reportProgress } from "@/app/claudeInbox";
 
@@ -44,6 +44,16 @@ const money = (n) => (n === null || n === undefined || n === "" ? "—" : `£${M
 // Plain-English company size for the cards: £1.4m, £198k.
 const compact = (n) => { const v = Number(n); if (n === null || n === undefined || n === "" || !Number.isFinite(v)) return ""; const a = Math.abs(v); return `${v < 0 ? "-" : ""}£${a >= 1e6 ? `${(a / 1e6).toFixed(a >= 1e7 ? 0 : 1)}m` : a >= 1e3 ? `${Math.round(a / 1e3)}k` : Math.round(a)}`; };
 // The website says one thing at a time: someone (you or Claude) confirmed it, or there is a doubt, or it is verified.
+// Text pasted from Claude: keep the body only (a "Subject:" line becomes the subject; greeting and sign-off dropped).
+function cleanPastedEmail(t) {
+  let lines = String(t || "").replace(/\r/g, "").replace(/^```[a-z]*\n?|```$/gim, "").trim().split("\n");
+  let subject = "";
+  if (/^subject:/i.test(lines[0] || "")) { subject = lines.shift().replace(/^subject:\s*/i, "").trim(); }
+  while (lines.length && (!lines[0].trim() || /^(hi|hello|dear)\b[^\n]{0,40},?$/i.test(lines[0].trim()) || /^hope you/i.test(lines[0].trim()))) lines.shift();
+  const end = lines.findIndex((x) => /^(best|kind|warm)?\s*(regards|wishes)|^thanks,?$|^many thanks|^cheers,?$/i.test(x.trim()));
+  if (end > 0) lines = lines.slice(0, end);
+  return { subject, body: lines.join("\n").trim().replace(/^"|"$/g, "") };
+}
 // What an email raises when it didn't come from one of the checker's issues: the review choice, else the problem.
 function raisedIn(l) {
   const k = l.review?.lead || "";
@@ -1744,7 +1754,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
                 ))}
               </div>
             </div>
-            <div className="flex justify-between"><button onClick={() => setR({ step: 1 })} className="text-xs text-zinc-500 hover:text-zinc-900">← Back</button><button onClick={() => setR({ step: 3, path })} disabled={!lead} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: draft the email →</button></div>
+            <div className="flex justify-between"><button onClick={() => setR({ step: 1 })} className="text-xs text-zinc-500 hover:text-zinc-900">← Back</button><button onClick={() => setR({ step: 3, path }, l.emailEdited ? {} : { subject: lead?.issue ? draftFor(l, person, lead.issue, subjects).subject : (DEFAULT_SUBJECTS_SHARED[lead?.label] || "A quick thought on your website") })} disabled={!lead} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: draft the email →</button></div>
           </div>
         )}
       </div>
@@ -1759,15 +1769,26 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
               <button onClick={() => copy(false)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100">{copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />} Copy prompt</button>
               {lead.issue && <button onClick={() => { const d = draftFor(l, person, lead.issue, subjects); onChange({ subject: d.subject, email: d.body, issueId: d.issueId, emailEdited: false }); setMsg("Our template is in. Or ask Claude for a version that uses your notes."); }} className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100">Use our template instead</button>}
             </div>
-            <PasteHint />
+            <p className="text-xs text-zinc-600">Claude replies with just the email text: paste it straight into the email box below.</p>
             {msg && <p className="text-xs text-zinc-600">{msg}</p>}
             <div>
               <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} placeholder="Subject" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm font-medium" />
               <pre className="mt-2 whitespace-pre-wrap rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1 font-sans text-sm text-zinc-500">{greeting}</pre>
-              <AutoTextarea value={l.email || ""} onChange={(e) => onChange({ email: e.target.value, emailEdited: true })} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
+              <AutoTextarea value={l.email || ""} onChange={(e) => onChange({ email: e.target.value, emailEdited: true })} onPaste={(e) => { const t = e.clipboardData.getData("text"); if (!t || (l.email || "").trim()) return; e.preventDefault(); const c = cleanPastedEmail(t); onChange({ email: c.body, emailEdited: true, ...(c.subject ? { subject: c.subject } : {}), review: { ...r, drafted: new Date().toISOString() } }); }} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
               <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{ICL_LINE}</pre>
             </div>
-            {!l.emailAddress && <p className="text-xs text-red-700">No email address yet. Add one under All details before marking it ready.</p>}
+            {(() => {
+              // Paste the address you found right here; it saves when you leave the box, press Enter or paste.
+              const save = (v) => { const e = String(v || "").trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(e) || e === l.emailAddress) return; onChange({ emailAddress: e, contactUnverified: false, emailNote: "", ...(l.status === "no-contact" ? { status: "new" } : {}) }); };
+              return (
+                <div className={`grid gap-2 rounded-md border px-2 py-2 sm:grid-cols-2 ${l.emailAddress ? "border-zinc-200" : "border-red-300 bg-red-50"}`}>
+                  <label className="block text-xs"><span className={l.emailAddress ? "text-zinc-500" : "font-semibold text-red-700"}>{l.emailAddress ? "Send to" : "Email address (needed before it’s ready)"}</span>
+                    <input key={`em:${l.id}:${l.emailAddress || ""}`} type="email" defaultValue={l.emailAddress || ""} onBlur={(e) => save(e.target.value)} onPaste={(e) => setTimeout(() => save(e.target.value), 0)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder="name@company.co.uk" className="mt-0.5 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm" /></label>
+                  <label className="block text-xs"><span className="text-zinc-500">First name (for “Hi …,”)</span>
+                    <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value })} placeholder="Leave blank for “Hi there”" className="mt-0.5 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm" /></label>
+                </div>
+              );
+            })()}
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => setR({ step: 2 })} className="text-xs text-zinc-500 hover:text-zinc-900">← Back</button>
               <span className="ml-auto" />
