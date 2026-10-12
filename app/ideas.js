@@ -6,7 +6,7 @@ import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon, TrashIcon } from "@/app/icons";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, withTitle } from "@/app/claudeInbox";
 import { iclFooter, setEmailTemplates } from "@/lib/leadsShared";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, greetingFor, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, ideaType, supportEmail, PLANS } from "@/lib/clientIdeas";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, greetingFor, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, ideaType, supportEmail, PLANS, checkIdeasPrompt } from "@/lib/clientIdeas";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
 // Each client site is checked for free (site health, licences, homepage gaps) plus one search
@@ -301,6 +301,9 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   const sitesChecked = clients.reduce((n, c) => n + (c.websites || []).filter((w) => recs[recId(c, w)]?.checkedAt).length, 0);
   const current = open ? recs[open.id] : null;
   const currentIdea = current ? (current.ideas || []).find((i) => i.key === open.key) : null;
+  // A second opinion on the ideas in view (filters apply): bugs for support, medium ideas worth pitching, the rest dropped.
+  const checkGroups = groups.filter((g) => g.top.length);
+  useClaudeJob("check-ideas", { label: "Check ideas", order: 6, count: () => checkGroups.length, render: () => <CheckIdeasPanel groups={checkGroups} /> });
 
   return (
     <div>
@@ -312,6 +315,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
             ? <button onClick={() => { stopRef.current = true; }} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
             : <button onClick={() => checkAll(false)} disabled={!sitesTotal} title="Checks every client website not checked in the last 30 days" className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find ideas</button>}
           <button onClick={() => checkAll(true)} disabled={running || !sitesTotal} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Re-check all</button>
+          <button onClick={() => openClaude({ job: "check-ideas" })} title="A prompt asking Claude to check the ideas in view are accurate and worth doing: bugs go to support, medium ideas stay" className="inline-flex items-center gap-1.5 rounded-md border border-orange-300 bg-orange-50 px-4 py-2 text-sm text-orange-900 hover:bg-orange-100">Check ideas with Claude</button>
           {cfg?.ai
             ? <label className="inline-flex items-center gap-1.5 text-sm text-zinc-700" title="Claude researches each client on the web (what they really do, where, competitors, whether the website on file is theirs) and writes ideas specific to them. Roughly 20-40p per client."><input type="checkbox" checked={withAi} onChange={(e) => setWithAi(e.target.checked)} disabled={running} /> AI research <span className="text-xs text-zinc-400">{cfg.aiUsage?.used || 0} of {cfg.aiUsage?.cap || 0} this month</span></label>
             : null}
@@ -629,6 +633,30 @@ function ResearchModal({ feedback = [], clients, recs, preset, initialManager = 
             <PasteHint className="mt-1" />
           </div>
         </div>
+  );
+}
+
+// Copy the "Check ideas" prompt for the ideas in view; Claude's answer is read in the chat, not pasted back.
+function CheckIdeasPanel({ groups }) {
+  const [copied, setCopied] = useState(false);
+  const n = groups.reduce((t, g) => t + g.top.length, 0);
+  const prompt = n ? withTitle("Check ideas", `${n} ideas · ${groups.length} client${groups.length === 1 ? "" : "s"}`, checkIdeasPrompt(groups)) : "";
+  async function copy(open) {
+    try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
+    if (open) window.open("https://claude.ai/new", "_blank", "noopener");
+  }
+  return (
+    <div className="space-y-2 text-sm">
+      <p className="text-xs text-zinc-600">Claude checks each idea in view against the live site and splits them into <b>website bugs</b> (send to support), <b>medium ideas</b> worth pitching (new pages or functionality), and ones to drop. Use the filters on Client Ideas to narrow it down first.</p>
+      <div className="flex flex-wrap items-center gap-2"><span className="text-xs text-zinc-500">{n} ideas across {groups.length} client{groups.length === 1 ? "" : "s"}</span>
+        <span className="ml-auto flex gap-2">
+          <button onClick={() => copy(false)} disabled={!prompt} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-40">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy prompt</>}</button>
+          <button onClick={() => copy(true)} disabled={!prompt} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"><ExternalIcon /> Copy and open Claude</button>
+        </span>
+      </div>
+      <p className="text-xs text-zinc-500">Paste it into a new chat with web search on.</p>
+      <textarea readOnly value={prompt} rows={6} className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-[11px] text-zinc-600" />
+    </div>
   );
 }
 
