@@ -1494,7 +1494,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             )}
             {l.website && websiteIsVerified(l) && l.websiteVerified && !siteDoubt(l) && <div className="text-[11px] text-emerald-700">Website verified: {l.websiteVerified} <button onClick={rejectWebsite} title="This website belongs to a different business. It is dropped, remembered as wrong, and the lead is rescanned without it." className="ml-1 text-zinc-400 underline hover:text-red-700">not their website?</button></div>}
           </div>
-          <select value={l.status || "new"} onChange={(e) => onChange({ status: e.target.value, statusBy: "you" })} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm">
+          <select value={l.status || "new"} onChange={(e) => { const v = e.target.value; onChange({ status: v, statusBy: "you" }); if (["not-pursuing", "lost"].includes(v)) onClose(); }} title="Not pursuing or Lost closes the lead" className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm">
             {LEAD_STATUSES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
           </select>
           <button onClick={onClose} aria-label="Close" className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900"><CloseIcon /></button>
