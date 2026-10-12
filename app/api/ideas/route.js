@@ -1,3 +1,4 @@
+import { CONSENT_RE } from "@/lib/leadsShared";
 import { researchClient, researchConfigured, researchCost, RESEARCH_CAP } from "@/lib/clientResearch";
 import { builtSignals, checkWebsite, fetchPage, licenceRisks, seoCheck, siteAddress, townFromAddress, tradeFromSite, applyTradingAddress } from "@/lib/leads";
 
@@ -31,8 +32,8 @@ async function signals(host) {
     video: /<video\b|youtube\.com\/embed|youtube-nocookie\.com|player\.vimeo\.com|wistia|vimeo\.com\/video|\.mp4["'?]/i.test(html),
     reviews: /testimonial|trustpilot|feefo|reviews\.io|elfsight|google reviews|what our (clients|customers) say|★★★|5 stars?\b|five star/i.test(text + " " + low),
     form,
-    analytics: /gtag\(|googletagmanager\.com|google-analytics\.com|plausible\.io|matomo|clarity\.ms|usefathom|hotjar/i.test(html),
-    consent: /cookiebot|cookieyes|onetrust|termly|iubenda|complianz|cookie-law-info|cookie-notice|osano|usercentrics|quantcast|klaro|cookieconsent|cookie_consent|gdpr-cookie|cookiefirst|civic ?cookie|cookie-script/i.test(html),
+    analytics: /gtag\(|googletagmanager\.com|google-analytics\.com|plausible\.io|matomo|clarity\.ms|usefathom|hotjar|connect\.facebook\.net|fbq\(|snap\.licdn\.com|analytics\.tiktok\.com|bat\.bing\.com/i.test(html),
+    consent: CONSENT_RE.test(html),
     metaDescription: /<meta[^>]+name=["']description["'][^>]+content=["'][^"']{10,}/i.test(html) || /<meta[^>]+content=["'][^"']{10,}["'][^>]+name=["']description["']/i.test(html),
     ogImage: /<meta[^>]+property=["']og:image["']/i.test(html) || /<meta[^>]+content=["'][^"']+["'][^>]+property=["']og:image["']/i.test(html),
     viewport: /<meta[^>]+name=["']viewport["']/i.test(html),
