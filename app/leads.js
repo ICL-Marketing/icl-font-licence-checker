@@ -1356,7 +1356,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
                   {businessLabel(l) && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 font-semibold text-white" title={l.whatTheyDo || ""}>{businessLabel(l)}</span>}
                   {c.id === "to-draft" && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${l.review?.drafted ? "bg-emerald-100 text-emerald-800" : "bg-orange-100 text-orange-800"}`}>{l.review?.drafted ? "Draft in: check it" : "Waiting for Claude"}</span>}
-                  {l.review?.step > 1 && !l.review?.done && ["new", "no-contact"].includes(c.id) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="Review in progress">Step {l.review.step}/3</span>}
+                  {l.review?.step > 2 && !l.review?.done && ["new", "no-contact"].includes(c.id) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="Review in progress">Step 2/2</span>}
                   {cantFind(l) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="No website anywhere, so nothing to pitch">Can’t find them</span>}
                   {TRIGGER_TAG[l.triggerKind] && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 font-semibold text-violet-800" title={l.trigger}>{TRIGGER_TAG[l.triggerKind]}</span>}
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
@@ -1392,7 +1392,7 @@ function accountsNote(l) {
   const due = l.accountsNextDue ? new Date(l.accountsNextDue).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
   const months = (Date.now() - new Date(l.accountsDate).getTime()) / (30.4 * 86400000);
   if (l.accountsOverdue) return <div className="text-[11px] text-red-700">Older year: newer accounts {due ? `were due ${due}` : "are overdue"}</div>;
-  if (months <= 21) return <div className="text-[11px] text-emerald-700">Latest accounts filed{due ? ` · next due ${due}` : ""}</div>;
+  if (months <= 21) return null; // up to date: nothing to say
   return <div className="text-[11px] text-amber-700">Older year{due ? ` · next due ${due}` : ""}</div>;
 }
 // A textarea that always shows its whole text: it grows (and shrinks) to fit, so nothing needs dragging out.
@@ -1406,7 +1406,7 @@ function AutoTextarea({ value, minRows = 2, className = "", ...rest }) {
   return <textarea ref={ref} value={value} rows={minRows} className={`resize-none overflow-hidden ${className}`} {...rest} />;
 }
 function Field({ label, title, children }) {
-  return <div title={title}><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{label}</div><div className="mt-0.5 text-sm">{children}</div></div>;
+  return <div title={title}><div className="text-lg font-bold leading-tight text-zinc-900">{children}</div><div className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{label}</div></div>;
 }
 function TextField({ label, value, onChange, rows = 2, mono = false, ai = false }) {
   return (
@@ -1648,7 +1648,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
           {view === "details" && <>
           {(l.whatTheyDo || l.siteDescription || l.background || l.sics?.length) && (
             <p className="text-sm text-zinc-700">
-              <span className={`font-medium ${cf.includes("whatTheyDo") ? "text-orange-700" : ""}`} title={cf.includes("whatTheyDo") ? "From Claude's check" : l.sicStale ? `Companies House lists this company as: ${sicDescription(l.sics)}. The website says otherwise, so that is hidden.` : undefined}>{l.whatTheyDo || sicDescription(l.sics) || (l.sics?.length ? `SIC ${l.sics[0]}` : "")}</span>
+              <span className={`font-medium ${cf.includes("whatTheyDo") ? "text-orange-700" : ""}`} title={cf.includes("whatTheyDo") ? "From Claude's check" : l.sicStale ? `Companies House lists this company as: ${sicDescription(l.sics)}. The website says otherwise, so that is hidden.` : undefined}>{l.whatTheyDo || sicDescription(l.sics)}</span>
               {l.tradesElsewhere && l.tradingAddress && <span className="block font-medium text-red-700">Trades from {l.tradingAddress} — outside our area; only the registered office is local</span>}
             </p>
           )}
@@ -1682,7 +1682,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
           <div className="grid grid-cols-3 gap-3">
             <Field label={`Company worth${l.accountsDate ? ` · year to ${accountsYear(l.accountsDate)}` : ""}`} title="Net assets in the latest accounts: what the company owns minus what it owes">{money(l.netAssets)}{accountsNote(l)}</Field>
             <Field label="Profit kept last year" title="Change in retained earnings: the profit the company kept after paying any dividends">{signed(l.reChange)}</Field>
-            <Field label="Area"><input value={l.area || ""} onChange={(e) => onChange({ area: e.target.value })} className="w-full rounded border border-transparent hover:border-zinc-300" /></Field>
+            <Field label="Area"><input value={l.area || ""} onChange={(e) => onChange({ area: e.target.value })} className="w-full rounded border border-transparent font-bold hover:border-zinc-300" /></Field>
           </div>
           <details className="rounded-lg border border-zinc-200 px-3 py-2" open={cf.length > 0 || undefined}>
             <summary className="cursor-pointer text-sm font-semibold text-zinc-700">Notes and background</summary>
@@ -1728,7 +1728,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             })()}
           </div>
 
-          {l.website && (
+          {l.website && (l.licence?.error || ["fonts", "images", "possibleFonts", "possibleImages"].some((k) => (l.licence?.[k] || []).length)) && (
             <div className="rounded-lg border border-zinc-200 p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-semibold">Licence risks</span>
@@ -1767,55 +1767,6 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
 
           <Contacts l={l} onChange={onChange} onContacts={onContacts} onHunter={onHunter} cfgHunter={hunterOn} subjects={subjects} />
 
-          <div className="rounded-lg border border-zinc-200 p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-semibold">Outreach email</span>
-              <span className="ml-auto flex flex-wrap items-center gap-2">
-                {l.optedOut ? <span className="text-xs text-red-700">Opted out: not to be emailed</span> : !websiteIsVerified(l) && !isFrozen(l) ? <span className="text-xs text-amber-800">Confirm the website above before sending</span> : <>
-                  <a href={outlook} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100"><MailIcon className="h-3.5 w-3.5" /> Open in Outlook</a>
-                  <button onClick={copy} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy email</>}</button>
-                </>}
-              </span>
-            </div>
-            {writeTo.length > 0 && (
-              <div className="mt-2">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Write to</div>
-                <div className="mt-1 flex flex-wrap gap-1.5">
-                  {writeTo.map((p) => (
-                    <button key={p.email} onClick={() => pickPerson(l, p, onChange, subjects)} title={`${p.role} · ${p.email}${l.drafts?.[p.email] ? " · draft saved" : ""}`}
-                      className={`rounded-full border px-2.5 py-1 text-xs ${p.email === l.emailAddress ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>
-                      {p.name} <span className={p.email === l.emailAddress ? "text-zinc-300" : "text-zinc-400"}>· {p.role}</span>{l.drafts?.[p.email] && p.email !== l.emailAddress ? " ✎" : ""}
-                    </button>
-                  ))}
-                </div>
-                {writeToOthers.length > 0 && <button onClick={() => setShowAllWriteTo((v) => !v)} className="mt-1 text-xs text-zinc-500 underline">{showAllWriteTo ? "Hide" : "Show"} {writeToOthers.length} other {writeToOthers.length === 1 ? "person" : "people"} (not website decision-makers)</button>}
-              </div>
-            )}
-            <div className="mt-2">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Issue raised</div>
-              {issues.length ? (
-                <select value={shownIssue?.id || ""} onChange={(e) => chooseIssue(e.target.value)} className="mt-0.5 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm">
-                  {issues.map((i) => <option key={i.id} value={i.id}>{i.label}{person && i.audience.includes(roleGroup(person)) ? "" : person ? " (less relevant to this role)" : ""}</option>)}
-                </select>
-              ) : String(l.email || "").trim() ? <p className="mt-0.5 text-sm text-zinc-800">{raisedIn(l) || "Your own point (written by hand)"}</p>
-              : <p className="mt-0.5 text-xs text-zinc-500">No issue found on the site yet. The licence and search checks run on their own; Rescan this lead to look again now.</p>}
-            </div>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">To</div>
-                <input value={l.emailAddress || ""} onChange={(e) => onChange({ emailAddress: e.target.value, emailFrom: "Added by you", ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && e.target.value.trim() ? { status: "new", contactUnverified: false } : {}) })} placeholder={l.emailNote || "email address"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
-              {<label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Name(s) for “Hi …,”</div>
-                <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value, nameFrom: "Added by you" })} placeholder="e.g. Paul and Louise" className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /><NameSources l={l} /></label>}
-            </div>
-            <label className="mt-2 block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Subject</div>
-              <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
-            {greetingPreview && <pre className="mt-2 whitespace-pre-wrap rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1.5 font-sans text-sm text-zinc-600" title="Written automatically on the day you send: changes with the day of the week">{greetingPreview}</pre>}
-            <AutoTextarea value={l.email || ""} onChange={(e) => onChange({ email: e.target.value, emailEdited: true })} minRows={4} className={`w-full border border-zinc-300 px-2 py-1 text-sm ${greetingPreview ? "rounded-b-md" : "mt-2 rounded-md"}`} />
-            <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{addedBelow(l.email)}</pre>
-            <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-zinc-500">
-              {l.emailEdited ? <span>Edited by hand, so automatic redrafts leave it alone. <button onClick={() => onChange({ emailEdited: false, draftVersion: 0 })} className="underline">Let the app redraft it</button></span> : <span>Drafted by the app; redrafts automatically when the wording improves.</span>}
-              {l.emailPrevious && <button onClick={() => onChange({ email: l.emailPrevious, emailPrevious: "", emailEdited: true })} className="underline">Restore the previous draft</button>}
-            </div>
-          </div>
 
           </>}
         </div></div>
@@ -1828,7 +1779,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             if (!["vetting", "new", "find-site", "to-draft", "no-contact", "maintenance"].includes(l.status || "new")) return null;
             if (!l.website && siteSearchable(l)) return <button onClick={onFindSite} className={`${btn} bg-amber-600 hover:bg-amber-700`}><SearchIcon className="h-4 w-4" /> Find their website with Claude</button>;
             if (!l.claude) return <button onClick={onClaude} className={`${btn} bg-orange-600 hover:bg-orange-700`}><SearchIcon className="h-4 w-4" /> Check with Claude</button>;
-            if (!l.review?.done) return <button onClick={() => setView("review")} className={`${btn} bg-zinc-900 hover:bg-zinc-700`}><PlayIcon className="h-4 w-4" /> {l.review?.step > 1 ? `Continue review (step ${l.review.step} of 3)` : "Review this lead"}</button>;
+            if (!l.review?.done) return <button onClick={() => setView("review")} className={`${btn} bg-zinc-900 hover:bg-zinc-700`}><PlayIcon className="h-4 w-4" /> {l.review?.step > 1 ? `Continue review (step ${l.review.step > 2 ? 2 : 1} of 2)` : "Review this lead"}</button>;
             return null;
           })()}
           {l.checking && <span className="inline-flex items-center gap-1 text-blue-700"><SpinnerIcon className="h-3.5 w-3.5" /> Working…</span>}
@@ -1992,13 +1943,14 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   const cands = [
     ...issues.map((i) => ({ key: `chk:${i.id}`, label: i.label, from: "Checker", issue: i })),
     ...(l.claude && (l.claude.angle || l.claude.issue_note) ? [{ key: "claude", label: oneLine(l.claude.angle || l.claude.issue_note), from: "Claude" }] : []),
-    ...(l.trigger ? [{ key: "why-now", label: l.trigger, from: "Why now" }] : []),
     // What you wrote in step 1 is an issue you can lead with too.
     ...(String(r.notes || "").trim() ? [{ key: "note", label: String(r.notes).trim().replace(/\s+/g, " "), from: "You" }] : []),
     ...(r.seen || []).map((x) => ({ key: `you:${x}`, label: x, from: "You" })),
     ...(r.own || []).map((x) => ({ key: `own:${x}`, label: x, from: "You" })),
   ];
-  const lead = cands.find((c) => c.key === r.lead) || (maint ? cands.find((c) => c.key === "chk:maintenance") || { key: "chk:maintenance", label: "Website maintenance", from: "Checker" } : null);
+  // Claude's issue is preselected as the main one; tap another to change it.
+  const mainKey = r.lead && cands.some((c) => c.key === r.lead) ? r.lead : (cands.find((c) => c.key === "claude") || cands[0])?.key;
+  const lead = cands.find((c) => c.key === mainKey) || (maint ? cands.find((c) => c.key === "chk:maintenance") || { key: "chk:maintenance", label: "Website maintenance", from: "Checker" } : null);
   // The main issue decides the subject line (Settings → Emails holds the wording for each issue).
   const subjectOf = (c) => {
     if (!c) return "";
@@ -2010,7 +1962,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   const path = r.path || suggestPath(lead?.issue?.id || lead?.label || "", l);
   const first = greetNames(l.contactName);
   // What the email should say: used for this lead's own prompt, and saved on the lead for the batch prompt.
-  const brief = lead ? { leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => (r.also || []).includes(c.key) && c.key !== r.lead).map((c) => c.label), notes: r.notes || "", path, template: lead.issue?.body || "" } : null;
+  const brief = lead ? { leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => (r.also || []).includes(c.key) && c.key !== mainKey).map((c) => c.label), notes: r.notes || "", path, template: lead.issue?.body || "" } : null;
   const prompt = lead ? withTitle("Email draft", l.business, draftPrompt({ l, first, ...brief })) : "";
   // Issue and approach picked, no email yet: the lead waits in Email to draft (Claude can write it there or in a batch).
   const toDraftNow = !!lead && lead.key !== "chk:maintenance" && !r.drafted && ["new", "no-contact", "vetting", "find-site", "maintenance"].includes(l.status || "new");
@@ -2020,9 +1972,9 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
     return () => clearTimeout(t);
   }, [l.id, r.step, toDraftNow]); // eslint-disable-line react-hooks/exhaustive-deps
   const FROM = { Checker: "bg-zinc-200 text-zinc-700", Claude: "bg-orange-100 text-orange-800", "Why now": "bg-violet-100 text-violet-800", You: "bg-blue-100 text-blue-800" };
-  const head = (n, title, done) => (
-    <button onClick={() => setR({ step: n })} className={`flex w-full items-center gap-2 text-left text-sm font-semibold ${step === n ? "text-zinc-900" : "text-zinc-500 hover:text-zinc-900"}`}>
-      <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${done ? "bg-emerald-600 text-white" : step === n ? "bg-zinc-900 text-white" : "bg-zinc-200 text-zinc-600"}`}>{done ? "✓" : n}</span>{title}
+  const head = (n, title, done, shown = n) => (
+    <button onClick={() => setR({ step: n })} className={`flex w-full items-center gap-2 text-left text-sm font-semibold ${step === n || (n === 1 && step === 2) ? "text-zinc-900" : "text-zinc-500 hover:text-zinc-900"}`}>
+      <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${done ? "bg-emerald-600 text-white" : step === n || (n === 1 && step === 2) ? "bg-zinc-900 text-white" : "bg-zinc-200 text-zinc-600"}`}>{done ? "✓" : shown}</span>{title}
     </button>
   );
   async function copy(open) {
@@ -2043,8 +1995,8 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   return (
     <div className="space-y-3">
       {!maint && <div className="rounded-lg border border-zinc-200 p-3">
-        {head(1, "Look at their website", siteOk)}
-        {step === 1 && (
+        {head(1, "Check their site and pick what to raise", siteOk && !!lead && step > 2)}
+        {step <= 2 && (
           <div className="mt-3 space-y-3 text-sm">
             <div className="flex flex-wrap gap-2">
               {site && <a href={site} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-white"><ExternalIcon className="h-4 w-4" /> Open {l.website}</a>}
@@ -2092,26 +2044,25 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
               </div>
             )}
             <textarea value={r.notes || ""} onChange={(e) => setR({ notes: e.target.value })} rows={2} placeholder="Anything else worth saying? (optional, Claude uses it in the email)" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" />
-            <div className="flex justify-end"><button onClick={() => setR({ step: 2, siteChecked: true })} disabled={!siteOk} title={siteOk ? "" : "Answer the website question first"} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: pick the issue →</button></div>
           </div>
         )}
       </div>}
 
-      {!maint && <div className="rounded-lg border border-zinc-200 p-3">
-        {head(2, "Pick what to raise and how", !!r.lead && step > 2)}
-        {step === 2 && (
-          <div className="mt-3 space-y-3 text-sm">
+      {!maint && step <= 2 && <div className="-mt-3 rounded-b-lg border border-t-0 border-zinc-200 p-3 pt-0">
+        {(
+          <div className="space-y-3 text-sm">
+            <div className="border-t border-zinc-100 pt-3 text-xs font-semibold text-zinc-700">What to raise <span className="font-normal text-zinc-500">· Claude’s pick is selected; tap another to make it the main one, tick “also” to mention it too</span></div>
             {!cands.length && <p className="text-xs text-zinc-500">Nothing found yet. Add what you noticed in step 1, or type your own below.</p>}
             <div className="space-y-1">
               {cands.map((c) => (
-                <div key={c.key} className={`flex items-center gap-2 rounded-md border px-2 py-1.5 ${r.lead === c.key ? "border-zinc-900 bg-zinc-50" : "border-zinc-200"}`}>
+                <div key={c.key} className={`flex items-center gap-2 rounded-md border px-2 py-1.5 ${mainKey === c.key ? "border-zinc-900 bg-zinc-50" : "border-zinc-200"}`}>
                   <button onClick={() => setR({ lead: c.key, subjectTyped: false, path: r.pathSet ? r.path : suggestPath(c.issue?.id || c.label, l) }, { subject: subjectOf(c) })} title="Make this the main issue: the email leads with it and it sets the subject" className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                    <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${r.lead === c.key ? "border-zinc-900 bg-zinc-900" : "border-zinc-400"}`}>{r.lead === c.key && <span className="h-1.5 w-1.5 rounded-full bg-white" />}</span>
-                    <span className="min-w-0 flex-1">{c.label}{r.lead === c.key && <span className="ml-2 rounded-full bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">Main</span>}</span>
+                    <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${mainKey === c.key ? "border-zinc-900 bg-zinc-900" : "border-zinc-400"}`}>{mainKey === c.key && <span className="h-1.5 w-1.5 rounded-full bg-white" />}</span>
+                    <span className="min-w-0 flex-1">{c.label}{mainKey === c.key && <span className="ml-2 rounded-full bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">Main</span>}</span>
                   </button>
                   {(() => { const q = searchIn(c.label); return q && <a href={googleUk(q)} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} title={`Check “${q}” on Google yourself (UK, not personalised)`} className="shrink-0 text-blue-700 hover:text-blue-900"><ExternalIcon /></a>; })()}
                   <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${FROM[c.from]}`}>{c.from}</span>
-                  {r.lead !== c.key && <label className="flex shrink-0 items-center gap-1 text-[11px] text-zinc-500" title="Mention this briefly as well"><input type="checkbox" checked={(r.also || []).includes(c.key)} onChange={(e) => setR({ also: e.target.checked ? [...(r.also || []), c.key] : (r.also || []).filter((x) => x !== c.key) })} className="h-3 w-3" /> also</label>}
+                  {mainKey !== c.key && <label className="flex shrink-0 items-center gap-1 text-[11px] text-zinc-500" title="Mention this briefly as well"><input type="checkbox" checked={(r.also || []).includes(c.key)} onChange={(e) => setR({ also: e.target.checked ? [...(r.also || []), c.key] : (r.also || []).filter((x) => x !== c.key) })} className="h-3 w-3" /> also</label>}
                 </div>
               ))}
             </div>
@@ -2136,14 +2087,14 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
                 ))}
               </div>
             </div>
-            <div className="flex justify-between"><button onClick={() => setR({ step: 1 })} className="text-xs text-zinc-500 hover:text-zinc-900">← Back</button><button onClick={() => setR({ step: 3, path, ...(lead?.key === "chk:maintenance" && !r.drafted ? { drafted: new Date().toISOString() } : {}) }, { ...(r.subjectTyped ? {} : { subject: subjectOf(lead) }), ...(toDraftNow ? { status: "to-draft", draftBrief: brief } : {}), ...(lead?.key === "chk:maintenance" && !r.drafted ? { email: emailTemplates().maintenance.body, emailEdited: false, issueId: "maintenance" } : {}) })} disabled={!lead} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: draft the email →</button></div>
-            {lead?.key !== "chk:maintenance" && <div className="flex justify-end"><button onClick={() => { setR({ step: 3, path }, { draftBrief: brief, status: "to-draft", ...(r.subjectTyped ? {} : { subject: subjectOf(lead) }) }); onNext?.(false); }} disabled={!lead} title="Save the issue and approach, move it to Email to draft and go to the next lead. Claude writes all of those emails in one prompt." className="text-xs font-medium text-blue-700 underline disabled:opacity-40">or add to the email batch and go to the next lead →</button></div>}
+            <div className="flex justify-end"><button onClick={() => setR({ step: 3, path, lead: mainKey, siteChecked: true, ...(lead?.key === "chk:maintenance" && !r.drafted ? { drafted: new Date().toISOString() } : {}) }, { ...(r.subjectTyped ? {} : { subject: subjectOf(lead) }), ...(toDraftNow ? { status: "to-draft", draftBrief: brief } : {}), ...(lead?.key === "chk:maintenance" && !r.drafted ? { email: emailTemplates().maintenance.body, emailEdited: false, issueId: "maintenance" } : {}) })} disabled={!lead || !siteOk} title={siteOk ? "" : "Confirm the website first"} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: draft the email →</button></div>
+            {lead?.key !== "chk:maintenance" && <div className="flex justify-end"><button onClick={() => { setR({ step: 3, path, lead: mainKey, siteChecked: true }, { draftBrief: brief, status: "to-draft", ...(r.subjectTyped ? {} : { subject: subjectOf(lead) }) }); onNext?.(false); }} disabled={!lead} title="Save the issue and approach, move it to Email to draft and go to the next lead. Claude writes all of those emails in one prompt." className="text-xs font-medium text-blue-700 underline disabled:opacity-40">or add to the email batch and go to the next lead →</button></div>}
           </div>
         )}
       </div>}
 
       <div className="rounded-lg border border-zinc-200 p-3">
-        {maint ? <div className="text-sm font-semibold text-zinc-900">Your maintenance email</div> : head(3, "Draft the email", !!r.done)}
+        {maint ? <div className="text-sm font-semibold text-zinc-900">Your maintenance email</div> : head(3, "Draft the email", !!r.done, 2)}
         {step === 3 && lead && (
           <div className="mt-3 space-y-3 text-sm">
             {maint ? <p className="text-xs text-zinc-500">Web maintenance email, ready to go: check it, add the address and name, then Ready to send. Change the wording for everyone in <a href="/settings?section=templates" className="text-blue-700 underline">Settings → Email templates</a>.</p> : <>

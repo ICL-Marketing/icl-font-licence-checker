@@ -195,7 +195,7 @@ export function ClaudeInbox() {
                   {log.map((x, n) => (
                     <li key={n} className={`flex gap-2 text-xs ${x.ok ? "text-zinc-800" : "text-red-700"}`}>
                       <span className="w-10 shrink-0 text-zinc-400">{x.at}</span>
-                      {x.kind && <span className="shrink-0 rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-800">{KIND_LABEL[x.kind]}</span>}
+                      {x.kind && <span className="h-fit shrink-0 self-start whitespace-nowrap rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-800">{KIND_LABEL[x.kind]}</span>}
                       <span>{x.ok ? "✓ " : ""}{x.msg}</span>
                     </li>
                   ))}
