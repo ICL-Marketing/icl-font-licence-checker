@@ -46,6 +46,23 @@ const money = (n) => (n === null || n === undefined || n === "" ? "—" : `£${M
 // Plain-English company size for the cards: £1.4m, £198k.
 const compact = (n) => { const v = Number(n); if (n === null || n === undefined || n === "" || !Number.isFinite(v)) return ""; const a = Math.abs(v); return `${v < 0 ? "-" : ""}£${a >= 1e6 ? `${(a / 1e6).toFixed(a >= 1e7 ? 0 : 1)}m` : a >= 1e3 ? `${Math.round(a / 1e3)}k` : Math.round(a)}`; };
 // The website says one thing at a time: someone (you or Claude) confirmed it, or there is a doubt, or it is verified.
+// Where the email address came from, so you can trust it reaches the right person.
+const PERSONAL_MAIL = /@(gmail|googlemail|hotmail|outlook|live|yahoo|icloud|me|aol|btinternet|sky|talktalk|virginmedia|protonmail)\./i;
+function emailSource(l) {
+  const e = String(l.emailAddress || "").toLowerCase();
+  if (!e) return null;
+  const p = (l.contacts || []).find((x) => String(x.email || "").toLowerCase() === e);
+  const site = String(l.website || "").toLowerCase().replace(/^www\./, "");
+  const parts = [];
+  if (p) {
+    parts.push(`${p.name}${p.role ? `, ${p.role}` : ""}`);
+    parts.push([p.source, p.emailStatus || p.why].filter(Boolean).join(": "));
+  } else if (l.edits?.emailAddress && !p) parts.push("Added by you");
+  else if (site && e.endsWith(`@${site}`)) parts.push("Published on their website");
+  else parts.push("No record of where this came from");
+  const warn = PERSONAL_MAIL.test(e) ? "Personal address (not their company domain): check it really belongs to this business." : site && !e.endsWith(`@${site}`) && !PERSONAL_MAIL.test(e) ? `Different domain from their website (${site}).` : "";
+  return { text: parts.filter(Boolean).join(" · "), warn, google: `https://www.google.com/search?q=${encodeURIComponent(`"${e}"`)}` };
+}
 // Text pasted from Claude: keep the body only (a "Subject:" line becomes the subject; greeting and sign-off dropped).
 function cleanPastedEmail(t) {
   let lines = String(t || "").replace(/\r/g, "").replace(/^```[a-z]*\n?|```$/gim, "").trim().split("\n");
@@ -1715,6 +1732,8 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
     if (open) window.open("https://claude.ai/new", "_blank", "noopener");
   }
   const greeting = `${first ? `Hi ${first},` : "Hi there,"}\n\n${dayGreeting()}`;
+  // The email box only holds Claude's draft (or your own typing), never the app's automatic template.
+  const draftText = r.drafted ? l.email || "" : "";
   // Address and email text both in: Ready to send, and on to the next lead.
   const finishReady = (extra = {}) => { setR({ done: true, doneAt: new Date().toISOString(), drafted: r.drafted || new Date().toISOString() }, { status: "ready", ...extra }); onNext?.(true); };
   return (
@@ -1804,14 +1823,13 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
             <div className="flex flex-wrap gap-2">
               <button onClick={() => copy(true)} className="inline-flex items-center gap-1.5 rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium text-white"><ExternalIcon className="h-3.5 w-3.5" /> Copy prompt and open Claude</button>
               <button onClick={() => copy(false)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100">{copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />} Copy prompt</button>
-              {lead.issue && <button onClick={() => { const d = draftFor(l, person, lead.issue, subjects); onChange({ subject: d.subject, email: d.body, issueId: d.issueId, emailEdited: false }); setMsg("Our template is in. Or ask Claude for a version that uses your notes."); }} className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100">Use our template instead</button>}
             </div>
             <p className="text-xs text-zinc-600">Claude replies with just the email text: paste it straight into the email box below.</p>
             {msg && <p className="text-xs text-zinc-600">{msg}</p>}
             <div>
               <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} placeholder="Subject" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm font-medium" />
               <pre className="mt-2 whitespace-pre-wrap rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1 font-sans text-sm text-zinc-500">{greeting}</pre>
-              <AutoTextarea value={l.email || ""} onChange={(e) => onChange({ email: e.target.value, emailEdited: true })} onPaste={(e) => { const t = e.clipboardData.getData("text"); if (!t || (l.email || "").trim()) return; e.preventDefault(); const c = cleanPastedEmail(t); onChange({ email: c.body, emailEdited: true, ...(c.subject && !r.subjectTyped ? { subject: c.subject } : {}), review: { ...r, drafted: new Date().toISOString() } }); }} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
+              <AutoTextarea value={draftText} placeholder="Paste Claude’s email here" onChange={(e) => onChange({ email: e.target.value, emailEdited: true, review: { ...r, drafted: r.drafted || new Date().toISOString() } })} onPaste={(e) => { const t = e.clipboardData.getData("text"); if (!t || draftText.trim()) return; e.preventDefault(); const c = cleanPastedEmail(t); onChange({ email: c.body, emailEdited: true, ...(c.subject && !r.subjectTyped ? { subject: c.subject } : {}), review: { ...r, drafted: new Date().toISOString() } }); }} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
               <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{iclFooter(true)}</pre>
             </div>
             {(() => {
@@ -1823,6 +1841,12 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
                 <div className={`grid gap-2 rounded-md border px-2 py-2 sm:grid-cols-2 ${l.emailAddress ? "border-zinc-200" : "border-red-300 bg-red-50"}`}>
                   <label className="block text-xs"><span className={l.emailAddress ? "text-zinc-500" : "font-semibold text-red-700"}>{l.emailAddress ? "Send to" : "Email address (needed before it’s ready)"}</span>
                     <input key={`em:${l.id}`} type="email" defaultValue={l.emailAddress || ""} onChange={(e) => save(e.target.value)} onBlur={(e) => save(e.target.value)} onPaste={(e) => setTimeout(() => save(e.target.value), 0)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder="name@company.co.uk" className="mt-0.5 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm" /></label>
+                  {(() => { const src = emailSource(l); return src && (
+                    <div className="text-[11px] sm:col-span-2">
+                      <span className="text-zinc-600">Found: {src.text}</span> <a href={src.google} target="_blank" rel="noreferrer" className="text-blue-700 underline" title="See where this address is published">check on Google</a>
+                      {src.warn && <div className="mt-0.5 font-medium text-amber-800">{src.warn}</div>}
+                    </div>
+                  ); })()}
                   <label className="block text-xs"><span className="text-zinc-500">First name (for “Hi …,”)</span>
                     <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value })} placeholder="Leave blank for “Hi there”" className="mt-0.5 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm" /></label>
                 </div>
@@ -1833,7 +1857,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
               <span className="ml-auto" />
               <button onClick={() => { setR({ done: true, doneAt: new Date().toISOString() }, { status: "not-pursuing", likelihoodWhy: "Reviewed by hand: not worth it" }); onNext?.(true); }} className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Not worth it</button>
               {onNext && <button onClick={() => onNext(false)} className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Skip for now →</button>}
-              <button onClick={() => finishReady()} disabled={!l.emailAddress || !l.email} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Ready to send ✓{onNext ? " · next" : ""}</button>
+              <button onClick={() => finishReady()} disabled={!l.emailAddress || !draftText.trim()} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Ready to send ✓{onNext ? " · next" : ""}</button>
             </div>
           </div>
         )}
