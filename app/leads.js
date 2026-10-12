@@ -853,7 +853,17 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         const email = f.emailAddress ?? l.emailAddress;
         if (skip) { f.status = "not-pursuing"; moved.skip++; }
         else if (l.status === "vetting") { /* the vetting checks decide when it reaches the board */ }
-        else if (email) { f.status = "new"; f.contactUnverified = false; if (l.status !== "new") moved.back++; }
+        else if (email) {
+          f.status = "new"; f.contactUnverified = false; if (l.status !== "new") moved.back++;
+          // A real issue found and nothing picked by you yet: straight to Email to draft with Claude's issue as the main one.
+          const issue = it.issue_label || it.angle;
+          if ((l.status || "new") === "new" && issue && l.website && !l.review?.lead && it.issue_confirmed !== false) {
+            f.status = "to-draft"; moved.draft = (moved.draft || 0) + 1;
+            f.draftBrief = { leadWith: issue, also: [], notes: it.issue_note || "", path: suggestPath(issue, l), template: "" };
+            f.review = { ...(l.review || {}), lead: "claude", step: 3, siteChecked: true, ...(f.email ? { drafted: new Date().toISOString() } : {}) };
+            if (it.issue_subject) f.subject = it.issue_subject;
+          }
+        }
         else { f.status = "no-contact"; f.contactUnverified = true; }
       }
       update(l.id, f); done++; doneIds.push(l.id);
@@ -948,10 +958,23 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   // Where they came for the searches their customers make: the weakest becomes the search issue.
   // Claude's Google positions: saved on the lead, and a weak search becomes the search issue.
   function applyRank(list2) {
-    let done = 0, weak = 0, strong = 0;
+    let done = 0, weak = 0, strong = 0, wrongSite = 0;
     for (const it of list2) {
-      const l = leadsRef.current[it.lead_id];
-      if (!l || isFrozen(l) || !it.weakest) continue;
+      let l = leadsRef.current[it.lead_id];
+      if (!l || isFrozen(l)) continue;
+      // Claude checks the site is theirs before ranking it: a wrong site is dropped (and the real one used if it found it).
+      const site = String(l.website || "").toLowerCase().replace(/^www\./, "");
+      if (site && it.website_is_theirs === false && it.correct_website !== site) {
+        wrongSite++;
+        const g = { rejectedSites: [...new Set([...(l.rejectedSites || []), site])], websiteDoubt: "", seo: null, ...(l.emailAddress && l.emailAddress.endsWith("@" + site) ? { emailAddress: "", contactName: "" } : {}) };
+        if (it.correct_website) Object.assign(g, { website: it.correct_website, websiteConfirmed: true, websiteVerified: "checked by Claude", websiteEvidence: it.website_evidence || "found by Claude", ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}) });
+        else Object.assign(g, { website: "", websiteConfirmed: false, websiteVerified: "", problem: "No website", problemDetail: `${site} belongs to a different business${it.website_evidence ? ` (${it.website_evidence})` : ""}`, websiteNeeded: true });
+        if (["new", "no-contact", "maintenance", "no-website", "ready", "to-draft"].includes(l.status)) g.status = "vetting";
+        update(l.id, g);
+        l = leadsRef.current[l.id];
+        if (!it.correct_website) continue;
+      } else if (site && it.website_is_theirs !== false && !websiteIsVerified(l) && it.website_evidence) update(l.id, { websiteVerified: "checked by Claude", websiteEvidence: it.website_evidence, websiteDoubt: "" });
+      if (!it.weakest) continue;
       const at = new Date().toISOString();
       const w = it.weakest;
       const f = { ...(it.business_type && !l.businessType ? { businessType: it.business_type } : {}), seo: { manual: false, engine: "Checked by Claude", checkedAt: at, claudeAt: at, local: it.local, services: it.services, searches: [{ kind: "trade", query: w.query, position: w.position }, ...it.searches.filter((x) => x.query !== w.query).map((x) => ({ kind: "extra", ...x }))] } };
@@ -960,13 +983,13 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       else { strong++; if (l.problem === "Low search visibility") { f.problem = ""; f.problemDetail = ""; } }
       update(l.id, f); done++;
     }
-    return { done, weak, strong };
+    return { done, weak, strong, wrongSite };
   }
   useClaudeHandler("rank-check", (text) => {
     const list2 = parseRankReply(text);
     if (!list2.length) throw new Error("No leads in that reply. Make sure Claude kept the lead_id values.");
-    const { done, weak, strong } = applyRank(list2);
-    return `${done} lead${done === 1 ? "" : "s"} checked · ${weak} not in the top 3 for a key search · ${strong} top 3 for everything tried`;
+    const { done, weak, strong, wrongSite } = applyRank(list2);
+    return [`${done} lead${done === 1 ? "" : "s"} checked`, `${weak} not in the top 3 for a key search`, `${strong} top 3 for everything tried`, wrongSite && `${wrongSite} had someone else's website (moved to Vetting)`].filter(Boolean).join(" · ");
   });
   // Vetting: one reply carries the website, the contact and the Google ranking for each lead.
   useClaudeJob("vet", { label: "Vet leads", order: 0.5, count: () => list.filter((l) => l.status === "vetting" && !l.vetAt).length, render: (o, close) => <VetModal leads={list} preset={o.preset || []} onClose={close} /> });
@@ -976,7 +999,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     let checked = null;
     try { const l2 = parseLeadCheck(text).filter((x) => x.lead_id); if (l2.length) checked = applyLeadCheck(l2); } catch {}
     let ranks = { done: 0 };
-    try { const r2 = parseRankReply(text); if (r2.length) ranks = applyRank(r2); } catch {}
+    try { const r2 = parseRankReply(text).map((x) => ({ ...x, website_is_theirs: true })); if (r2.length) ranks = applyRank(r2); } catch {}
     for (const id of sites.ids || []) if (leadsRef.current[id]) update(id, { vetAt: at });
     const moved = (sites.ids || []).filter((id) => { const x = leadsRef.current[id]; return x && x.status !== "vetting"; }).length;
     const still = (sites.ids || []).length - moved;
@@ -988,7 +1011,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     const list = parseLeadCheck(text);
     if (!list.length) throw new Error("No leads in that reply. Make sure Claude kept the lead_id values.");
     const r = applyLeadCheck(list);
-    return [`${r.done} lead${r.done === 1 ? "" : "s"} updated`, r.left && `${r.left} left alone (Ready to send or in conversation)`, r.moved.back && `${r.moved.back} back to To assess`, r.moved.skip && `${r.moved.skip} to Not pursuing`, r.rescanned && `${r.rescanned} rescanning on a new website`].filter(Boolean).join(" · ");
+    return [`${r.done} lead${r.done === 1 ? "" : "s"} updated`, r.left && `${r.left} left alone (Ready to send or in conversation)`, r.moved.back && `${r.moved.back} back to To assess`, r.moved.draft && `${r.moved.draft} to Email to draft`, r.moved.skip && `${r.moved.skip} to Not pursuing`, r.rescanned && `${r.rescanned} rescanning on a new website`].filter(Boolean).join(" · ");
   });
   useClaudeHandler("find-sites", (text) => {
     const r = applySites(parseSitesReply(text));
@@ -1278,6 +1301,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
             <span>{c.label}</span><span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{c.items.length}</span>
           </div>
           <div className="px-1 pb-2 text-[11px] font-normal text-zinc-500">{c.hint}</div>
+          {c.id === "new" && c.items.some((l) => !l.claude) && <button onClick={() => openClaude({ job: "lead-check", column: "new" })} title="Claude checks each site for the issue to raise; leads with an issue and an address move to Email to draft" className="mb-2 w-full rounded-md bg-orange-600 px-2 py-1 text-xs font-medium text-white hover:bg-orange-700">Find issues for {c.items.filter((l) => !l.claude).length} with Claude</button>}
           {c.id === "find-site" && c.items.length > 0 && <button onClick={() => openClaude({ job: "find-sites", preset: c.items.map((l) => l.id) })} className="mb-2 w-full rounded-md bg-amber-600 px-2 py-1 text-xs font-medium text-white hover:bg-amber-700">Find {c.items.length} website{c.items.length === 1 ? "" : "s"} with Claude</button>}
           {c.id === "to-draft" && c.items.some((l) => !l.review?.drafted) && <button onClick={() => openClaude({ job: "draft-batch" })} className="mb-2 w-full rounded-md bg-orange-600 px-2 py-1 text-xs font-medium text-white hover:bg-orange-700">Write {c.items.filter((l) => !l.review?.drafted).length} emails with Claude</button>}
           {["new", "to-draft", "no-contact", "maintenance", "no-website"].includes(c.id) && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.id)} title="Go through these one at a time: look at the site, pick the issue and approach, then draft the email with Claude" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
@@ -2330,7 +2354,7 @@ function RankModal({ leads, preset, onClose }) {
   const [picked, setPicked] = useState(() => (preset.length ? preset : pool.filter((l) => !l.seo?.claudeAt && !sentIds("rank-check").has(l.id)).map((l) => l.id)));
   const [copied, setCopied] = useState(false);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
-  const items = picked.map((id) => leads.find((l) => l.id === id)).filter(Boolean).map((l) => ({ id: l.id, business: l.business, website: l.website, what: l.tradeOverride || l.whatTheyDo || l.trade || "", town: l.searchTown || (l.tradesElsewhere ? "" : l.tradingTown) || "" }));
+  const items = picked.map((id) => leads.find((l) => l.id === id)).filter(Boolean).map((l) => ({ id: l.id, business: l.business, companyNumber: l.companyNumber, address: l.address || l.area || "", website: l.website, what: l.tradeOverride || l.whatTheyDo || l.trade || "", town: l.searchTown || (l.tradesElsewhere ? "" : l.tradingTown) || "" }));
   const prompt = items.length ? withTitle("Search rankings", `${items.length} lead${items.length === 1 ? "" : "s"}`, rankCheckPrompt(items)) : "";
   const nextBatch = (n, done = []) => { setSize(n); const waiting = sentIds("rank-check"); setPicked(pool.filter((l) => !l.seo?.claudeAt && !done.includes(l.id) && !waiting.has(l.id)).slice(0, n === "all" ? undefined : n).map((l) => l.id)); };
   async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("rank-check", picked); if (size !== "all") nextBatch(size, picked); }
