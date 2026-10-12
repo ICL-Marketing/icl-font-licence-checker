@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, ICL_LINE, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, reportProgress } from "@/app/claudeInbox";
 
@@ -1200,7 +1200,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
   const [view, setView] = useState(() => (reviewable && !l.review?.done ? "review" : "details"));
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
   // Older drafts carry the greeting inside the text; new ones get it written on the day.
-  const emailText = /^Hi\b/.test(l.email || "") ? (l.email || "") : fullEmail(l, l.email || "");
+  const emailText = /^Hi\b/.test(l.email || "") ? withIclLine(l.email || "") : fullEmail(l, l.email || "");
   const greetingPreview = /^Hi\b/.test(l.email || "") ? "" : `${firstNameOf(l.contactName) ? `Hi ${firstNameOf(l.contactName)},` : "Hi there,"}\n\n${dayGreeting()}`;
   const genericBox = GENERIC_BOX_RE.test(String(l.emailAddress || "").split("@")[0]);
   const full = `Subject: ${l.subject || ""}\n\n${emailText}`;
@@ -1488,6 +1488,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
               <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
             {greetingPreview && <pre className="mt-2 whitespace-pre-wrap rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1.5 font-sans text-sm text-zinc-600" title="Written automatically on the day you send: changes with the day of the week">{greetingPreview}</pre>}
             <AutoTextarea value={l.email || ""} onChange={(e) => onChange({ email: e.target.value, emailEdited: true })} minRows={4} className={`w-full border border-zinc-300 px-2 py-1 text-sm ${greetingPreview ? "rounded-b-md" : "mt-2 rounded-md"}`} />
+            <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{ICL_LINE}</pre>
             <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-zinc-500">
               {l.emailEdited ? <span>Edited by hand, so automatic redrafts leave it alone. <button onClick={() => onChange({ emailEdited: false, draftVersion: 0 })} className="underline">Let the app redraft it</button></span> : <span>Drafted by the app; redrafts automatically when the wording improves.</span>}
               {l.emailPrevious && <button onClick={() => onChange({ email: l.emailPrevious, emailPrevious: "", emailEdited: true })} className="underline">Restore the previous draft</button>}
@@ -1764,6 +1765,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
               <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} placeholder="Subject" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm font-medium" />
               <pre className="mt-2 whitespace-pre-wrap rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1 font-sans text-sm text-zinc-500">{greeting}</pre>
               <AutoTextarea value={l.email || ""} onChange={(e) => onChange({ email: e.target.value, emailEdited: true })} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
+              <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{ICL_LINE}</pre>
             </div>
             {!l.emailAddress && <p className="text-xs text-red-700">No email address yet. Add one under All details before marking it ready.</p>}
             <div className="flex flex-wrap items-center gap-2">

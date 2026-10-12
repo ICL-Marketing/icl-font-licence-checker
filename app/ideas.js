@@ -4,7 +4,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint } from "@/app/claudeInbox";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, greetingFor, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, BUILT_LABEL, ideaType, supportEmail } from "@/lib/clientIdeas";
+import { ICL_LINE } from "@/lib/leadsShared";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, greetingFor, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, BUILT_LABEL, ideaType, supportEmail, PLANS } from "@/lib/clientIdeas";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
 // Each client site is checked for free (site health, licences, homepage gaps) plus one search
@@ -93,6 +94,11 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
 
   // One field on a client in Settings (e.g. who built their site), saved for the whole team.
   const setClientField = (id, fields) => onClientsChange?.(clients.map((c) => (c.id === id ? { ...c, ...fields } : c)));
+  // Support plan: saved on the client, copied onto their sites, and the ideas worked out again (no plan → maintenance idea).
+  function setPlan(c, plan) {
+    setClientField(c.id, { plan });
+    for (const r of Object.values(recsRef.current)) if (r.clientId === c.id) update(r.id, { plan, ideas: ideasFor({ ...r, plan }, r.ideas || []), ideasVersion: IDEAS_VERSION });
+  }
   const update = (id, fields) => {
     const prev = recsRef.current[id] || {};
     const r = { ...prev, ...fields, id, updatedAt: new Date().toISOString() };
@@ -126,7 +132,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     const prev = recsRef.current[id] || {};
     st.phase = `Checking ${c.name} (${host(w)})…`; setRun({ ...st });
     const site = await post({ step: "check", website: w });
-    let rec = { ...prev, ...site, clientId: c.id, name: c.name, manager: c.manager || "", poc: c.poc || "", emails: c.emails || [] };
+    let rec = { ...prev, ...site, clientId: c.id, name: c.name, manager: c.manager || "", poc: c.poc || "", emails: c.emails || [], plan: c.plan || "" };
     const alive = site.problem !== "Dead/broken site" && site.problem !== "Parked domain";
     if (alive && !stopRef.current) { st.phase = `Checking licences on ${host(w)}…`; setRun({ ...st }); try { const l = await post({ step: "licence", website: w }); rec.licence = l.licence; } catch {} }
     // AI research: who they really are and what would help them, from the web plus our findings.
@@ -322,14 +328,15 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
           <table className="w-full min-w-[900px] text-sm">
             <thead><tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500"><th className="w-52 px-4 py-2 font-semibold">Client</th><th className="px-3 py-2 font-semibold">{service === "★" ? "Starred ideas" : service ? `${service} ideas` : ""}</th></tr></thead>
             <tbody className="divide-y divide-zinc-100">
-              {groups.length === 0 && <tr><td colSpan={2} className="p-4 text-zinc-500">No ideas yet. Use Research with Claude above.</td></tr>}
+              {groups.length === 0 && <tr><td colSpan={2} className="p-4 text-zinc-500">No ideas yet. Use the Claude button at the top: Client research.</td></tr>}
               {groups.map((g) => (
                 <tr key={g.clientId || g.name} className="align-top">
                   <td className="px-4 py-3"><div className="font-medium">{g.name}</div>{(() => {
                     const c = clients.find((x) => x.id === g.clientId); const bb = g.bb;
                     const tone = bb.value === "not" ? "bg-zinc-200 text-zinc-700" : bb.value === "unsure" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800";
                     const nextVal = { icl: "not", not: "unsure", unsure: "icl" }[bb.value];
-                    return <div className="mt-1 flex flex-wrap items-center gap-1"><button onClick={() => c && setClientField(c.id, { builtBy: nextVal })} disabled={!c} title={`${bb.why}. Click to change (ICL → Not ICL → Unsure).`} className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${tone}`}>{BUILT_LABEL[bb.value]}{bb.manual ? "" : " · auto"}</button>{bb.unsure && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800" title={bb.why}>Unsure, please check</span>}{bb.manual && <button onClick={() => setClientField(c.id, { builtBy: "" })} className="text-[10px] text-zinc-400 underline" title="Go back to the automatic check">auto</button>}</div>;
+                    return <div className="mt-1 flex flex-wrap items-center gap-1"><button onClick={() => c && setClientField(c.id, { builtBy: nextVal })} disabled={!c} title={`${bb.why}. Click to change (ICL → Not ICL → Unsure).`} className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${tone}`}>{BUILT_LABEL[bb.value]}{bb.manual ? "" : " · auto"}</button>{bb.unsure && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800" title={bb.why}>Unsure, please check</span>}{bb.manual && <button onClick={() => setClientField(c.id, { builtBy: "" })} className="text-[10px] text-zinc-400 underline" title="Go back to the automatic check">auto</button>}
+                      {c && <select value={c.plan || ""} onChange={(e) => setPlan(c, e.target.value)} title="Their ICL hosting / support plan. No plan adds a maintenance idea." className={`rounded-full border-0 px-1.5 py-0.5 text-[11px] font-semibold ${c.plan === "none" ? "bg-red-100 text-red-800" : c.plan ? "bg-sky-100 text-sky-800" : "bg-zinc-100 text-zinc-600"}`}>{Object.entries(PLANS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}</select>}</div>;
                   })()}{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return w ? <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-700 hover:underline">{w} <ExternalIcon /></a> : null; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button></div>{g.top.length < 3 && <button onClick={() => openClaude({ job: "client-research", preset: [g.clientId] })} className="mt-1 text-[11px] text-orange-700 underline">Research for more big ideas</button>}</td>
                   <td className="max-w-0 px-3 py-3">
                   <div className="grid snap-x auto-cols-[calc((100%-2.25rem)/3.2)] grid-flow-col gap-3 overflow-x-auto pb-1">
@@ -513,6 +520,7 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onRec, onBad }) {
               <input value={idea.subject || ""} onChange={(e) => onIdea({ subject: e.target.value, edited: true })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
             <pre className="mt-2 whitespace-pre-wrap rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1.5 font-sans text-sm text-zinc-600" title="Written automatically on the day you send">{greeting}</pre>
             <AutoTextarea value={idea.email || ""} onChange={(e) => onIdea({ email: e.target.value, edited: true })} className="w-full rounded-b-md border border-zinc-300 px-2 py-1 text-sm" />
+            <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{ICL_LINE}</pre>
             {idea.edited && <button onClick={() => { const fresh = ideasFor({ ...r, ideas: [] }).find((i) => i.key === idea.key); if (fresh) onIdea({ subject: fresh.subject, email: fresh.email, edited: false }); }} className="mt-1 text-xs text-zinc-500 underline">Restore the app’s draft</button>}
           </div>
 
@@ -543,7 +551,7 @@ function ResearchModal({ feedback = [], clients, recs, preset, initialManager = 
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
   const items = picked.map((id) => clients.find((c) => c.id === id)).filter(Boolean).map((c) => {
     const rec = Object.values(recs).find((r) => r.clientId === c.id && r.checkedAt);
-    return { id: c.id, name: c.name, websites: c.websites || [], notes: c.notes || "", findings: findingsLine(rec) };
+    return { id: c.id, name: c.name, websites: c.websites || [], notes: c.notes || "", plan: c.plan ? PLANS[c.plan] : "", findings: findingsLine(rec) };
   });
   const liked = Object.values(recs).flatMap((r) => (r.ideas || []).filter((i) => i.starred).map((i) => ({ title: i.title, service: i.service })));
   const prompt = items.length ? researchPrompt(items, feedback, liked) : "";
