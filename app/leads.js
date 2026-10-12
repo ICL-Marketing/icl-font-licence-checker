@@ -943,7 +943,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   useClaudeJob("lead-check", { label: "Check leads", order: 1, count: () => list.filter((l) => (l.status || "new") === "new" && !l.claude).length, render: (o, close) => <LeadCheckModal leads={list} preset={o.preset || []} column={o.column || "new"} onClose={close} onApply={applyLeadCheck} /> });
   useClaudeJob("find-sites", { label: "Find websites", order: 2, count: () => list.filter((l) => !l.website && siteSearchable(l) && !l.sitesCheckedAt).length, render: (o, close) => <FindSitesModal leads={list} preset={o.preset || []} onClose={close} onApply={applySites} /> });
   useClaudeJob("draft-batch", { label: "Draft emails", order: 1.5, count: () => list.filter((l) => l.status === "to-draft" && !l.review?.drafted).length, render: (o, close) => <DraftBatchModal leads={list} preset={o.preset || []} onClose={close} /> });
-  useClaudeHandler("draft-batch", (text) => {
+  const handleDraftBatch = (text) => {
     const items = parseDraftBatch(text);
     if (!items.length) throw new Error("No emails in that reply. Make sure Claude kept the lead_id values.");
     let done = 0;
@@ -953,7 +953,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       done++;
     }
     return `${done} email${done === 1 ? "" : "s"} added. Check each one in Email to draft, then Ready to send.`;
-  });
+  };
+  useClaudeHandler("draft-batch", handleDraftBatch);
   useClaudeJob("rank-check", { label: "Search rankings", order: 3, count: () => list.filter((l) => rankable(l) && !l.seo?.claudeAt).length, render: (o, close) => <RankModal leads={list} preset={o.preset || []} onClose={close} /> });
   // Where they came for the searches their customers make: the weakest becomes the search issue.
   // Claude's Google positions: saved on the lead, and a weak search becomes the search issue.
@@ -985,15 +986,16 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     }
     return { done, weak, strong, wrongSite };
   }
-  useClaudeHandler("rank-check", (text) => {
+  const handleRank = (text) => {
     const list2 = parseRankReply(text);
     if (!list2.length) throw new Error("No leads in that reply. Make sure Claude kept the lead_id values.");
     const { done, weak, strong, wrongSite } = applyRank(list2);
     return [`${done} lead${done === 1 ? "" : "s"} checked`, `${weak} not in the top 3 for a key search`, `${strong} top 3 for everything tried`, wrongSite && `${wrongSite} had someone else's website (moved to Vetting)`].filter(Boolean).join(" · ");
-  });
+  };
+  useClaudeHandler("rank-check", handleRank);
   // Vetting: one reply carries the website, the contact and the Google ranking for each lead.
   useClaudeJob("vet", { label: "Vet leads", order: 0.5, count: () => list.filter((l) => l.status === "vetting" && !l.vetAt).length, render: (o, close) => <VetModal leads={list} preset={o.preset || []} onClose={close} /> });
-  useClaudeHandler("vet", (text) => {
+  const handleVet = (text) => {
     const at = new Date().toISOString();
     const sites = applySites(parseSitesReply(text));
     let checked = null;
@@ -1004,14 +1006,30 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     const moved = (sites.ids || []).filter((id) => { const x = leadsRef.current[id]; return x && x.status !== "vetting"; }).length;
     const still = (sites.ids || []).length - moved;
     return [`${(sites.ids || []).length} vetted`, moved && `${moved} on the board`, still && `${still} still in Vetting (see what's missing)`, sites.found && `${sites.found} website${sites.found === 1 ? "" : "s"} found`, ranks.done && `${ranks.done} ranking${ranks.done === 1 ? "" : "s"} saved`, checked?.moved?.skip && `${checked.moved.skip} not worth pursuing`].filter(Boolean).join(" · ");
-  });
+  };
+  useClaudeHandler("vet", handleVet);
   useClaudeJob("find-leads", { label: "Find new leads", order: 4, render: (o, close) => <FindLeadsModal area={areaCentres.join(", ")} miles={areaMiles} exclude={list.slice(-80).map((l) => l.business)} onClose={close} /> });
   // Replies pasted into the one "Paste from Claude" box land here, whichever prompt they came from.
-  useClaudeHandler("lead-check", (text) => {
+  const handleCheck = (text) => {
     const list = parseLeadCheck(text);
     if (!list.length) throw new Error("No leads in that reply. Make sure Claude kept the lead_id values.");
     const r = applyLeadCheck(list);
     return [`${r.done} lead${r.done === 1 ? "" : "s"} updated`, r.left && `${r.left} left alone (Ready to send or in conversation)`, r.moved.back && `${r.moved.back} back to To assess`, r.moved.draft && `${r.moved.draft} to Email to draft`, r.moved.skip && `${r.moved.skip} to Not pursuing`, r.rescanned && `${r.rescanned} rescanning on a new website`].filter(Boolean).join(" · ");
+  };
+  useClaudeHandler("lead-check", handleCheck);
+  // Everything at once: one prompt with every pending job, one JSON reply split back to each job.
+  useClaudeJob("all", { label: "All", order: 0, count: () => allPending(list).total, render: (o, close) => <AllModal leads={list} onClose={close} /> });
+  useClaudeHandler("all", (text) => {
+    const t = String(text || ""); const fenced = t.match(/```(?:json)?\s*([\s\S]*?)```/i); const raw = fenced ? fenced[1] : t;
+    let d; try { d = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1)); } catch { throw new Error("The reply isn't valid JSON. Ask Claude for the one JSON block only, then paste it again."); }
+    const out = [];
+    const run = (label, arr, fn) => { if (!Array.isArray(arr) || !arr.length) return; try { out.push(`${label}: ${fn(JSON.stringify(arr))}`); } catch (e) { out.push(`${label}: ${e.message}`); } };
+    run("Vetting", d.vet, handleVet);
+    run("Issues", d.check, handleCheck);
+    run("Emails", d.emails, (j) => handleDraftBatch(`{"emails":${j}}`));
+    run("Rankings", d.rankings, (j) => handleRank(`{"leads":${j}}`));
+    if (!out.length) throw new Error("Nothing in that reply. It should have vet, check, emails and rankings lists.");
+    return out.join(" | ");
   });
   useClaudeHandler("find-sites", (text) => {
     const r = applySites(parseSitesReply(text));
@@ -1223,7 +1241,10 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           <span className="text-xs text-zinc-500">{boardTab === "vetting" ? "Website verified, contact found and Google ranking checked, then it goes on the board by itself." : "Only vetted leads, ready to work."}</span>
         </div>
       ); })()}
-      {boardTab === "vetting" ? <VettingList leads={visible.filter((l) => l.status === "vetting")} onOpen={(id) => setOpen(id)} onVet={(ids) => openClaude({ job: "vet", preset: ids })} onSend={(l) => update(l.id, { status: boardColumn(l), statusBy: "you" })} onPark={(l) => update(l.id, { status: "not-pursuing", statusBy: "you", likelihoodWhy: "Vetting: not worth it" })} /> :
+      {boardTab === "vetting" ? <VettingList leads={visible.filter((l) => l.status === "vetting")} onOpen={(id) => setOpen(id)} onVet={(ids) => openClaude({ job: "vet", preset: ids })} onSend={(l) => update(l.id, { status: boardColumn(l), statusBy: "you" })} onPark={(l) => update(l.id, { status: "not-pursuing", statusBy: "you", likelihoodWhy: "Vetting: not worth it" })}
+        onSite={(l, v) => { const h = String(v).trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""); if (!h.includes(".")) return; update(l.id, { website: h, websiteConfirmed: true, websiteVerified: "confirmed by you", websiteEvidence: "confirmed by you", websiteNeeded: false, noWebsiteConfirmed: false, websiteDoubt: "", ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}) }); setTimeout(() => refreshLeads([l.id]), 50); }}
+        onNoSite={(l) => update(l.id, { website: "", noWebsiteConfirmed: true, websiteNeeded: false, problem: "No website", problemDetail: "Checked by hand: they have no website" })}
+        onEmail={(l, v) => { const e = v.toLowerCase(); if (/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(e)) update(l.id, { emailAddress: e, emailFrom: "Added by you", contactUnverified: false }); }} /> :
       <Board onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} hideCols={showParked || filtering ? ["vetting"] : ["vetting", "not-pursuing", "lost"]} leads={onBoard} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status, statusBy: "you" }); }} />}
 
@@ -2230,39 +2251,104 @@ function FindSitesModal({ leads, preset, onClose, onApply }) {
 }
 
 // Search rankings with Claude: the searches their customers really make, and where they come.
-// The vetting list: what each lead still needs before it goes on the board.
-function VettingList({ leads, onOpen, onVet, onSend, onPark }) {
+// The vetting list: Claude does the first pass; anything it couldn't settle waits for you, with the next step in the row.
+function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, onEmail }) {
   const [shown, setShown] = useState(100);
-  const rows = sorted(leads).sort((a, b) => (a.vetAt ? 1 : 0) - (b.vetAt ? 1 : 0));
-  const need = { site: 0, contact: 0, search: 0 };
-  for (const l of rows) { const c = vetChecks(l); if (!c.site) need.site++; if (!c.contact) need.contact++; if (!c.search) need.search++; }
+  const all = sorted(leads);
+  const waiting = all.filter((l) => !l.vetAt);
+  const needsYou = all.filter((l) => l.vetAt);
   const chip = (ok, label, title) => <span title={title} className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${ok ? "bg-emerald-100 text-emerald-800" : "bg-red-50 text-red-700"}`}>{ok ? "✓" : "✗"} {label}</span>;
+  const input = "w-48 rounded border border-zinc-300 px-2 py-0.5 text-xs";
+  // The one thing to do next: find the site, confirm it, or add a contact.
+  const nextStep = (l) => {
+    const c = vetChecks(l);
+    if (!c.site && !l.website) return <span className="flex items-center gap-1"><input key={`s${l.id}`} placeholder="Paste their website" className={input} onKeyDown={(e) => { if (e.key === "Enter" && e.currentTarget.value.trim()) onSite(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (e.target.value.trim()) onSite(l, e.target.value.trim()); }} /><a href={`https://www.google.co.uk/search?q=${encodeURIComponent(`"${l.business}"`)}`} target="_blank" rel="noopener" className="text-xs text-blue-700 hover:underline">Google</a><button onClick={() => onNoSite(l)} className="text-xs text-zinc-500 hover:underline">no website</button></span>;
+    if (!c.site) return <span className="flex items-center gap-1 text-xs"><a href={`https://${l.website}`} target="_blank" rel="noopener" className="text-blue-700 hover:underline">Open {l.website}</a><button onClick={() => onOpen(l.id)} className="rounded border border-zinc-300 px-1.5 py-0.5 hover:bg-zinc-100">Confirm it’s theirs</button></span>;
+    if (!c.contact) return <span className="flex items-center gap-1"><input key={`e${l.id}`} type="email" placeholder="Paste an email address" className={input} onKeyDown={(e) => { if (e.key === "Enter" && /@/.test(e.currentTarget.value)) onEmail(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (/@/.test(e.target.value)) onEmail(l, e.target.value.trim()); }} />{l.website && <a href={`https://${l.website}/contact`} target="_blank" rel="noopener" className="text-xs text-blue-700 hover:underline">Contact page</a>}</span>;
+    return null;
+  };
+  const row = (l, mine) => { const c = vetChecks(l); const w = (l.seo?.searches || [])[0];
+    return (
+      <li key={l.id} className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm">
+        <button onClick={() => onOpen(l.id)} className="min-w-0 text-left font-medium hover:underline">{l.business}</button>
+        {businessLabel(l) && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-semibold text-white">{businessLabel(l)}</span>}
+        <span className="ml-auto flex flex-wrap items-center gap-1">
+          {chip(c.site, l.website ? `Site: ${l.website}` : l.noWebsiteConfirmed ? "No website (confirmed)" : "Site: not found", l.website && !c.site ? "Not verified yet" : "")}
+          {chip(c.contact, l.emailAddress ? `Contact: ${l.emailAddress}` : "Contact: none")}
+          {chip(c.search, !l.website ? "Google: n/a" : w && (l.seo?.claudeAt || l.seo?.manual) ? `Google: ${w.position ? `#${w.position}` : "not p1"} “${w.query}”` : "Google: not checked")}
+          {mine && nextStep(l)}
+          <button onClick={() => onSend(l)} title="Put it on the board now, as it is" className="rounded border border-zinc-300 px-2 py-0.5 text-xs hover:bg-zinc-100">To board</button>
+          <button onClick={() => onPark(l)} title="Not worth it" className="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-500 hover:bg-zinc-100">✕</button>
+        </span>
+      </li>
+    ); };
   return (
-    <div className="mt-3 rounded-xl border border-zinc-200 bg-white">
-      <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-4 py-3 text-sm">
-        <span className="font-semibold">{rows.length} lead{rows.length === 1 ? "" : "s"} to vet</span>
-        <span className="text-xs text-zinc-500">{need.site} need the website checked · {need.contact} need a contact · {need.search} need a Google ranking</span>
-        {rows.length > 0 && <button onClick={() => onVet(rows.filter((l) => !l.vetAt).map((l) => l.id))} className="ml-auto rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700">Vet {rows.filter((l) => !l.vetAt).length || rows.length} with Claude</button>}
+    <div className="mt-3 space-y-3">
+      <div className="rounded-xl border border-zinc-200 bg-white">
+        <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-4 py-3 text-sm">
+          <span className="font-semibold">Waiting for Claude ({waiting.length})</span>
+          <span className="text-xs text-zinc-500">Not vetted yet: Claude checks the website, finds a contact and runs the Google search.</span>
+          {waiting.length > 0 && <button onClick={() => onVet(waiting.map((l) => l.id))} className="ml-auto rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700">Vet {waiting.length} with Claude</button>}
+        </div>
+        {waiting.length === 0 ? <p className="p-4 text-sm text-zinc-500">Nothing waiting. New leads land here first.</p> : <ul className="divide-y divide-zinc-100">{waiting.slice(0, shown).map((l) => row(l, false))}</ul>}
       </div>
-      {rows.length === 0 && <p className="p-4 text-sm text-zinc-500">Nothing to vet. New leads land here first.</p>}
-      <ul className="divide-y divide-zinc-100">
-        {rows.slice(0, shown).map((l) => { const c = vetChecks(l); const w = (l.seo?.searches || [])[0];
-          return (
-            <li key={l.id} className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm">
-              <button onClick={() => onOpen(l.id)} className="min-w-0 text-left font-medium hover:underline">{l.business}</button>
-              {businessLabel(l) && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-semibold text-white">{businessLabel(l)}</span>}
-              {l.vetAt && <span className="text-[11px] text-zinc-500" title="Claude has looked at this one; something is still missing">vetted {new Date(l.vetAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>}
-              <span className="ml-auto flex flex-wrap items-center gap-1">
-                {chip(c.site, l.website ? `Site: ${l.website}` : l.noWebsiteConfirmed ? "No website (confirmed)" : "Site: not found yet", l.website ? (c.site ? l.websiteVerified || "confirmed" : "Not verified yet: open it and confirm, or let Claude check") : "")}
-                {chip(c.contact, l.emailAddress ? `Contact: ${l.emailAddress}` : "Contact: none yet")}
-                {chip(c.search, !l.website ? "Google: n/a" : w && (l.seo?.claudeAt || l.seo?.manual) ? `Google: ${w.position ? `#${w.position}` : "not p1"} “${w.query}”` : "Google: not checked")}
-                <button onClick={() => onSend(l)} title="Put it on the board now, as it is" className="rounded border border-zinc-300 px-2 py-0.5 text-xs hover:bg-zinc-100">To board</button>
-                <button onClick={() => onPark(l)} title="Not worth it" className="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-500 hover:bg-zinc-100">✕</button>
-              </span>
-            </li>
-          ); })}
-      </ul>
-      {rows.length > shown && <button onClick={() => setShown((n) => n + 200)} className="w-full border-t border-zinc-200 py-2 text-xs text-zinc-600 hover:bg-zinc-50">Show more ({rows.length - shown})</button>}
+      <div className="rounded-xl border border-amber-200 bg-white">
+        <div className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm">
+          <span className="font-semibold">Needs you ({needsYou.length})</span>
+          <span className="text-xs text-zinc-600">Claude couldn’t settle these. Do the step in each row: paste the website (it then looks for contacts again), confirm it, or add an email. Done ones go to the board by themselves.</span>
+        </div>
+        {needsYou.length === 0 ? <p className="p-4 text-sm text-zinc-500">Nothing needs you.</p> : <ul className="divide-y divide-zinc-100">{needsYou.slice(0, shown).map((l) => row(l, true))}</ul>}
+      </div>
+      {all.length > shown * 2 && <button onClick={() => setShown((n) => n + 200)} className="w-full rounded-md border border-zinc-200 py-2 text-xs text-zinc-600 hover:bg-zinc-50">Show more</button>}
+    </div>
+  );
+}
+// What each Claude job would take right now, for the All prompt.
+const vetItem = (l) => ({ id: l.id, business: l.business, companyNumber: l.companyNumber, address: l.address || l.area, sic: sicDescription(l.sics || []), website: l.website || "", issue: [l.problem, l.problemDetail].filter(Boolean).join(": "), contacts: (l.contacts || []).slice(0, 5).map((p) => `${p.name} (${p.role}${p.email ? `, ${p.email}` : ""})`).join("; "), rejected: (l.rejectedSites || []).join(", ") });
+function allPending(leads) {
+  const vet = leads.filter((l) => l.status === "vetting" && !l.vetAt && !l.optedOut);
+  const check = leads.filter((l) => (l.status || "new") === "new" && !l.claude && !claudeSkip(l));
+  const draft = leads.filter((l) => l.status === "to-draft" && !l.review?.drafted);
+  const rank = leads.filter((l) => rankable(l) && l.status !== "vetting" && !l.seo?.claudeAt);
+  return { vet, check, draft, rank, total: vet.length + check.length + draft.length + rank.length };
+}
+function allPrompt(p) {
+  const parts = [];
+  if (p.vet.length) parts.push(["vet", "Vet these leads", leadCheckPrompt(p.vet.map(vetItem), { vet: true })]);
+  if (p.check.length) parts.push(["check", "Check these leads for the issue to raise", leadCheckPrompt(p.check.map(vetItem))]);
+  if (p.draft.length) parts.push(["emails", "Write these emails", draftBatchPrompt(p.draft.map((l) => ({ l, first: greetNames(l.contactName), ...briefOf(l) })))]);
+  if (p.rank.length) parts.push(["rankings", "Check these Google rankings", rankCheckPrompt(p.rank.map((l) => ({ id: l.id, business: l.business, companyNumber: l.companyNumber, address: l.address || l.area || "", website: l.website, what: l.tradeOverride || l.whatTheyDo || l.trade || "", town: l.searchTown || (l.tradesElsewhere ? "" : l.tradingTown) || "" })))]);
+  if (!parts.length) return "";
+  return `There are ${parts.length} separate tasks below for ICL Digital. Do every one of them, in full, for every lead listed.
+
+Each task describes the JSON it wants. IGNORE each task's own "reply with" instruction: instead reply ONCE, at the very end, with ONE JSON code block holding all of them together, in exactly this shape:
+\`\`\`json
+{ ${parts.map(([k]) => `"${k}": [ /* the list of objects that task asks for */ ]`).join(", ")} }
+\`\`\`
+(For the emails task use its "emails" list; for the rankings task use its "leads" list.) No other text.
+
+${parts.map(([k, title, body], n) => `==================== TASK ${n + 1}: ${title} (goes in "${k}") ====================\n\n${body}`).join("\n\n")}`;
+}
+function AllModal({ leads, onClose }) {
+  const p = allPending(leads);
+  const [copied, setCopied] = useState(false);
+  const prompt = p.total ? withTitle("All jobs", `${p.total} items`, allPrompt(p)) : "";
+  async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("vet", p.vet.map((l) => l.id)); markSent("lead-check", p.check.map((l) => l.id)); markSent("draft-batch", p.draft.map((l) => l.id)); markSent("rank-check", p.rank.map((l) => l.id)); }
+  const row = (n, label) => <li className={n ? "" : "text-zinc-400"}><b>{n}</b> {label}</li>;
+  return (
+    <div className="space-y-4 text-sm">
+      <div>
+        <span className="font-semibold">1. Everything waiting, in one prompt</span>
+        <ul className="mt-1 space-y-0.5 text-xs text-zinc-700">{row(p.vet.length, "to vet (website, contact, Google)")}{row(p.check.length, "in To assess to check for an issue")}{row(p.draft.length, "emails to write")}{row(p.rank.length, "Google rankings to check on the board")}</ul>
+        <p className="mt-1 text-[11px] text-zinc-500">Big batches take Claude a while; it all comes back as one JSON to paste. Each lead is only included once per job.</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">2. Run it in Claude</span>
+        <span className="ml-auto flex gap-2">
+          <button onClick={() => copy(false)} disabled={!prompt} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-40">{copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />} Copy prompt</button>
+          <button onClick={() => copy(true)} disabled={!prompt} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"><ExternalIcon /> Copy and open Claude</button>
+        </span>
+      </div>
+      <div><span className="font-semibold">3. Paste the reply</span><PasteHint className="mt-1" /></div>
     </div>
   );
 }
