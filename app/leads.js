@@ -1637,9 +1637,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
           {(l.whatTheyDo || l.siteDescription || l.background || l.sics?.length) && (
             <p className="text-sm text-zinc-700">
               <span className={`font-medium ${cf.includes("whatTheyDo") ? "text-orange-700" : ""}`} title={cf.includes("whatTheyDo") ? "From Claude's check" : l.sicStale ? `Companies House lists this company as: ${sicDescription(l.sics)}. The website says otherwise, so that is hidden.` : undefined}>{l.whatTheyDo || sicDescription(l.sics) || (l.sics?.length ? `SIC ${l.sics[0]}` : "")}</span>
-              {l.background && <span className="text-zinc-500"> · {l.background}</span>}{l.area && <span className="text-zinc-500"> · {l.area}</span>}
-              {l.siteDescription && <span className="block text-zinc-500">“{l.siteDescription}”</span>}
-              {l.tradingAddress && <span className={`block ${l.tradesElsewhere ? "font-medium text-red-700" : "text-zinc-500"}`}>Trades from {l.tradingAddress}{l.tradesElsewhere ? " — outside our area; only the registered office is local" : ""}</span>}
+              {l.tradesElsewhere && l.tradingAddress && <span className="block font-medium text-red-700">Trades from {l.tradingAddress} — outside our area; only the registered office is local</span>}
             </p>
           )}
           {l.websiteNeeded && !l.website && (
@@ -1651,24 +1649,6 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
               </span>
             </div>
           )}
-          {l.claude && l.status !== "not-pursuing" && (() => {
-            const c = l.claude, ok = c.worth_contacting;
-            const row = (label, text) => text ? <div className="flex gap-1.5"><span className="w-14 shrink-0 text-zinc-500">{label}</span><span className="min-w-0">{text}</span></div> : null;
-            return (
-              <div className={`rounded-lg border px-3 py-2 text-xs ${ok ? "border-green-200 bg-green-50 text-green-950" : "border-red-200 bg-red-50 text-red-950"}`}>
-                <div className="mb-1 flex items-baseline gap-2 text-sm"><span className="font-semibold">{ok ? "Worth contacting" : "Not worth contacting"}<span className="ml-1.5 text-[11px] font-normal opacity-60">AI check</span></span><span className="text-[11px] opacity-60">checked {new Date(c.checkedAt).toLocaleDateString("en-GB")}</span>{c.sources?.length > 0 && <details className="relative ml-auto text-[11px] opacity-70"><summary className="cursor-pointer">sources</summary><div className="absolute right-0 z-10 mt-1 w-80 max-w-md rounded-md border border-zinc-200 bg-white p-2 shadow">{c.sources.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" className="block break-all text-blue-700 underline">{u}</a>)}</div></details>}</div>
-                {!ok && <div>{oneLine(c.reason) || oneLine(c.issue_note) || "Claude did not think this one is worth contacting."}</div>}
-                <div className={ok ? "space-y-0.5" : "hidden"}>
-                  {row("Raise", oneLine(c.angle) || (c.issue_confirmed ? oneLine(l.problemDetail || l.problem) : oneLine(c.issue_note)) || oneLine(l.subject))}
-                  {ok && row("Why", oneLine(c.reason))}
-                  {row("Does", [oneLine(c.what_they_do), oneLine(c.location)].filter(Boolean).join(" · "))}
-                  {row("Issue", `${c.issue_confirmed ? "Confirmed" : "Not confirmed"}${c.issue_note ? `: ${oneLine(c.issue_note)}` : ""}`)}
-                  {c.contact?.name && row("Contact", <>{c.contact.name}{c.contact.role ? `, ${oneLine(c.contact.role)}` : ""}{c.contact.email ? ` · ${c.contact.email}` : " · no published email"}{c.contact.linkedin && <> · <a href={c.contact.linkedin} target="_blank" rel="noreferrer" className="text-blue-700 underline">LinkedIn</a></>}</>)}
-                  {!c.website_is_theirs && row("Website", c.correct_website ? `Wasn’t theirs; switched to ${c.correct_website}` : "Wasn’t theirs; none found")}
-                </div>
-              </div>
-            );
-          })()}
           {l.status === "not-pursuing" ? (
             <div className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">Not worth pursuing.</span> {parkExplain(l)} <span className="text-red-700">Change the status above if you still want to go for it.</span>
               {l.claude && (() => { const c = l.claude; return (
