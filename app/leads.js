@@ -66,10 +66,20 @@ function emailSource(l) {
 // Each name in "Hi …," and where it came from: the person found (Companies House, the site, Hunter, Claude), else as saved.
 function nameSources(l) {
   const names = String(l.contactName || "").split(/\s*(?:,|&|\band\b)\s*/i).map((x) => x.trim()).filter(Boolean);
+  const same = (full, n) => firstNameOf(full || "").toLowerCase() === n.toLowerCase();
   return names.map((n) => {
-    const p = (l.contacts || []).find((x) => firstNameOf(x.name || "").toLowerCase() === n.toLowerCase());
+    const p = (l.contacts || []).find((x) => same(x.name, n));
     if (p) return `${n}: ${p.name}${p.role ? `, ${p.role}` : ""}${p.source ? ` (${p.source}${p.why && !/^Found by/.test(p.why) ? `: ${p.why}` : ""})` : ""}`;
-    return `${n}: ${l.nameFrom || "source not saved"}`;
+    const c = l.claude?.contact;
+    if (c?.name && same(c.name, n)) return `${n}: ${c.name}${c.role ? `, ${c.role}` : ""} (Claude${c.email_source ? `: ${c.email_source}` : ""})`;
+    return `${n}: ${l.nameFrom || "source not saved (added before sources were kept)"}`;
+  });
+}
+// The source of each greeting name, with a quick way to check an unexplained one.
+function NameSources({ l }) {
+  return nameSources(l).map((t) => {
+    const n = t.split(":")[0];
+    return <span key={t} className="mt-0.5 block text-[11px] text-zinc-600">Found: {t}{/source not saved/.test(t) && <> · <a href={`https://www.google.com/search?q=${encodeURIComponent(`"${n}" "${l.business}"`)}`} target="_blank" rel="noreferrer" className="text-blue-700 underline">check on Google</a></>}</span>;
   });
 }
 // Looks for the address on their site (home and contact pages) and saves the page it's on.
@@ -1673,7 +1683,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
               <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">To</div>
                 <input value={l.emailAddress || ""} onChange={(e) => onChange({ emailAddress: e.target.value, emailFrom: "Added by you", ...((l.status === "no-contact" || (l.status === "not-pursuing" && l.contactUnverified)) && e.target.value.trim() ? { status: "new", contactUnverified: false } : {}) })} placeholder={l.emailNote || "email address"} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
               {<label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Name(s) for “Hi …,”</div>
-                <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value, nameFrom: "Added by you" })} placeholder="e.g. Paul and Louise" className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>}
+                <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value, nameFrom: "Added by you" })} placeholder="e.g. Paul and Louise" className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /><NameSources l={l} /></label>}
             </div>
             <label className="mt-2 block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Subject</div>
               <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
@@ -2008,7 +2018,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
               <div className="mt-2 rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1 text-sm text-zinc-500">
                 {/* The names go straight into the greeting: blank reads "Hi there,". */}
                 <div className="flex items-baseline gap-1">Hi <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value, nameFrom: "Added by you" })} placeholder="there" aria-label="Name(s) to greet, e.g. Paul and Louise" title="Name(s) to greet, e.g. Paul and Louise. Leave blank for “Hi there”." className="min-w-0 rounded border border-dashed border-zinc-300 bg-white px-1 py-0 text-sm text-zinc-900 placeholder:text-zinc-500" style={{ width: `${Math.max(5, (l.contactName || "").length + 2)}ch` }} />,</div>
-                {nameSources(l).map((t) => <span key={t} className="block text-[11px] text-zinc-600">Found: {t}</span>)}
+                <NameSources l={l} />
                 <div className="mt-2">{dayGreeting()}</div>
               </div>
               <AutoTextarea value={draftText} placeholder="Paste Claude’s email here" onChange={(e) => onChange({ email: e.target.value, emailEdited: true, review: { ...r, drafted: r.drafted || new Date().toISOString() } })} onPaste={(e) => { const t = e.clipboardData.getData("text"); if (!t || draftText.trim()) return; e.preventDefault(); const c = cleanPastedEmail(t); onChange({ email: c.body, emailEdited: true, ...(c.subject && !r.subjectTyped ? { subject: c.subject } : {}), review: { ...r, drafted: new Date().toISOString() } }); }} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
