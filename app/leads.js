@@ -1401,7 +1401,8 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             </div>
             {(() => {
               const stored = l.seo?.searches?.find((x) => x.kind === "trade");
-              const town = l.tradingTown || l.area || "";
+              // The town in the search: what you typed, else where their website says they trade, else the registered office.
+              const town = l.searchTown || l.tradingTown || l.area || "";
               const autoTrade = l.tradeOverride || l.trade || (stored && town && stored.query.toLowerCase().endsWith(" " + town.toLowerCase()) ? stored.query.slice(0, -town.length - 1) : stored?.query || "");
               const query = [autoTrade, town].filter(Boolean).join(" ");
               const rank = !stored || stored.manual === undefined && stored.position === undefined ? "" : stored.position === 1 ? "top" : stored.position === 2 ? "top3" : stored.position === 5 ? "page1" : stored.position === null ? "none" : stored.position <= 3 ? "top3" : stored.position <= 10 ? "page1" : "none";
@@ -1418,7 +1419,8 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                   <label className="inline-flex items-center gap-1 text-xs text-zinc-600">searching for
                     <input key={`${l.id}:${l.tradeOverride || ""}:${autoTrade}`} defaultValue={autoTrade} onBlur={(e) => { const v = e.target.value.trim(); if (v !== autoTrade) onChange({ tradeOverride: v, seo: null }); }} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }} placeholder="e.g. trophy shop" className="rounded border border-zinc-300 px-1.5 py-0.5 text-xs" style={{ width: `${Math.max(12, (autoTrade || "").length + 2)}ch` }} />
-                    {town ? <span>in {town}</span> : null}
+                    <span>in</span>
+                    <input key={`${l.id}:town:${town}`} defaultValue={town} onBlur={(e) => { const v = e.target.value.trim(); if (v !== town) onChange({ searchTown: v, seo: null }); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder="town" className="w-28 rounded border border-zinc-300 px-1.5 py-0.5 text-xs" />
                   </label>
                   {query && <a href={`https://www.google.com/search?q=${encodeURIComponent(query)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100">Search on Google <ExternalIcon /></a>}
                   <select value={rank} onChange={(e) => setRank(e.target.value)} className={`rounded-md border px-2 py-1 text-xs ${rank === "top" ? "border-green-300 bg-green-50 text-green-800" : rank === "none" || rank === "page1" ? "border-red-300 bg-red-50 text-red-800" : rank ? "border-amber-300 bg-amber-50 text-amber-800" : "border-zinc-300 bg-white"}`}>
