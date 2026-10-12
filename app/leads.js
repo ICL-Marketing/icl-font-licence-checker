@@ -2310,14 +2310,20 @@ function VetModal({ leads, preset, onClose }) {
     </div>
   );
 }
+// What the email is about: the brief saved at step 2, else Claude's issue, else the checker's problem.
+function briefOf(l) {
+  if (l.draftBrief) return l.draftBrief;
+  const lead = l.claude?.issue_label || l.claude?.angle || [l.problem, l.problemDetail].filter(Boolean).join(": ") || "A few thoughts on their website";
+  return { leadWith: lead, also: [], notes: l.review?.notes || "", path: suggestPath(lead, l), template: "" };
+}
 // Every lead waiting in Email to draft, written by Claude in one prompt from the brief saved at step 2.
 function DraftBatchModal({ leads, preset, onClose }) {
-  const pool = sorted(leads.filter((l) => l.status === "to-draft" && l.draftBrief));
+  const pool = sorted(leads.filter((l) => l.status === "to-draft"));
   const [size, setSize] = useState("all");
   const waitingFor = (done = []) => { const w = sentIds("draft-batch"); return pool.filter((l) => !l.review?.drafted && !done.includes(l.id) && !w.has(l.id)); };
   const [picked, setPicked] = useState(() => (preset.length ? preset : waitingFor().map((l) => l.id)));
   const [copied, setCopied] = useState(false);
-  const items = picked.map((id) => leads.find((l) => l.id === id)).filter((l) => l?.draftBrief).map((l) => ({ l, first: greetNames(l.contactName), ...l.draftBrief }));
+  const items = picked.map((id) => leads.find((l) => l.id === id)).filter(Boolean).map((l) => ({ l, first: greetNames(l.contactName), ...briefOf(l) }));
   const prompt = items.length ? withTitle("Email drafts", `${items.length} lead${items.length === 1 ? "" : "s"}`, draftBatchPrompt(items)) : "";
   const nextBatch = (n, done = []) => { setSize(n); setPicked(waitingFor(done).slice(0, n === "all" ? undefined : n).map((l) => l.id)); };
   async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("draft-batch", picked); if (size !== "all") nextBatch(size, picked); }
