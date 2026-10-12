@@ -1,10 +1,11 @@
 "use client";
 
+import { mailHref } from "@/app/mail";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint } from "@/app/claudeInbox";
-import { ICL_LINE } from "@/lib/leadsShared";
+import { iclFooter } from "@/lib/leadsShared";
 import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, greetingFor, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, BUILT_LABEL, ideaType, supportEmail, PLANS } from "@/lib/clientIdeas";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
@@ -306,7 +307,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
           <summary className="cursor-pointer font-semibold text-zinc-700">Support list ({supportFixes.length + tasks.length}) <span className="font-normal text-zinc-500">· fixes on sites we built (no estimate) and our own checks failing</span></summary>
           {supportFixes.length > 0 && <div className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Fixes on sites we built</div>}
           <ul className="mt-1 space-y-1.5">
-            {supportFixes.map((f) => { const r = f.clientRec; const to = (r?.emails || [])[0] || ""; const mail = (mode) => { const e = supportEmail(r, f, to, mode); return `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(to)}&subject=${encodeURIComponent(e.subject)}&body=${encodeURIComponent(e.body)}`; };
+            {supportFixes.map((f) => { const r = f.clientRec; const to = (r?.emails || [])[0] || ""; const mail = (mode) => { const e = supportEmail(r, f, to, mode); return mailHref(to, e.subject, e.body); };
               return (
                 <li key={`${f.recId}|${f.key}`} className="flex flex-wrap items-center gap-2">
                   <span className="rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">Fix</span>
@@ -344,7 +345,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
                   {g.top.length === 0 && <div className="text-xs text-zinc-400">No big ideas yet.</div>}
                   {g.top.map((it, n) => {
                     const r = g.recs.find((x) => x.id === it.recId) || g.recs[0]; const to = (r?.emails || [])[0] || "";
-                    const href = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(to)}&subject=${encodeURIComponent(it.subject || "")}&body=${encodeURIComponent(ideaEmail(r, it, to))}`;
+                    const href = mailHref(to, it.subject || "", ideaEmail(r, it, to));
                     return (
                       <div key={`${it.recId}|${it.key}`} onClick={() => setOpen({ id: it.recId, key: it.key })} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setOpen({ id: it.recId, key: it.key }); }} className={`relative cursor-pointer snap-start rounded-lg border p-2.5 pr-8 hover:border-zinc-400 hover:bg-zinc-50 ${it.starred ? "border-amber-300 bg-amber-50/40" : "border-zinc-200"}`}>
                         <button onClick={(e) => { e.stopPropagation(); updateIdea(it.recId, it.key, { starred: !it.starred }); }} aria-label={it.starred ? "Unstar" : "Star this idea"} title={it.starred ? "Starred: kept at the front. Click to unstar" : "Star a good idea to prioritise it"} className={`absolute right-2 top-2 text-lg leading-none ${it.starred ? "text-amber-500" : "text-zinc-300 hover:text-amber-400"}`}>{it.starred ? "★" : "☆"}</button>
@@ -453,7 +454,7 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onRec, onBad }) {
   const [to, setTo] = useState((r.emails || [])[0] || "");
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
   const full = ideaEmail(r, idea, to);
-  const outlook = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(to)}&subject=${encodeURIComponent(idea.subject || "")}&body=${encodeURIComponent(full)}`;
+  const outlook = mailHref(to, idea.subject || "", full);
   async function copy() { try { await navigator.clipboard.writeText(`Subject: ${idea.subject || ""}\n\n${full}`); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {} }
   const greet = greetingFor(r, to);
   const greeting = `${full.split("\n\n")[0]}\n\n${IDEA_GREETING}`;
@@ -521,7 +522,7 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onRec, onBad }) {
               <input value={idea.subject || ""} onChange={(e) => onIdea({ subject: e.target.value, edited: true })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
             <pre className="mt-2 whitespace-pre-wrap rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1.5 font-sans text-sm text-zinc-600" title="Written automatically on the day you send">{greeting}</pre>
             <AutoTextarea value={idea.email || ""} onChange={(e) => onIdea({ email: e.target.value, edited: true })} className="w-full rounded-b-md border border-zinc-300 px-2 py-1 text-sm" />
-            <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{ICL_LINE}</pre>
+            <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{iclFooter(false)}</pre>
             {idea.edited && <button onClick={() => { const fresh = ideasFor({ ...r, ideas: [] }).find((i) => i.key === idea.key); if (fresh) onIdea({ subject: fresh.subject, email: fresh.email, edited: false }); }} className="mt-1 text-xs text-zinc-500 underline">Restore the app’s draft</button>}
           </div>
 

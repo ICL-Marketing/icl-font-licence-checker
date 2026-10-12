@@ -1,5 +1,6 @@
 "use client";
 
+import { mailHref } from "@/app/mail";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -945,7 +946,7 @@ function EmailCard({ e, open, toggle, result, client }) {
   const edited = Object.keys(edits).length > 0;
   // Outlook on the web: opens a new message with the addresses, subject and text filled in.
   // Plain text only; the spreadsheet, when there is one, still has to be attached by hand.
-  const outlook = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent((client?.emails || []).join(","))}&subject=${encodeURIComponent(e.subject || "")}&body=${encodeURIComponent(text)}`;
+  const outlook = mailHref((client?.emails || []).join(","), e.subject || "", text);
 
   function update(id, value) {
     setEdits((prev) => {

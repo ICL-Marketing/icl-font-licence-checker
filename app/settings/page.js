@@ -6,6 +6,8 @@ import { TeamEditor, loadTeam, saveTeam, normaliseTeam } from "@/app/team";
 import { ClientsEditor, loadClients, saveClients } from "@/app/clients";
 import { normaliseClients } from "@/lib/clients";
 import { keysFor } from "@/app/launch";
+import { DEFAULT_SUBJECTS_SHARED, iclFooter } from "@/lib/leadsShared";
+import { MAIL_KEY } from "@/app/mail";
 
 export default function Settings() {
   const [team, setTeam] = useState([]);
@@ -129,6 +131,25 @@ export default function Settings() {
           )}
         </section>
       )}
+      {section === "emails" && (
+        <>
+          <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+            <h2 className="font-semibold">Opening emails</h2>
+            <p className="mb-3 text-sm text-zinc-500">Outlook on the web can’t be told which font to use, so the text can come out a different size from your signature. The Outlook app always uses your own default font. This choice is saved on this computer only.</p>
+            <MailChoice />
+          </section>
+          <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+            <h2 className="font-semibold">Closing paragraph</h2>
+            <p className="mb-2 text-sm text-zinc-500">Added to the end of every email when it is copied or opened. Client emails leave out the first sentence.</p>
+            <p className="rounded-md bg-zinc-50 px-3 py-2 text-sm text-zinc-700">{iclFooter(true)}</p>
+          </section>
+          <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+            <h2 className="font-semibold">Email subjects and details</h2>
+            <p className="mb-3 text-sm text-zinc-500">What lead emails say about you: the pages they link to, who is writing, and the clients worth mentioning. Emails redraft on the next rescan.</p>
+            <LinksEditor />
+          </section>
+        </>
+      )}
       {section === "leads" && (
         <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
           <h2 className="font-semibold">Lead maintenance</h2>
@@ -162,11 +183,6 @@ export default function Settings() {
                     <li>Deployments → <b>Redeploy</b>, then reload this page.</li>
                   </ol>
                 </>}
-          </section>
-          <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
-            <h2 className="font-semibold">Lead email details</h2>
-            <p className="mb-3 text-sm text-zinc-500">What lead emails say about you: the pages they link to, who is writing, and the clients worth mentioning. Emails redraft on the next rescan.</p>
-            <LinksEditor />
           </section>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
             <h2 className="font-semibold">Web search for leads</h2>
@@ -263,7 +279,7 @@ export default function Settings() {
   );
 }
 
-const SECTIONS = [["team", "Team"], ["clients", "Clients"], ["leads", "Lead maintenance"], ["archived", "Archived checks"], ["connections", "Connections"]];
+const SECTIONS = [["team", "Team"], ["clients", "Clients"], ["emails", "Emails"], ["leads", "Lead maintenance"], ["archived", "Archived checks"], ["connections", "Connections"]];
 
 function StatusRow({ ok, label, detail }) {
   return (
@@ -310,8 +326,8 @@ function StatusPanel({ status }) {
   );
 }
 
-const SUBJECT_DEFAULTS = { "licence-font": "Font licence on your website", "licence-image": "A stock image on your website", "Broken SSL": "Your website is showing a security warning", "Dead/broken site": "Your website is down", "Parked domain": "Your domain isn't showing a website", "Stale copyright": "A few thoughts on your website", "Dated template": "Your website could be doing more for you", "No website": "Couldn't find you online", seo: "Your website in search", other: "A few thoughts on your website" };
-const SUBJECT_LABELS = { "licence-font": "Font licence", "licence-image": "Stock image", seo: "Search ranking", other: "Anything else" };
+const SUBJECT_DEFAULTS = DEFAULT_SUBJECTS_SHARED;
+const SUBJECT_LABELS = { "licence-font": "Font licence", "licence-image": "Stock image", seo: "Search ranking", other: "Anything else (default)" };
 const LINK_DEFAULTS = { site: "https://icldigital.com/", websites: "https://icldigital.com/services/websites/", videography: "https://icldigital.com/services/videography/", contact: "https://icldigital.com/get-in-touch/" };
 const LINK_LABELS = { site: "Homepage", websites: "Websites service page", videography: "Videography service page", contact: "Contact page" };
 const SENDER_DEFAULTS = { name: "Chris", role: "Lead Designer", agency: "ICL Digital", where: "Richmond" };
@@ -438,6 +454,17 @@ function KeywordTest() {
         <button onClick={run} disabled={!q.trim() || res?.busy} className="rounded-md border border-zinc-300 bg-white px-3 py-1 text-xs hover:bg-zinc-100 disabled:opacity-50">{res?.busy ? "Asking Google…" : "Test"}</button>
       </div>
       {res && !res.busy && <p className={`mt-2 text-xs ${res.ok ? "text-green-700" : "text-red-700"}`}>{res.ok ? `✓ "${q}": ${res.volume.toLocaleString("en-GB")} searches a month (UK).` : `✗ ${res.error}`}</p>}
+    </div>
+  );
+}
+
+function MailChoice() {
+  const [v, setV] = useState("web");
+  useEffect(() => { const t = setTimeout(() => { try { setV(localStorage.getItem(MAIL_KEY) || "web"); } catch {} }, 0); return () => clearTimeout(t); }, []);
+  const pick = (x) => { setV(x); try { localStorage.setItem(MAIL_KEY, x); } catch {} };
+  return (
+    <div className="inline-flex rounded-md border border-zinc-300 p-0.5 text-sm">
+      {[["web", "Outlook on the web"], ["app", "Outlook app (your default font)"]].map(([k, label]) => <button key={k} onClick={() => pick(k)} className={`rounded px-3 py-1 ${v === k ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>{label}</button>)}
     </div>
   );
 }
