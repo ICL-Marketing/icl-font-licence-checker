@@ -4,7 +4,7 @@ import { mailHref } from "@/app/mail";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, businessLabel, subjectForText, draftBatchPrompt, parseDraftBatch, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, to100, businessLabel, subjectForText, draftBatchPrompt, parseDraftBatch, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 import { mergeDoc } from "@/lib/merge";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, reportProgress, withTitle } from "@/app/claudeInbox";
@@ -138,7 +138,7 @@ const vetChecks = (l) => ({
 // Fields you change by hand: the lead gets a "Recently edited" tag in Vetting so it's easy to find again.
 const YOUR_EDITS = ["website", "websiteConfirmed", "noWebsiteConfirmed", "rejectedSites", "emailAddress", "contactName", "notes", "email", "subject"];
 const recentlyEdited = (l) => !!l.youEditedAt && Date.now() - new Date(l.youEditedAt).getTime() < 7 * 86400000;
-const vetted = (l) => { const c = vetChecks(l); return c.site && c.contact && c.search; };
+const vetted = (l) => { const c = vetChecks(l); return c.site && c.contact; }; // the Google check runs with Claude's vet but never holds a lead back
 // Where a vetted lead goes on the board: a problem to raise, nothing wrong (maintenance pitch), or no website.
 const boardColumn = (l) => (!l.website ? "not-pursuing" : l.problem ? "new" : "maintenance");
 function routeVetting(l) {
@@ -167,7 +167,8 @@ const cantFind = (l) => new RegExp(CANT_FIND.replace("’", "['’]"), "i").test
 function routeNoSite(l) {
   const was = l.status || "new";
   // No website anywhere (Claude searched, or you said so): nothing to pitch, so parked with the reason on the card.
-  if (noSiteReady(l) && ["vetting", "new", "qualified", "no-contact", "find-site", "no-website"].includes(was)) { l.status = "not-pursuing"; l.likelihoodWhy = CANT_FIND; if (!cantFind(l)) l.caveats = [CANT_FIND, ...String(l.caveats || "").split("; ").filter(Boolean)].join("; "); }
+  const confirmedNone = was === "vetting" && !l.website && l.noWebsiteConfirmed && !l.optedOut && !isFrozen(l); // in Vetting, no site means parked even if you'd started on it
+  if ((noSiteReady(l) || confirmedNone) && ["vetting", "new", "qualified", "no-contact", "find-site", "no-website"].includes(was)) { l.status = "not-pursuing"; l.likelihoodWhy = CANT_FIND; if (!cantFind(l)) l.caveats = [CANT_FIND, ...String(l.caveats || "").split("; ").filter(Boolean)].join("; "); }
   else if (was === "not-pursuing" && cantFind(l) && l.website) { l.status = "vetting"; l.caveats = String(l.caveats || "").split("; ").filter((x) => x && !/can['’]t find them online/i.test(x)).join("; "); if (l.likelihoodWhy === CANT_FIND) l.likelihoodWhy = ""; }
   else if (was === "find-site" && l.website) l.status = l.emailAddress ? "new" : "no-contact";
   if (l.status === was) return false;
@@ -189,7 +190,7 @@ const rankValue = (stored) => (!stored || (stored.manual === undefined && stored
 // A lead you've started reviewing or moved yourself: automatic checks never park it again.
 const handledByYou = (l) => !!l?.review || l?.statusBy === "you";
 const AUTO_PARK = ["not-pursuing", "no-contact"];
-const keepYourStatus = (all, before) => { for (const l of Object.values(all)) { const was = before[l.id]; if (was && l.status !== was && AUTO_PARK.includes(l.status) && !l.optedOut) { l.status = was; } } };
+const keepYourStatus = (all, before) => { for (const l of Object.values(all)) { const was = before[l.id]; if (was && l.status !== was && AUTO_PARK.includes(l.status) && !l.optedOut && !(was === "vetting" && cantFind(l))) { l.status = was; } } };
 // Not a limited company (no Companies House record): never cold-emailed, so parked whatever its column.
 const soleTrader = (l) => !l.companyNumber && (/not a limited company/i.test(l.caveats || "") || ["Google Maps", "Hiring", "Claude"].includes(l.source));
 function parkSoleTraders(all) {
@@ -330,6 +331,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       for (const l of Object.values(local)) if (l.status === "not-pursuing" && !l.review?.done && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); }
       // One-off: every lead imported from the Client Matrix sheet was closed as Lost (7 Oct 2026).
       for (const l of Object.values(local)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); }
+      for (const l of Object.values(local)) if (!isFrozen(l) && !["contacted", "replied", "meeting", "cold"].includes(l.status) && /over 200 |200\+ /i.test(l.email || "")) l.email = to100(l.email);
       for (const l of Object.values(local)) routeVetting(l);
       for (const l of Object.values(local)) routeNoSite(l);
       for (const l of Object.values(local)) holdForCheck(l);
@@ -361,6 +363,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const l of Object.values(next)) if (!isFrozen(l) && l.seo?.searches?.some((x) => x.kind !== "trade")) { l.seo = { ...l.seo, searches: l.seo.searches.filter((x) => x.kind === "trade") }; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "not-pursuing" && !l.review?.done && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (!isFrozen(l) && !["contacted", "replied", "meeting", "cold"].includes(l.status) && /over 200 |200\+ /i.test(l.email || "")) { l.email = to100(l.email); push(l.id, l); }
         for (const l of Object.values(next)) if (routeVetting(l)) push(l.id, l);
         for (const l of Object.values(next)) if (routeNoSite(l)) push(l.id, l);
         for (const l of Object.values(next)) if (holdForCheck(l)) push(l.id, l);
@@ -1245,7 +1248,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
             <button onClick={() => setBoardTab("vetting")} className={`rounded px-3 py-1 ${boardTab === "vetting" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>1. Vetting ({vetting.length})</button>
             <button onClick={() => setBoardTab("board")} className={`rounded px-3 py-1 ${boardTab === "board" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>2. Board ({onBoard.filter((l) => l.status !== "vetting").length})</button>
           </div>
-          <span className="text-xs text-zinc-500">{boardTab === "vetting" ? "Website verified, contact found and Google ranking checked, then it goes on the board by itself." : "Only vetted leads, ready to work."}</span>
+          <span className="text-xs text-zinc-500">{boardTab === "vetting" ? "Website verified and a contact found, then it goes on the board by itself." : "Only vetted leads, ready to work."}</span>
         </div>
       ); })()}
       {boardTab === "vetting" ? <VettingList leads={visible.filter((l) => l.status === "vetting")} onOpen={(id) => setOpen(id)} onVet={(ids) => openClaude({ job: "vet", preset: ids })} onSend={(l) => update(l.id, { status: boardColumn(l), statusBy: "you" })} onPark={(l) => update(l.id, { status: "not-pursuing", statusBy: "you", likelihoodWhy: "Vetting: not worth it" })}
@@ -2136,7 +2139,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
       </div>}
 
       <div className="rounded-lg border border-zinc-200 p-3">
-        {head(3, "Draft the email", !!r.done)}
+        {maint ? <div className="text-sm font-semibold text-zinc-900">Your maintenance email</div> : head(3, "Draft the email", !!r.done)}
         {step === 3 && lead && (
           <div className="mt-3 space-y-3 text-sm">
             {maint ? <p className="text-xs text-zinc-500">Web maintenance email, ready to go: check it, add the address and name, then Ready to send. Change the wording for everyone in <a href="/settings?section=templates" className="text-blue-700 underline">Settings → Email templates</a>.</p> : <>
@@ -2256,19 +2259,18 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
   // The one thing to do next: find the site, confirm it, or add a contact.
   const nextStep = (l) => {
     const c = vetChecks(l);
-    if (!c.site && !l.website) return <span className="flex items-center gap-1"><input key={`s${l.id}`} placeholder="Paste their website" className={input} onKeyDown={(e) => { if (e.key === "Enter" && e.currentTarget.value.trim()) onSite(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (e.target.value.trim()) onSite(l, e.target.value.trim()); }} /><a href={`https://www.google.co.uk/search?q=${encodeURIComponent(`"${l.business}"`)}`} target="_blank" rel="noopener" className="text-xs text-blue-700 hover:underline">Google</a><button onClick={() => onNoSite(l)} className="text-xs text-zinc-500 hover:underline">no website</button></span>;
+    if (!l.website) return <span className="flex items-center gap-1"><input key={`s${l.id}`} placeholder="Paste their website" className={input} onKeyDown={(e) => { if (e.key === "Enter" && e.currentTarget.value.trim()) onSite(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (e.target.value.trim()) onSite(l, e.target.value.trim()); }} /><a href={`https://www.google.co.uk/search?q=${encodeURIComponent(`"${l.business}"`)}`} target="_blank" rel="noopener" className="text-xs text-blue-700 hover:underline">Google</a><button onClick={() => onNoSite(l)} className="text-xs text-zinc-500 hover:underline">no website</button></span>;
     if (!c.site) return <span className="flex items-center gap-1 text-xs"><a href={`https://${l.website}`} target="_blank" rel="noopener" className="text-blue-700 hover:underline">Open {l.website}</a><button onClick={() => onOpen(l.id)} className="rounded border border-zinc-300 px-1.5 py-0.5 hover:bg-zinc-100">Confirm it’s theirs</button></span>;
     if (!c.contact) return <span className="flex items-center gap-1"><input key={`e${l.id}`} type="email" placeholder="Paste an email address" className={input} onKeyDown={(e) => { if (e.key === "Enter" && /@/.test(e.currentTarget.value)) onEmail(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (/@/.test(e.target.value)) onEmail(l, e.target.value.trim()); }} />{l.website && <a href={`https://${l.website}`} target="_blank" rel="noopener" className="text-xs text-blue-700 hover:underline">Search website</a>}{l.website && <button onClick={() => onHunter(l)} disabled={l.checking} className="text-xs text-blue-700 hover:underline disabled:opacity-40">{l.checking ? "Looking…" : l.hunterTried ? "Hunter again" : "Find with Hunter"}</button>}</span>;
     return null;
   };
   // Each lead waits in the first step it's stuck on: website, then contact, then Google.
   // Google and Contact only ever hold leads with a website: no site means step 1, whatever else is known.
-  const stepOf = (l) => { const c = vetChecks(l); return !l.website || !c.site ? "site" : !c.search ? "search" : "contact"; };
+  const stepOf = (l) => { const c = vetChecks(l); return !l.website || !c.site ? "site" : "contact"; };
   const cols = [
     ["claude", "Waiting for Claude", "Not vetted yet: Claude does all three steps in order.", waiting],
     ["site", "1. Website", "Paste their site, confirm it, or mark no website. Nothing else is searched until this is done.", needsYou.filter((l) => stepOf(l) === "site")],
-    ["search", "2. Google", "Check where they rank (Claude → Search rankings, or by hand), or skip it.", needsYou.filter((l) => stepOf(l) === "search")],
-    ["contact", "3. Contact", "Add an email: their site, Hunter, or one you found.", needsYou.filter((l) => stepOf(l) === "contact")],
+    ["contact", "2. Contact", "Add an email: their site, Hunter, or one you found.", needsYou.filter((l) => stepOf(l) === "contact")],
   ];
   const card = (l, col) => {
     const w = (l.seo?.searches || [])[0];
@@ -2283,13 +2285,11 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
           {l.emailAddress && <span className="text-zinc-600">{l.emailAddress}</span>}
         </div>
         {col === "site" || col === "contact" ? <div className="mt-1.5">{nextStep(l)}</div> : null}
-        {col === "search" && <div className="mt-1.5 flex flex-wrap items-center gap-2"><a href={`https://www.google.co.uk/search?q=${encodeURIComponent(q || l.business)}&gl=uk&pws=0`} target="_blank" rel="noopener" className="text-blue-700 hover:underline">Search “{q || l.business}”</a>
-          <select defaultValue="" onChange={(e) => { if (e.target.value) onRank(l, q || l.business, e.target.value); }} className="rounded border border-zinc-300 bg-white px-1 py-0.5 text-xs"><option value="">Where were they?</option><option value="top">Top</option><option value="top3">Top 3</option><option value="page1">Page 1</option><option value="none">Not on page 1</option></select></div>}
       </div>
     );
   };
   return (
-    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+    <div className="mt-3 grid gap-3 md:grid-cols-3">
       {cols.map(([id, label, hint, items]) => (
         <div key={id} className={`flex flex-col rounded-xl border p-2 ${id === "claude" ? "border-orange-200 bg-orange-50/40" : "border-zinc-200 bg-zinc-50"}`}>
           <div className="flex items-center gap-1.5 px-1 text-xs font-semibold text-zinc-700"><span>{label}</span><span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{items.length}</span></div>
