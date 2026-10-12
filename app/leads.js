@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
 import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, DEFAULT_SUBJECTS_SHARED, ICL_LINE, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
+import { mergeDoc } from "@/lib/merge";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, reportProgress } from "@/app/claudeInbox";
 
 // Website leads: local businesses whose site is letting them down, found
@@ -181,8 +182,10 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       fetch("/api/results?kind=leads").then((r) => r.json()).then((j) => {
         if (!j.shared) return;
         sharedRef.current = true;
-        const next = { ...local };
-        for (const [id, l] of Object.entries(j.results || {})) { if (!next[id] || String(l.updatedAt || "") >= String(next[id].updatedAt || "")) next[id] = l; }
+        const next = { ...leadsRef.current };
+        const pushBack = [];
+        for (const [id, l] of Object.entries(j.results || {})) { const m = mergeDoc(next[id], l); if (next[id] && JSON.stringify(m) !== JSON.stringify(l)) pushBack.push(id); next[id] = m; }
+        setTimeout(() => { for (const id of pushBack) if (leadsRef.current[id]) push(id, leadsRef.current[id]); }, 500);
         for (const l of Object.values(next)) if (l.email && !l.email.includes("\n\n")) l.email = l.email.trim().replace(/\n+/g, "\n\n");
         for (const l of Object.values(next)) if (/dormant/i.test(l.caveats || "") && (l.likelihood !== "Low" || !/dormant/i.test(l.likelihoodWhy || ""))) { l.likelihood = "Low"; l.likelihoodWhy = "Filed as dormant at Companies House, so not trading through this company; nothing to sell to"; if (["new", "qualified", "no-contact"].includes(l.status)) l.status = "not-pursuing"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status) && websiteIsVerified(l) && !(l.websiteConfirmed && !l.claude)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
@@ -207,18 +210,31 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     fetch("/api/leads").then((r) => r.json()).then(setCfg).catch(() => setCfg({ configured: false, areas: {}, sectors: {} }));
     setTimeout(() => { const sc = loadScan(); if (sc && (sc.queue?.length || sc.ids?.length)) setPending(sc); }, 0);
     return () => clearTimeout(t);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Shared saves are batched per lead (typing doesn't send a request per key) and flushed on refresh or close.
+  const pendingPush = useRef(new Map());
+  const pushTimer = useRef(null);
+  function flushPush(keepalive = false) {
+    clearTimeout(pushTimer.current);
+    for (const [id, l] of pendingPush.current) fetch("/api/results", { method: "POST", keepalive, headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "leads", site: id, data: l }) }).catch(() => {});
+    pendingPush.current.clear();
+  }
   function push(id, l) {
     if (!sharedRef.current) return;
-    fetch("/api/results", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "leads", site: id, data: l }) }).catch(() => {});
+    pendingPush.current.set(id, l);
+    clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(() => flushPush(), 600);
   }
+  useEffect(() => { const f = () => flushPush(true); window.addEventListener("pagehide", f); return () => window.removeEventListener("pagehide", f); }, []);
   // Latest leads outside React's render cycle, so updates during a long scan don't race.
   const leadsRef = useRef({});
   useEffect(() => { leadsRef.current = leads; }, [leads]);
   const update = (id, fields) => {
     const prev = leadsRef.current[id] || {};
-    const l = { ...prev, ...fields, id, updatedAt: new Date().toISOString() };
+    const now = new Date().toISOString();
+    // Every field this save changes is stamped, so a stale copy from another tab can't overwrite it later.
+    const l = { ...prev, ...fields, id, updatedAt: now, edits: { ...(prev.edits || {}), ...Object.fromEntries(Object.keys(fields).filter((k) => k !== "edits").map((k) => [k, now])) } };
     if (fields.status && fields.status !== prev.status) {
       l.statusAt = new Date().toISOString();
       // "Site is current; no outreach planned" stops being true the moment someone decides to pursue it.
@@ -1663,6 +1679,8 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
   const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState(false);
   const site = l.siteUrl || (l.website ? `${l.problem === "Broken SSL" ? "http" : "https"}://${l.website}` : "");
+  // A site you pasted or confirmed (or Claude confirmed) is theirs: no need to ask again.
+  const siteOk = !!r.siteChecked || (!!l.website && humanConfirmed(l)) || (!l.website && !!l.noWebsiteConfirmed);
   const google = `https://www.google.com/search?q=${encodeURIComponent(`${String(l.business || "").replace(/\s+(ltd|limited)\.?$/i, "")} ${l.tradingTown || l.area || ""}`)}`;
   const cands = [
     ...issues.map((i) => ({ key: `chk:${i.id}`, label: i.label, from: "Checker", issue: i })),
@@ -1691,7 +1709,7 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
   return (
     <div className="space-y-3">
       <div className="rounded-lg border border-zinc-200 p-3">
-        {head(1, "Look at their website", !!r.siteChecked)}
+        {head(1, "Look at their website", siteOk)}
         {step === 1 && (
           <div className="mt-3 space-y-3 text-sm">
             <div className="flex flex-wrap gap-2">
@@ -1699,7 +1717,9 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
               <a href={google} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 px-3 py-1.5 hover:bg-zinc-100"><SearchIcon className="h-4 w-4" /> Google them</a>
               {l.google?.mapsUrl && <a href={l.google.mapsUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 px-3 py-1.5 hover:bg-zinc-100"><PinIcon className="h-4 w-4" /> Google Maps</a>}
             </div>
-            {l.website ? (
+            {l.website && humanConfirmed(l) ? (
+              <p className="text-xs text-emerald-700">✓ Their website ({l.websiteVerified === "checked by Claude" ? "confirmed by Claude" : "confirmed by you"}). <button onClick={rejectWebsite} className="text-zinc-500 underline">Not theirs?</button></p>
+            ) : l.website ? (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-zinc-700">Is this their website?</span>
                 <button onClick={() => setR({ siteChecked: true }, { websiteConfirmed: true, websiteVerified: websiteIsVerified(l) && l.websiteVerified ? l.websiteVerified : "confirmed by you", websiteDoubt: "" })} className={`rounded-md border px-2.5 py-1 text-xs font-medium ${r.siteChecked ? "border-emerald-600 bg-emerald-600 text-white" : "border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"}`}>{r.siteChecked ? "✓ Yes, it’s theirs" : "Yes, it’s theirs"}</button>
@@ -1719,8 +1739,8 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
                 </div>
               </div>
             )}
-            <textarea key={`rn:${l.id}`} defaultValue={r.notes || ""} onBlur={(e) => e.target.value !== (r.notes || "") && setR({ notes: e.target.value })} rows={2} placeholder="Anything else worth saying? (optional, Claude uses it in the email)" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" />
-            <div className="flex justify-end"><button onClick={() => setR({ step: 2 })} disabled={!r.siteChecked} title={r.siteChecked ? "" : "Answer the website question first"} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: pick the issue →</button></div>
+            <textarea value={r.notes || ""} onChange={(e) => setR({ notes: e.target.value })} rows={2} placeholder="Anything else worth saying? (optional, Claude uses it in the email)" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" />
+            <div className="flex justify-end"><button onClick={() => setR({ step: 2, siteChecked: true })} disabled={!siteOk} title={siteOk ? "" : "Answer the website question first"} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: pick the issue →</button></div>
           </div>
         )}
       </div>
@@ -1782,11 +1802,12 @@ function ReviewSteps({ l, onNoSite, onChange, issues, person, subjects, commitWe
             {(() => {
               // Paste the address you found right here; it saves when you leave the box, press Enter or paste.
               // With the email text already written, the address is the last piece: the lead goes to Ready to send.
-              const save = (v) => { const e = String(v || "").trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(e) || e === l.emailAddress) return; const f = { emailAddress: e, contactUnverified: false, emailNote: "" }; if ((l.email || "").trim()) finishReady(f); else onChange({ ...f, ...(l.status === "no-contact" ? { status: "new" } : {}) }); };
+              const valid = (v) => /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(String(v || "").trim());
+              const save = (v, finish = true) => { const e = String(v || "").trim().toLowerCase(); if (!valid(e)) return; const f = { emailAddress: e, contactUnverified: false, emailNote: "" }; if (finish && (l.email || "").trim()) finishReady(f); else if (e !== l.emailAddress) onChange({ ...f, ...(l.status === "no-contact" ? { status: "new" } : {}) }); };
               return (
                 <div className={`grid gap-2 rounded-md border px-2 py-2 sm:grid-cols-2 ${l.emailAddress ? "border-zinc-200" : "border-red-300 bg-red-50"}`}>
                   <label className="block text-xs"><span className={l.emailAddress ? "text-zinc-500" : "font-semibold text-red-700"}>{l.emailAddress ? "Send to" : "Email address (needed before it’s ready)"}</span>
-                    <input key={`em:${l.id}:${l.emailAddress || ""}`} type="email" defaultValue={l.emailAddress || ""} onBlur={(e) => save(e.target.value)} onPaste={(e) => setTimeout(() => save(e.target.value), 0)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder="name@company.co.uk" className="mt-0.5 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm" /></label>
+                    <input key={`em:${l.id}`} type="email" defaultValue={l.emailAddress || ""} onChange={(e) => save(e.target.value, false)} onBlur={(e) => save(e.target.value)} onPaste={(e) => setTimeout(() => save(e.target.value), 0)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder="name@company.co.uk" className="mt-0.5 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm" /></label>
                   <label className="block text-xs"><span className="text-zinc-500">First name (for “Hi …,”)</span>
                     <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value })} placeholder="Leave blank for “Hi there”" className="mt-0.5 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm" /></label>
                 </div>

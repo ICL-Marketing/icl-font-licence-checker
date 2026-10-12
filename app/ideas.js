@@ -101,7 +101,8 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   }
   const update = (id, fields) => {
     const prev = recsRef.current[id] || {};
-    const r = { ...prev, ...fields, id, updatedAt: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const r = { ...prev, ...fields, id, updatedAt: now, edits: { ...(prev.edits || {}), ...Object.fromEntries(Object.keys(fields).filter((k) => k !== "edits").map((k) => [k, now])) } };
     const next = { ...recsRef.current, [id]: r };
     recsRef.current = next; save(next); setRecs(next);
     if (sharedRef.current) fetch("/api/results", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "ideas", site: id, data: r }) }).catch(() => {});
@@ -513,7 +514,7 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onRec, onBad }) {
             {greet.warn && (
               <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
                 <span className="font-semibold">Check the name.</span><span>{greet.warn}</span>
-                <input key={`gn:${r.id}`} defaultValue={r.greetName || ""} onBlur={(e) => e.target.value.trim() !== (r.greetName || "") && onRec({ greetName: e.target.value.trim() })} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder="Their first name" className="ml-auto w-36 rounded border border-amber-300 bg-white px-1.5 py-0.5" />
+                <input value={r.greetName || ""} onChange={(e) => onRec({ greetName: e.target.value })} placeholder="Their first name" className="ml-auto w-36 rounded border border-amber-300 bg-white px-1.5 py-0.5" />
               </div>
             )}
             <label className="mt-2 block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Subject</div>
