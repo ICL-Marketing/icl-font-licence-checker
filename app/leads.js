@@ -129,7 +129,7 @@ const googleUk = (q) => `https://www.google.co.uk/search?q=${encodeURIComponent(
 // What the app adds under the email when it's sent: the paragraph about us (unless the email already covers it) and the opt-out line.
 const addedBelow = (body) => { const b = String(body || "").trimEnd(); return withIclLine(b || "x", { optOut: true }).slice((b || "x").length).trim(); };
 // Vetting: before a lead reaches the board its website is verified (or confirmed missing), a contact is found and its Google ranking is checked.
-const PRE_BOARD = ["new", "qualified", "no-contact", "find-site", "maintenance", "no-website", "vetting"];
+const PRE_BOARD = ["new", "qualified", "no-contact", "find-site", "maintenance", "vetting"];
 const vetChecks = (l) => ({
   site: l.website ? (websiteIsVerified(l) || humanConfirmed(l)) && !siteDoubt(l) : !!l.noWebsiteConfirmed,
   contact: !!l.emailAddress,
@@ -140,7 +140,7 @@ const YOUR_EDITS = ["website", "websiteConfirmed", "noWebsiteConfirmed", "reject
 const recentlyEdited = (l) => !!l.youEditedAt && Date.now() - new Date(l.youEditedAt).getTime() < 7 * 86400000;
 const vetted = (l) => { const c = vetChecks(l); return c.site && c.contact && c.search; };
 // Where a vetted lead goes on the board: a problem to raise, nothing wrong (maintenance pitch), or no website.
-const boardColumn = (l) => (!l.website ? "no-website" : l.problem ? "new" : "maintenance");
+const boardColumn = (l) => (!l.website ? "not-pursuing" : l.problem ? "new" : "maintenance");
 function routeVetting(l) {
   const was = l.status || "new";
   if (isFrozen(l) || l.optedOut || !PRE_BOARD.includes(was)) return false;
@@ -162,10 +162,14 @@ function holdForCheck(l) {
 }
 // No website found (by Claude, the checks or you): its own column, and back to To assess once a site turns up.
 const noSiteReady = (l) => !l.website && l.problem === "No website" && !l.optedOut && !l.review?.done && l.statusBy !== "you" && !isFrozen(l) && !claudeSkip(l) && !soleTrader(l);
+const CANT_FIND = "Can’t find them online";
+const cantFind = (l) => new RegExp(CANT_FIND.replace("’", "['’]"), "i").test(l.caveats || "");
 function routeNoSite(l) {
   const was = l.status || "new";
-  if (noSiteReady(l) && (["new", "qualified", "no-contact"].includes(was) || (was === "find-site" && l.noWebsiteConfirmed))) l.status = "no-website";
-  else if (((was === "no-website" && l.statusBy !== "you") || was === "find-site") && l.website) l.status = l.emailAddress ? "new" : "no-contact";
+  // No website anywhere (Claude searched, or you said so): nothing to pitch, so parked with the reason on the card.
+  if (noSiteReady(l) && ["vetting", "new", "qualified", "no-contact", "find-site", "no-website"].includes(was)) { l.status = "not-pursuing"; l.likelihoodWhy = CANT_FIND; if (!cantFind(l)) l.caveats = [CANT_FIND, ...String(l.caveats || "").split("; ").filter(Boolean)].join("; "); }
+  else if (was === "not-pursuing" && cantFind(l) && l.website) { l.status = "vetting"; l.caveats = String(l.caveats || "").split("; ").filter((x) => x && !/can['’]t find them online/i.test(x)).join("; "); if (l.likelihoodWhy === CANT_FIND) l.likelihoodWhy = ""; }
+  else if (was === "find-site" && l.website) l.status = l.emailAddress ? "new" : "no-contact";
   if (l.status === was) return false;
   l.statusAt = l.updatedAt = new Date().toISOString();
   return true;
@@ -973,7 +977,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         const g = { rejectedSites: [...new Set([...(l.rejectedSites || []), site])], websiteDoubt: "", seo: null, ...(l.emailAddress && l.emailAddress.endsWith("@" + site) ? { emailAddress: "", contactName: "" } : {}) };
         if (it.correct_website) Object.assign(g, { website: it.correct_website, websiteConfirmed: true, websiteVerified: "checked by Claude", websiteEvidence: it.website_evidence || "found by Claude", ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}) });
         else Object.assign(g, { website: "", websiteConfirmed: false, websiteVerified: "", problem: "No website", problemDetail: `${site} belongs to a different business${it.website_evidence ? ` (${it.website_evidence})` : ""}`, websiteNeeded: true });
-        if (["new", "no-contact", "maintenance", "no-website", "ready", "to-draft"].includes(l.status)) g.status = "vetting";
+        if (["new", "no-contact", "maintenance", "ready", "to-draft"].includes(l.status)) g.status = "vetting";
         update(l.id, g);
         l = leadsRef.current[l.id];
         if (!it.correct_website) continue;
@@ -1008,7 +1012,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     for (const id of sites.ids || []) if (leadsRef.current[id]) update(id, { vetAt: at });
     const moved = (sites.ids || []).filter((id) => { const x = leadsRef.current[id]; return x && x.status !== "vetting"; }).length;
     const still = (sites.ids || []).length - moved;
-    return [`${(sites.ids || []).length} vetted`, moved && `${moved} on the board`, still && `${still} still in Vetting (see what's missing)`, sites.found && `${sites.found} website${sites.found === 1 ? "" : "s"} found`, ranks.done && `${ranks.done} ranking${ranks.done === 1 ? "" : "s"} saved`, checked?.moved?.skip && `${checked.moved.skip} not worth pursuing`].filter(Boolean).join(" · ");
+    return [`${(sites.ids || []).length} vetted`, moved && `${moved} on the board`, still && `${still} still in Vetting (see what's missing)`, sites.found && `${sites.found} website${sites.found === 1 ? "" : "s"} found`, sites.none && `${sites.none} can’t be found online (Not pursuing)`, ranks.done && `${ranks.done} ranking${ranks.done === 1 ? "" : "s"} saved`, checked?.moved?.skip && `${checked.moved.skip} not worth pursuing`].filter(Boolean).join(" · ");
   };
   useClaudeHandler("vet", handleVet);
   useClaudeJob("find-leads", { label: "Find new leads", order: 4, render: (o, close) => <FindLeadsModal area={areaCentres.join(", ")} miles={areaMiles} exclude={list.slice(-80).map((l) => l.business)} onClose={close} /> });
@@ -1253,7 +1257,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       <Board onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} hideCols={showParked || filtering ? ["vetting"] : ["vetting", "not-pursuing", "lost"]} leads={onBoard} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status, statusBy: "you" }); }} />}
 
-      {current && <LeadDrawer key={current.id} onNoSite={async (extra = {}) => { if (await tryObviousDomain(current.id)) return false; update(current.id, { websiteNeeded: false, noWebsiteConfirmed: true, problem: "No website", problemDetail: "Checked by hand: they have no website", ...(["new", "qualified", "no-contact"].includes(current.status || "new") ? { status: "no-website" } : {}), ...extra }); return true; }} onFindSite={() => openClaude({ job: "find-sites", preset: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => openClaude({ job: "lead-check", preset: [current.id], column: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new" })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, YOUR_EDITS.some((k) => k in f) ? { ...f, youEditedAt: new Date().toISOString() } : f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
+      {current && <LeadDrawer key={current.id} onNoSite={async (extra = {}) => { if (await tryObviousDomain(current.id)) return false; update(current.id, { websiteNeeded: false, noWebsiteConfirmed: true, problem: "No website", problemDetail: "Checked by hand: they have no website", ...extra }); return true; }} onFindSite={() => openClaude({ job: "find-sites", preset: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => openClaude({ job: "lead-check", preset: [current.id], column: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new" })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, YOUR_EDITS.some((k) => k in f) ? { ...f, youEditedAt: new Date().toISOString() } : f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
   );
 }
@@ -1306,7 +1310,7 @@ const PLACES = {
 // Newest arrival in the column first (moved or added), then likelihood and size for ties.
 const arrived = (l) => Date.parse(l.statusAt || l.addedAt || "") || 0;
 // Batches of Claude work start with To assess, then the other open columns.
-const COL_RANK = { vetting: -2, "find-site": -1, new: 0, "no-contact": 1, "no-website": 2, maintenance: 3, ready: 4 };
+const COL_RANK = { vetting: -2, "find-site": -1, new: 0, "no-contact": 1, maintenance: 3, ready: 4 };
 const colRank = (l) => COL_RANK[l.status || "new"] ?? 9;
 const sorted = (list) => list.slice().sort((a, b) => arrived(b) - arrived(a) || ({ High: 0, Medium: 1, Low: 2 }[a.likelihood] ?? 3) - ({ High: 0, Medium: 1, Low: 2 }[b.likelihood] ?? 3) || (b.netAssets || 0) - (a.netAssets || 0));
 
@@ -1330,7 +1334,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
           {c.id === "new" && c.items.some((l) => !l.claude) && <button onClick={() => openClaude({ job: "lead-check", column: "new" })} title="Claude checks each site for the issue to raise; leads with an issue and an address move to Email to draft" className="mb-2 w-full rounded-md bg-orange-600 px-2 py-1 text-xs font-medium text-white hover:bg-orange-700">Find issues for {c.items.filter((l) => !l.claude).length} with Claude</button>}
           {c.id === "find-site" && c.items.length > 0 && <button onClick={() => openClaude({ job: "find-sites", preset: c.items.map((l) => l.id) })} className="mb-2 w-full rounded-md bg-amber-600 px-2 py-1 text-xs font-medium text-white hover:bg-amber-700">Find {c.items.length} website{c.items.length === 1 ? "" : "s"} with Claude</button>}
           {c.id === "to-draft" && c.items.some((l) => !l.review?.drafted) && <button onClick={() => openClaude({ job: "draft-batch" })} className="mb-2 w-full rounded-md bg-orange-600 px-2 py-1 text-xs font-medium text-white hover:bg-orange-700">Write {c.items.filter((l) => !l.review?.drafted).length} emails with Claude</button>}
-          {["new", "to-draft", "no-contact", "maintenance", "no-website"].includes(c.id) && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.id)} title="Go through these one at a time: look at the site, pick the issue and approach, then draft the email with Claude" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
+          {["new", "to-draft", "no-contact", "maintenance"].includes(c.id) && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.id)} title="Go through these one at a time: look at the site, pick the issue and approach, then draft the email with Claude" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
           <div className="flex flex-1 flex-col gap-2">
             {c.items.slice(0, shown[c.id] || 60).map((l) => (
               <div key={l.id} draggable onDragStart={(e) => { e.dataTransfer.setData("text/lead", l.id); e.dataTransfer.effectAllowed = "move"; }} onClick={() => onOpen(l.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") onOpen(l.id); }}
@@ -1346,6 +1350,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                   {businessLabel(l) && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 font-semibold text-white" title={l.whatTheyDo || ""}>{businessLabel(l)}</span>}
                   {c.id === "to-draft" && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${l.review?.drafted ? "bg-emerald-100 text-emerald-800" : "bg-orange-100 text-orange-800"}`}>{l.review?.drafted ? "Draft in: check it" : "Waiting for Claude"}</span>}
                   {l.review?.step > 1 && !l.review?.done && ["new", "no-contact"].includes(c.id) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="Review in progress">Step {l.review.step}/3</span>}
+                  {cantFind(l) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="No website anywhere, so nothing to pitch">Can’t find them</span>}
                   {TRIGGER_TAG[l.triggerKind] && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 font-semibold text-violet-800" title={l.trigger}>{TRIGGER_TAG[l.triggerKind]}</span>}
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
                   {l.noWebsiteConfirmed && !l.website && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title={l.problemDetail}>No site ✓</span>}
@@ -1528,7 +1533,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
   const [optingOut, setOptingOut] = useState(false);
-  const reviewable = ["new", "find-site", "to-draft", "no-contact", "maintenance", "no-website"].includes(l.status) && !isFrozen(l);
+  const reviewable = ["new", "find-site", "to-draft", "no-contact", "maintenance"].includes(l.status) && !isFrozen(l);
   // Opening a lead always lands on the Review tab (where it has one).
   const [view, setView] = useState(() => (reviewable || l.review ? "review" : "details"));
   const downOnBackdrop = useRef(false);
@@ -1813,7 +1818,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             const btn = "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-white";
             if (l.optedOut || isFrozen(l)) return null;
             if (l.status === "ready" && l.email && l.emailAddress && websiteIsVerified(l)) return <a href={outlook} target="_blank" rel="noopener" onClick={() => onChange({ status: "contacted", sentAt: new Date().toISOString() })} className={`${btn} bg-emerald-600 hover:bg-emerald-700`}><MailIcon className="h-4 w-4" /> Open in Outlook and mark as sent</a>;
-            if (!["vetting", "new", "find-site", "to-draft", "no-contact", "maintenance", "no-website"].includes(l.status || "new")) return null;
+            if (!["vetting", "new", "find-site", "to-draft", "no-contact", "maintenance"].includes(l.status || "new")) return null;
             if (!l.website && siteSearchable(l)) return <button onClick={onFindSite} className={`${btn} bg-amber-600 hover:bg-amber-700`}><SearchIcon className="h-4 w-4" /> Find their website with Claude</button>;
             if (!l.claude) return <button onClick={onClaude} className={`${btn} bg-orange-600 hover:bg-orange-700`}><SearchIcon className="h-4 w-4" /> Check with Claude</button>;
             if (!l.review?.done) return <button onClick={() => setView("review")} className={`${btn} bg-zinc-900 hover:bg-zinc-700`}><PlayIcon className="h-4 w-4" /> {l.review?.step > 1 ? `Continue review (step ${l.review.step} of 3)` : "Review this lead"}</button>;
@@ -2001,7 +2006,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   const brief = lead ? { leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => (r.also || []).includes(c.key) && c.key !== r.lead).map((c) => c.label), notes: r.notes || "", path, template: lead.issue?.body || "" } : null;
   const prompt = lead ? withTitle("Email draft", l.business, draftPrompt({ l, first, ...brief })) : "";
   // Issue and approach picked, no email yet: the lead waits in Email to draft (Claude can write it there or in a batch).
-  const toDraftNow = !!lead && lead.key !== "chk:maintenance" && !r.drafted && ["new", "no-contact", "no-website"].includes(l.status || "new");
+  const toDraftNow = !!lead && lead.key !== "chk:maintenance" && !r.drafted && ["new", "no-contact"].includes(l.status || "new");
   useEffect(() => {
     if (r.step !== 3 || !toDraftNow) return;
     const t = setTimeout(() => onChange({ status: "to-draft", draftBrief: brief }), 0);
@@ -2262,7 +2267,7 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
     ["claude", "Waiting for Claude", "Not vetted yet: Claude does all three steps in order.", waiting],
     ["site", "1. Website", "Paste their site, confirm it, or mark no website. Nothing else is searched until this is done.", needsYou.filter((l) => stepOf(l) === "site")],
     ["search", "2. Google", "Check where they rank (Claude → Search rankings, or by hand), or skip it.", needsYou.filter((l) => stepOf(l) === "search")],
-    ["contact", "3. Contact", "Add an email: their site, Hunter, or one you found. No-website leads land here straight after step 1.", needsYou.filter((l) => stepOf(l) === "contact")],
+    ["contact", "3. Contact", "Add an email: their site, Hunter, or one you found.", needsYou.filter((l) => stepOf(l) === "contact")],
   ];
   const card = (l, col) => {
     const w = (l.seo?.searches || [])[0];
