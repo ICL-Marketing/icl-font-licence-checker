@@ -560,6 +560,7 @@ export default function Home() {
         <p>PROBLEM means investigate, not guilty. Fonts loaded only by JavaScript can be missed. Image flags are filename and metadata only; cross-check against purchase records.</p>
       </footer>
       </div>
+          <p className="mt-10 text-center text-[11px] text-zinc-300" title={`Built ${process.env.NEXT_PUBLIC_BUILT_AT || ""}`}>Version {process.env.NEXT_PUBLIC_BUILD} · {String(process.env.NEXT_PUBLIC_BUILT_AT || "").slice(0, 16).replace("T", " ")} UTC</p>
     </main>
   );
 }

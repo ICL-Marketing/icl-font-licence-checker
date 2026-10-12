@@ -82,6 +82,10 @@ function raisedIn(l) {
   if (k.startsWith("chk:")) return (issuesFor(l).find((i) => `chk:${i.id}` === k) || {}).label || l.problem || "";
   return l.problem || "";
 }
+// A lead you've started reviewing or moved yourself: automatic checks never park it again.
+const handledByYou = (l) => !!l?.review || l?.statusBy === "you";
+const AUTO_PARK = ["not-pursuing", "no-contact"];
+const keepYourStatus = (all, before) => { for (const l of Object.values(all)) { const was = before[l.id]; if (was && l.status !== was && AUTO_PARK.includes(l.status) && !l.optedOut) { l.status = was; } } };
 const STALE_WHY = /site is current|no outreach planned/i;
 const humanConfirmed = (l) => !!l.websiteConfirmed || ["confirmed by you", "checked by Claude"].includes(l.websiteVerified || "");
 const siteDoubt = (l) => !!(l.website && l.websiteDoubt && !humanConfirmed(l));
@@ -168,6 +172,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     const t = setTimeout(() => {
       let local = load();
       if (!local) { local = Object.fromEntries(SEED.map((l) => [l.id, l])); save(local); }
+      const yoursLocal = Object.fromEntries(Object.values(local).filter(handledByYou).map((l) => [l.id, l.status]));
       for (const l of Object.values(local)) if (l.email && !l.email.includes("\n\n")) l.email = l.email.trim().replace(/\n+/g, "\n\n"); // paragraph spacing for older drafts
       // Dormant companies scored before the rule existed: Low, parked, with the reason.
       for (const l of Object.values(local)) if (/dormant/i.test(l.caveats || "") && (l.likelihood !== "Low" || !/dormant/i.test(l.likelihoodWhy || ""))) { l.likelihood = "Low"; l.likelihoodWhy = "Filed as dormant at Companies House, so not trading through this company; nothing to sell to"; if (["new", "qualified", "no-contact"].includes(l.status)) l.status = "not-pursuing"; l.updatedAt = new Date().toISOString(); }
@@ -195,6 +200,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       for (const l of Object.values(local)) if (l.status === "not-pursuing" && !l.review?.done && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); }
       // One-off: every lead imported from the Client Matrix sheet was closed as Lost (7 Oct 2026).
       for (const l of Object.values(local)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); }
+      keepYourStatus(local, yoursLocal);
       leadsRef.current = local;
       setLeads(local);
       fetch("/api/results?kind=leads").then((r) => r.json()).then((j) => {
@@ -202,8 +208,10 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         sharedRef.current = true;
         const next = { ...leadsRef.current };
         const pushBack = [];
+        const yoursShared = {};
         for (const [id, l] of Object.entries(j.results || {})) { const m = mergeDoc(next[id], l); if (next[id] && JSON.stringify(m) !== JSON.stringify(l)) pushBack.push(id); next[id] = m; }
         setTimeout(() => { for (const id of pushBack) if (leadsRef.current[id]) push(id, leadsRef.current[id]); }, 500);
+        for (const l of Object.values(next)) if (handledByYou(l)) yoursShared[l.id] = l.status;
         for (const l of Object.values(next)) if (l.email && !l.email.includes("\n\n")) l.email = l.email.trim().replace(/\n+/g, "\n\n");
         for (const l of Object.values(next)) if (/dormant/i.test(l.caveats || "") && (l.likelihood !== "Low" || !/dormant/i.test(l.likelihoodWhy || ""))) { l.likelihood = "Low"; l.likelihoodWhy = "Filed as dormant at Companies House, so not trading through this company; nothing to sell to"; if (["new", "qualified", "no-contact"].includes(l.status)) l.status = "not-pursuing"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (!l.problem && ["new", "qualified", "no-contact"].includes(l.status) && websiteIsVerified(l) && !(l.websiteConfirmed && !l.claude)) { l.status = "not-pursuing"; l.likelihood = "Low"; l.likelihoodWhy = l.likelihoodWhy || "Site is current; no outreach planned"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
@@ -218,6 +226,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const l of Object.values(next)) if (!isFrozen(l) && l.seo?.searches?.some((x) => x.kind !== "trade")) { l.seo = { ...l.seo, searches: l.seo.searches.filter((x) => x.kind === "trade") }; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.status === "not-pursuing" && !l.review?.done && l.contactUnverified && !l.emailAddress && parkStatus(l) === "no-contact") { l.status = "no-contact"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         for (const l of Object.values(next)) if (l.source === "Client Matrix v4.1" && !l.sheetLost) { l.status = "lost"; l.sheetLost = true; l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        keepYourStatus(next, yoursShared);
         save(next);
         leadsRef.current = next;
         setLeads(next);
@@ -272,7 +281,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const moveMany = (ids, status) => {
     const at = new Date().toISOString();
     const next = { ...leadsRef.current };
-    for (const id of ids) if (next[id]) { next[id] = { ...next[id], status, updatedAt: at, ...(next[id].status !== status ? { statusAt: at } : {}) }; push(id, next[id]); }
+    for (const id of ids) if (next[id]) { next[id] = { ...next[id], status, statusBy: "you", updatedAt: at, ...(next[id].status !== status ? { statusAt: at } : {}) }; push(id, next[id]); }
     leadsRef.current = next; save(next); setLeads(next);
   };
   const removeMany = (ids) => {
@@ -970,7 +979,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         </div>
       )}
       <Board onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} hideCols={showParked || filtering ? [] : ["not-pursuing", "lost"]} leads={onBoard} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
-        onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status }); }} />
+        onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status, statusBy: "you" }); }} />
 
       {current && <LeadDrawer key={current.id} onNoSite={async (extra = {}) => { if (await tryObviousDomain(current.id)) return false; update(current.id, { websiteNeeded: false, noWebsiteConfirmed: true, problem: "No website", problemDetail: "Checked by hand: they have no website", ...extra }); return true; }} onFindSite={() => openClaude({ job: "find-sites", preset: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => openClaude({ job: "lead-check", preset: [current.id], column: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new" })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
@@ -1330,7 +1339,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             )}
             {l.website && websiteIsVerified(l) && l.websiteVerified && !siteDoubt(l) && <div className="text-[11px] text-emerald-700">Website verified: {l.websiteVerified} <button onClick={rejectWebsite} title="This website belongs to a different business. It is dropped, remembered as wrong, and the lead is rescanned without it." className="ml-1 text-zinc-400 underline hover:text-red-700">not their website?</button></div>}
           </div>
-          <select value={l.status || "new"} onChange={(e) => onChange({ status: e.target.value })} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm">
+          <select value={l.status || "new"} onChange={(e) => onChange({ status: e.target.value, statusBy: "you" })} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm">
             {LEAD_STATUSES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
           </select>
           <button onClick={onClose} aria-label="Close" className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900"><CloseIcon /></button>
@@ -1418,8 +1427,8 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             </div>
             {(() => {
               const stored = l.seo?.searches?.find((x) => x.kind === "trade");
-              // The town in the search: what you typed, else where their website says they trade, else the registered office.
-              const town = l.searchTown || l.tradingTown || l.area || "";
+              // The town in the search: what you typed, else where their website says they trade (never the registered office).
+              const town = l.searchTown || (l.tradesElsewhere ? "" : l.tradingTown) || "";
               const autoTrade = l.tradeOverride || l.trade || (stored && town && stored.query.toLowerCase().endsWith(" " + town.toLowerCase()) ? stored.query.slice(0, -town.length - 1) : stored?.query || "");
               const query = [autoTrade, town].filter(Boolean).join(" ");
               const rank = !stored || stored.manual === undefined && stored.position === undefined ? "" : stored.position === 1 ? "top" : stored.position === 2 ? "top3" : stored.position === 5 ? "page1" : stored.position === null ? "none" : stored.position <= 3 ? "top3" : stored.position <= 10 ? "page1" : "none";

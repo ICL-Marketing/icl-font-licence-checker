@@ -140,7 +140,7 @@ export default function Settings() {
           </section>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
             <h2 className="font-semibold">Closing paragraph</h2>
-            <p className="mb-2 text-sm text-zinc-500">Added to the end of every email when it is copied or opened. Client emails leave out the first sentence.</p>
+            <p className="mb-2 text-sm text-zinc-500">Added to the end of every email when it is copied or opened.</p>
             <p className="rounded-md bg-zinc-50 px-3 py-2 text-sm text-zinc-700">{iclFooter(true)}</p>
           </section>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
