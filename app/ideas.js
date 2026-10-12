@@ -212,7 +212,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     return { clientsDone, ideasAdded, doneIds };
   }
   // The research prompt lives in the one Claude window at the top of the page.
-  useClaudeJob("client-research", { label: "Client research", order: 4, count: () => clients.filter((c) => !Object.values(recs).some((r) => r.clientId === c.id && r.ai)).length, render: (o, close) => <ResearchModal feedback={feedback} clients={clients} recs={recs} preset={o.preset || []} initialManager={manager} onClose={close} onImport={importResearch} /> });
+  useClaudeJob("client-research", { label: "Client research", order: 5, count: () => clients.filter((c) => !Object.values(recs).some((r) => r.clientId === c.id && r.ai)).length, render: (o, close) => <ResearchModal feedback={feedback} clients={clients} recs={recs} preset={o.preset || []} initialManager={manager} onClose={close} onImport={importResearch} /> });
   // Research replies pasted into the one "Paste from Claude" box land here.
   useClaudeHandler("client-research", (text) => {
     const list = parseResearchReply(text);

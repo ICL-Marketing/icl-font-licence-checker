@@ -717,7 +717,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     })();
   }, [leads]); // eslint-disable-line react-hooks/exhaustive-deps
   // Claude's checks (run on the user's own Claude plan) applied to each lead: website, contact, verdict, draft.
-  function applyLeadCheck(items, { siteFollowUp = true } = {}) {
+  function applyLeadCheck(items) {
     let done = 0, left = 0; const rescan = []; const doneIds = []; const moved = { skip: 0, back: 0 };
     for (const it of items) {
       const l = leadsRef.current[it.lead_id]; if (!l) continue;
@@ -767,9 +767,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     // Once Claude's answers are in: rescan any lead on a new website, then look for contacts again on every
     // checked lead that still has no address (the site, Companies House, then Hunter under the usual rules).
     setTimeout(async () => {
-      const noSite = doneIds.filter((id) => { const x = leadsRef.current[id]; return x && !x.website && x.problem === "No website" && !isFrozen(x); });
-      if (noSite.length && siteFollowUp) await afterPaste("Lead check", noSite, rescan);
-      else if (rescan.length) await refreshLeads(rescan);
+      if (rescan.length) await refreshLeads(rescan);
       const need = doneIds.filter((id) => { const x = leadsRef.current[id]; return x && x.website && !x.emailAddress && !isFrozen(x) && !x.optedOut && !claudeSkip(x) && !/under £|already a client|dormant|sole trader/i.test(parkReason(x)); });
       // A contact found here moves the lead to To assess (retryContacts does that for every lead it finds an address for).
       if (need.length && !stopRef.current) await retryContacts(need);
@@ -814,7 +812,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   }
   function applySites(list) {
     let found = 0, none = 0, unsure = 0, left = 0;
-    const rescan = [], noneIds = [], noneInfo = {};
+    const rescan = [], noneInfo = {};
+    // Claude has already searched properly, so "no website" from it is stamped straight away.
+    const stampNone = (id) => { const it = noneInfo[id]; const l = leadsRef.current[id]; if (!l || l.website) return; update(id, { websiteNeeded: false, noWebsiteConfirmed: true, sitesCheckedAt: new Date().toISOString(), problem: "No website", problemDetail: `Claude searched and found no website${it.other ? ` (only ${it.other})` : ""}.`, caveats: String(l.caveats || "").split("; ").filter((x) => x && !/not found by name|could trade under another name/i.test(x)).join("; ") }); };
     for (const it of list) {
       const l = leadsRef.current[it.lead_id];
       if (!l || l.website || !siteSearchable(l)) { left++; continue; }
@@ -828,13 +828,11 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         update(l.id, { sitesCheckedAt: at, siteSuggestion: it.website, notesLog: [...(l.notesLog || []), { at, text: `Claude thinks the website might be ${it.website} but isn’t sure: ${it.evidence}` }] });
         unsure++;
       } else if (it.has_website === false) {
-        noneIds.push(l.id); noneInfo[l.id] = it; none++;
+        noneInfo[l.id] = it; stampNone(l.id); none++;
         continue;
       } else { update(l.id, { sitesCheckedAt: at }); unsure++; }
     }
-    // "No website" is only stamped once the company name has been tried on .co.uk and .com.
-    const stampNone = (id) => { const it = noneInfo[id]; const l = leadsRef.current[id]; if (!l || l.website) return; update(id, { websiteNeeded: false, noWebsiteConfirmed: true, sitesCheckedAt: new Date().toISOString(), problem: "No website", problemDetail: `Claude searched and found no website${it.other ? ` (only ${it.other})` : ""}.`, caveats: String(l.caveats || "").split("; ").filter((x) => x && !/not found by name|could trade under another name/i.test(x)).join("; ") }); };
-    setTimeout(() => afterPaste("Website search", noneIds, rescan, stampNone), 50);
+    if (rescan.length) setTimeout(() => afterPaste("Website search", [], rescan), 50);
     return { found, none, unsure, left, ids: list.map((x) => x.lead_id) };
   }
   // The prompts this page can write, all reached from the one Claude button at the top.
@@ -859,7 +857,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     }
     return `${done} lead${done === 1 ? "" : "s"} checked · ${weak} not in the top 3 for a key search · ${strong} top 3 for everything tried`;
   });
-  useClaudeJob("find-leads", { label: "Find new leads", order: 3, render: (o, close) => <FindLeadsModal area={areaCentres.join(", ")} miles={areaMiles} exclude={list.slice(-80).map((l) => l.business)} onClose={close} /> });
+  useClaudeJob("find-leads", { label: "Find new leads", order: 4, render: (o, close) => <FindLeadsModal area={areaCentres.join(", ")} miles={areaMiles} exclude={list.slice(-80).map((l) => l.business)} onClose={close} /> });
   // Replies pasted into the one "Paste from Claude" box land here, whichever prompt they came from.
   useClaudeHandler("lead-check", (text) => {
     const list = parseLeadCheck(text);
@@ -871,9 +869,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     const r = applySites(parseSitesReply(text));
     // Replies from the combined prompt also carry the full lead check: apply that too.
     let checked = null;
-    try { const list = parseLeadCheck(text).filter((x) => x.reason); if (list.length) checked = applyLeadCheck(list, { siteFollowUp: false }); } catch {}
-    if (checked) return [r.found && `${r.found} website${r.found === 1 ? "" : "s"} found (rescanning)`, r.none && `${r.none} with no website (trying their names on .co.uk/.com first)`, `${checked.done} lead${checked.done === 1 ? "" : "s"} checked`, checked.moved.back && `${checked.moved.back} to To assess`, checked.moved.skip && `${checked.moved.skip} to Not pursuing`].filter(Boolean).join(" · ");
-    return [r.found && `${r.found} website${r.found === 1 ? "" : "s"} found (rescanning)`, r.none && `${r.none} with no website (trying their names on .co.uk/.com first)`, r.unsure && `${r.unsure} unsure (noted on the lead)`, r.left && `${r.left} left alone`].filter(Boolean).join(" · ") || "Nothing to update.";
+    try { const list = parseLeadCheck(text).filter((x) => x.reason); if (list.length) checked = applyLeadCheck(list); } catch {}
+    if (checked) return [r.found && `${r.found} website${r.found === 1 ? "" : "s"} found (rescanning)`, r.none && `${r.none} with no website`, `${checked.done} lead${checked.done === 1 ? "" : "s"} checked`, checked.moved.back && `${checked.moved.back} to To assess`, checked.moved.skip && `${checked.moved.skip} to Not pursuing`].filter(Boolean).join(" · ");
+    return [r.found && `${r.found} website${r.found === 1 ? "" : "s"} found (rescanning)`, r.none && `${r.none} with no website`, r.unsure && `${r.unsure} unsure (noted on the lead)`, r.left && `${r.left} left alone`].filter(Boolean).join(" · ") || "Nothing to update.";
   });
   useClaudeHandler("find-leads", (text) => {
     const items = parseFoundLeads(text);
