@@ -4,7 +4,7 @@ import { mailHref } from "@/app/mail";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, businessLabel, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 import { mergeDoc } from "@/lib/merge";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, reportProgress, withTitle } from "@/app/claudeInbox";
@@ -41,7 +41,6 @@ const load = () => { try { const v = JSON.parse(localStorage.getItem(KEY) || "nu
 const save = (v) => { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch {} };
 
 const LIKELY = { High: "bg-green-100 text-green-800", Medium: "bg-amber-100 text-amber-800", Low: "bg-zinc-100 text-zinc-600" };
-const PROBLEM_TONE = { "No website": "bg-red-600", "Parked domain": "bg-red-600", "Dead/broken site": "bg-red-600", "Broken SSL": "bg-orange-500", "Dated template": "bg-amber-500", "Stale copyright": "bg-zinc-500", "Licence risk": "bg-purple-600", "Low search visibility": "bg-blue-600" };
 const money = (n) => (n === null || n === undefined || n === "" ? "—" : `£${Math.round(Number(n)).toLocaleString("en-GB")}`);
 // Plain-English company size for the cards: £1.4m, £198k.
 const compact = (n) => { const v = Number(n); if (n === null || n === undefined || n === "" || !Number.isFinite(v)) return ""; const a = Math.abs(v); return `${v < 0 ? "-" : ""}£${a >= 1e6 ? `${(a / 1e6).toFixed(a >= 1e7 ? 0 : 1)}m` : a >= 1e3 ? `${Math.round(a / 1e3)}k` : Math.round(a)}`; };
@@ -758,6 +757,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       if (it.email_body && !l.emailEdited) Object.assign(f, { emailPrevious: l.email, email: it.email_body, subject: it.email_subject || l.subject, emailEdited: false, claudeDraft: true });
       // Fill the lead's fields with what Claude confirmed (shown in orange in the drawer).
       const filled = [];
+      if (it.business_type) f.businessType = it.business_type;
       if (it.what_they_do) { f.whatTheyDo = it.what_they_do; filled.push("whatTheyDo"); if (!l.tradeOverride) f.tradeOverride = it.what_they_do.toLowerCase().replace(/[^a-z0-9 &'-]/g, "").trim().split(/\s+/).slice(0, 4).join(" "); }
       if (it.location && !/^(national|online|uk|nationwide)$/i.test(it.location.trim())) { f.tradingTown = it.location; f.tradesElsewhere = false; filled.push("tradingTown"); }
       if (it.issue_note && l.problem) { f.problemDetail = it.issue_note; filled.push("problemDetail"); }
@@ -862,7 +862,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       if (!l || isFrozen(l) || !it.weakest) continue;
       const at = new Date().toISOString();
       const w = it.weakest;
-      const f = { seo: { manual: false, engine: "Checked by Claude", checkedAt: at, claudeAt: at, local: it.local, services: it.services, searches: [{ kind: "trade", query: w.query, position: w.position }, ...it.searches.filter((x) => x.query !== w.query).map((x) => ({ kind: "extra", ...x }))] } };
+      const f = { ...(it.business_type && !l.businessType ? { businessType: it.business_type } : {}), seo: { manual: false, engine: "Checked by Claude", checkedAt: at, claudeAt: at, local: it.local, services: it.services, searches: [{ kind: "trade", query: w.query, position: w.position }, ...it.searches.filter((x) => x.query !== w.query).map((x) => ({ kind: "extra", ...x }))] } };
       const poor = w.position === null || w.position > 3;
       if (poor) { weak++; if (!l.problem || l.problem === "Low search visibility") { f.problem = "Low search visibility"; f.problemDetail = `${w.position ? `#${w.position}` : "Not on page 1"} for “${w.query}”`; if (l.status === "maintenance" && !handledByYou(l)) f.status = l.emailAddress ? "new" : "no-contact"; } }
       else { strong++; if (l.problem === "Low search visibility") { f.problem = ""; f.problemDetail = ""; } }
@@ -890,7 +890,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     const items = parseFoundLeads(text);
     if (!items.length) throw new Error("No businesses in that reply.");
     if (running) throw new Error("A scan is running. Paste this again when it finishes.");
-    findOutside("claude", items.map((x) => ({ id: `cl:${slug(x.name)}${slug(x.town)}`, name: x.name, companyNumber: x.companyNumber, website: x.website, websiteEvidence: x.website ? "checked by Claude" : "", town: x.town, postcode: x.postcode, whatTheyDo: x.whatTheyDo, issue: x.issue, why: x.why, contact: x.contact, source: "Claude", triggerKind: "claude", trigger: x.why })));
+    findOutside("claude", items.map((x) => ({ id: `cl:${slug(x.name)}${slug(x.town)}`, name: x.name, companyNumber: x.companyNumber, website: x.website, websiteEvidence: x.website ? "checked by Claude" : "", town: x.town, postcode: x.postcode, whatTheyDo: x.whatTheyDo, businessType: x.businessType, issue: x.issue, why: x.why, contact: x.contact, source: "Claude", triggerKind: "claude", trigger: x.why })));
     return `Checking ${items.length} business${items.length === 1 ? "" : "es"}: they appear on the board as each one is done.`;
   });
   useClaudeHandler("draft", (text) => {
@@ -1169,7 +1169,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                     : l.likelihood && <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${LIKELY[l.likelihood]}`} title={l.likelihoodWhy || ""}>{l.likelihood}</span>)}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
-                  {l.problem && !(l.website && l.problem === "No website") && <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
+                  {businessLabel(l) && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 font-semibold text-white" title={l.whatTheyDo || ""}>{businessLabel(l)}</span>}
                   {l.review?.step > 1 && !l.review?.done && ["new", "no-contact"].includes(c.id) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="Review in progress">Step {l.review.step}/3</span>}
                   {TRIGGER_TAG[l.triggerKind] && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 font-semibold text-violet-800" title={l.trigger}>{TRIGGER_TAG[l.triggerKind]}</span>}
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
@@ -1412,7 +1412,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
           <div className="min-w-0 flex-1">
             <input value={l.business || ""} onChange={(e) => onChange({ business: e.target.value })} className="w-full rounded border border-transparent text-lg font-semibold hover:border-zinc-300 focus:border-zinc-400" />
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-              {l.problem && !(l.website && l.problem === "No website") && <span className={`rounded-full px-2 py-0.5 font-semibold text-white ${PROBLEM_TONE[l.problem] || "bg-zinc-500"}`}>{l.problem}</span>}
+              {businessLabel(l) && <span className="rounded-full bg-blue-600 px-2 py-0.5 font-semibold text-white" title={l.whatTheyDo || ""}>{businessLabel(l)}</span>}
               <span className="inline-flex items-center gap-1">
                 <input key={`${l.id}:${l.website || ""}`} defaultValue={l.website || ""} onBlur={(e) => commitWebsite(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitWebsite(e.currentTarget.value); e.currentTarget.blur(); } }} onPaste={(e) => { const t = e.clipboardData?.getData("text"); if (t && /\./.test(t)) { e.preventDefault(); e.currentTarget.value = t.trim(); commitWebsite(t); } }} placeholder="website (paste or type to correct)" title="Paste or type their website. It counts as confirmed by you and the lead is rescanned straight away." style={{ width: `${Math.max(10, (l.website || "").length + 1)}ch` }} className="rounded border border-transparent px-1 text-xs text-blue-700 hover:border-zinc-300 focus:border-zinc-400" />
                 {site && <a href={site} target="_blank" rel="noreferrer" aria-label="Open website" className="-ml-1 text-blue-700"><ExternalIcon /></a>}
