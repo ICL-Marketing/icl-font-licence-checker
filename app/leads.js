@@ -2266,7 +2266,6 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
   const all = sorted(leads);
   const waiting = all.filter((l) => !l.vetAt);
   const needsYou = all.filter((l) => l.vetAt).sort((a, b) => (recentlyEdited(b) ? 1 : 0) - (recentlyEdited(a) ? 1 : 0));
-  const chip = (ok, label, title) => <span title={title} className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${ok ? "bg-emerald-100 text-emerald-800" : "bg-red-50 text-red-700"}`}>{ok ? "✓" : "✗"} {label}</span>;
   const input = "w-48 rounded border border-zinc-300 px-2 py-0.5 text-xs";
   // The one thing to do next: find the site, confirm it, or add a contact.
   const nextStep = (l) => {
@@ -2276,44 +2275,46 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
     if (!c.contact) return <span className="flex items-center gap-1"><input key={`e${l.id}`} type="email" placeholder="Paste an email address" className={input} onKeyDown={(e) => { if (e.key === "Enter" && /@/.test(e.currentTarget.value)) onEmail(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (/@/.test(e.target.value)) onEmail(l, e.target.value.trim()); }} />{l.website && <a href={`https://${l.website}`} target="_blank" rel="noopener" className="text-xs text-blue-700 hover:underline">Search website</a>}{l.website && <button onClick={() => onHunter(l)} disabled={l.checking} className="text-xs text-blue-700 hover:underline disabled:opacity-40">{l.checking ? "Looking…" : l.hunterTried ? "Hunter again" : "Find with Hunter"}</button>}</span>;
     return null;
   };
-  const row = (l, mine) => { const c = vetChecks(l); const w = (l.seo?.searches || [])[0];
+  // Each lead waits in the first step it's stuck on: website, then contact, then Google.
+  const stepOf = (l) => { const c = vetChecks(l); return !c.site ? "site" : !c.contact ? "contact" : "search"; };
+  const cols = [
+    ["claude", "Waiting for Claude", "Not vetted yet: Claude does all three steps in order.", waiting],
+    ["site", "1. Website", "Paste their site, confirm it, or mark no website. Nothing else is searched until this is done.", needsYou.filter((l) => stepOf(l) === "site")],
+    ["contact", "2. Contact", "Add an email: their site, Hunter, or one you found.", needsYou.filter((l) => stepOf(l) === "contact")],
+    ["search", "3. Google", "Check where they rank, or send it to the board as it is.", needsYou.filter((l) => stepOf(l) === "search")],
+  ];
+  const card = (l, col) => {
+    const w = (l.seo?.searches || [])[0];
+    const q = [l.tradeOverride || l.trade || businessLabel(l), l.tradesElsewhere ? "" : l.tradingTown].filter(Boolean).join(" ");
     return (
-      <li key={l.id} className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm">
-        <button onClick={() => onOpen(l.id)} className="min-w-0 text-left font-medium hover:underline">{l.business}</button>
-        {businessLabel(l) && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-semibold text-white">{businessLabel(l)}</span>}
-        {recentlyEdited(l) && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[11px] font-semibold text-violet-800" title={`You edited this ${new Date(l.youEditedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}>Recently edited</span>}
-        <span className="ml-auto flex flex-wrap items-center gap-1">
-          {chip(c.site, l.website ? `Site: ${l.website}` : l.noWebsiteConfirmed ? "No website (confirmed)" : "Site: not found", l.website && !c.site ? "Not verified yet" : "")}
-          {!c.site ? <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[11px] font-semibold text-zinc-500" title="Contact and Google are only looked for once the website is settled, so no searches or credits are wasted">Contact and Google wait for the site</span> : <>
-          {chip(c.contact, l.emailAddress ? `Contact: ${l.emailAddress}` : "Contact: none")}
-          {chip(c.search, !l.website ? "Google: n/a" : w && (l.seo?.claudeAt || l.seo?.manual) ? `Google: ${w.position ? `#${w.position}` : "not p1"} “${w.query}”` : "Google: not checked")}</>}
-          {mine && nextStep(l)}
-          <button onClick={() => onSend(l)} title="Put it on the board now, as it is" className="rounded border border-zinc-300 px-2 py-0.5 text-xs hover:bg-zinc-100">To board</button>
-          <button onClick={() => onPark(l)} title="Not worth it" className="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-500 hover:bg-zinc-100">✕</button>
-        </span>
-      </li>
-    ); };
+      <div key={l.id} className="rounded-lg border border-zinc-200 bg-white p-2 text-xs shadow-sm">
+        <div className="flex items-start gap-1"><button onClick={() => onOpen(l.id)} className="min-w-0 flex-1 text-left text-sm font-medium leading-tight hover:underline">{l.business}</button><button onClick={() => onPark(l)} title="Not worth it" className="text-zinc-400 hover:text-zinc-700">✕</button></div>
+        <div className="mt-1 flex flex-wrap items-center gap-1">
+          {businessLabel(l) && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">{businessLabel(l)}</span>}
+          {recentlyEdited(l) && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-800">Recently edited</span>}
+          {l.website && <a href={`https://${l.website}`} target="_blank" rel="noopener" className="text-blue-700 hover:underline">{l.website}</a>}
+          {l.emailAddress && <span className="text-zinc-600">{l.emailAddress}</span>}
+        </div>
+        {col === "site" || col === "contact" ? <div className="mt-1.5">{nextStep(l)}</div> : null}
+        {col === "search" && <div className="mt-1.5 flex flex-wrap items-center gap-2">{w ? <span className="text-zinc-600">{w.position ? `#${w.position}` : "Not on page 1"} for “{w.query}”</span> : <a href={`https://www.google.co.uk/search?q=${encodeURIComponent(q || l.business)}&gl=uk&pws=0`} target="_blank" rel="noopener" className="text-blue-700 hover:underline">Search Google</a>}<button onClick={() => onSend(l)} className="rounded border border-zinc-300 px-1.5 py-0.5 hover:bg-zinc-100">To board</button></div>}
+      </div>
+    );
+  };
   return (
-    <div className="mt-3 space-y-3">
-      <div className="rounded-xl border border-zinc-200 bg-white">
-        <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-4 py-3 text-sm">
-          <span className="font-semibold">Waiting for Claude ({waiting.length})</span>
-          <span className="text-xs text-zinc-500">Not vetted yet: Claude checks the website, finds a contact and runs the Google search.</span>
-          {waiting.length > 0 && <button onClick={() => onVet(waiting.map((l) => l.id))} className="ml-auto rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700">Vet {waiting.length} with Claude</button>}
+    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {cols.map(([id, label, hint, items]) => (
+        <div key={id} className={`flex flex-col rounded-xl border p-2 ${id === "claude" ? "border-orange-200 bg-orange-50/40" : "border-zinc-200 bg-zinc-50"}`}>
+          <div className="flex items-center gap-1.5 px-1 text-xs font-semibold text-zinc-700"><span>{label}</span><span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{items.length}</span></div>
+          <div className="px-1 pb-2 text-[11px] text-zinc-500">{hint}</div>
+          {id === "claude" && items.length > 0 && <button onClick={() => onVet(items.map((l) => l.id))} className="mb-2 w-full rounded-md bg-orange-600 px-2 py-1 text-xs font-medium text-white hover:bg-orange-700">Vet {items.length} with Claude</button>}
+          <div className="flex flex-col gap-2">{items.slice(0, shown).map((l) => card(l, id))}{items.length === 0 && <div className="rounded-md border border-dashed border-zinc-300 p-3 text-center text-[11px] text-zinc-400">Nothing here</div>}</div>
+          {items.length > shown && <button onClick={() => setShown((n) => n + 100)} className="mt-2 text-xs text-zinc-600 hover:underline">Show {items.length - shown} more</button>}
         </div>
-        {waiting.length === 0 ? <p className="p-4 text-sm text-zinc-500">Nothing waiting. New leads land here first.</p> : <ul className="divide-y divide-zinc-100">{waiting.slice(0, shown).map((l) => row(l, false))}</ul>}
-      </div>
-      <div className="rounded-xl border border-amber-200 bg-white">
-        <div className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm">
-          <span className="font-semibold">Needs you ({needsYou.length})</span>
-          <span className="text-xs text-zinc-600">Claude couldn’t settle these. Do the step in each row: paste the website (it then looks for contacts again), confirm it, or add an email. Done ones go to the board by themselves.</span>
-        </div>
-        {needsYou.length === 0 ? <p className="p-4 text-sm text-zinc-500">Nothing needs you.</p> : <ul className="divide-y divide-zinc-100">{needsYou.slice(0, shown).map((l) => row(l, true))}</ul>}
-      </div>
-      {all.length > shown * 2 && <button onClick={() => setShown((n) => n + 200)} className="w-full rounded-md border border-zinc-200 py-2 text-xs text-zinc-600 hover:bg-zinc-50">Show more</button>}
+      ))}
     </div>
   );
 }
+
 // What each Claude job would take right now, for the All prompt.
 const vetItem = (l) => ({ id: l.id, business: l.business, companyNumber: l.companyNumber, address: l.address || l.area, sic: sicDescription(l.sics || []), website: l.website || "", issue: [l.problem, l.problemDetail].filter(Boolean).join(": "), contacts: (l.contacts || []).slice(0, 5).map((p) => `${p.name} (${p.role}${p.email ? `, ${p.email}` : ""})`).join("; "), rejected: (l.rejectedSites || []).join(", ") });
 function allPending(leads) {
