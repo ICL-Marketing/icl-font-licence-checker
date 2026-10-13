@@ -1,13 +1,12 @@
 // Builds the ICL proposal deck (.pptx) in the browser with pptxgenjs, in the house style:
 // dark gradient slides with the white logo, white slides with navy titles, teal accents, Obviously.
-import { TEAMS, range, split, totals, daysFor } from "@/lib/proposal";
+import { TEAMS, range, split, totals } from "@/lib/proposal";
 import { pickedPackages, packageFor } from "@/lib/packages";
 
 const W = 19.44, H = 12.5;
 const NAVY = "252560", INDIGO = "291F8E", TEAL = "1EDD9B", INK = "1B1B3A", GREY = "5B5B78", PALE = "F3F3FA", WHITE = "FFFFFF";
 const FONT = "Obviously";
 
-const SERVICES = ["PLATFORMS", "APPS", "WEBSITES", "SEO", "BRANDING", "PPC", "ANIMATION", "DESIGN", "BROCHURE DESIGN", "CONTENT CREATION", "PRESENTATION TEMPLATES", "HOSTING SOLUTIONS", "SOCIAL MEDIA GRAPHICS", "CAMPAIGN STRATEGY", "COMPETITOR RESEARCH", "APP SUPPORT", "WEBSITE SUPPORT", "PLATFORM SUPPORT", "EMAIL CAMPAIGNS", "DIGITAL STRATEGY", "POSTER DESIGN", "VIDEOGRAPHY & PHOTOGRAPHY", "SOCIAL MEDIA CAMPAIGNS", "SOFTWARE MANAGEMENT"];
 const PACKAGES = [
   ["", "BRONZE SUPPORT", "SILVER SUPPORT", "GOLD SUPPORT"],
   ["Included:", "All maintenance tasks needed to keep your website safe and secure, plus reactive and proactive support as needed.", "Bronze plus: a weekly call with your dedicated service delivery manager and monthly strategy meetings.", "Silver plus: half a day a month on site and complimentary managed hosting."],
@@ -45,9 +44,9 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   const picked = pickedPackages(packages);
   const pkgOf = (l) => packageFor(l, picked);
   const priceOf = (g) => g.tiers.filter((x) => g.picked.includes(x.id)).map((x) => `${x.price} ${x.period}`).join(" or ");
-  // Ideas priced by a set package (e.g. a video) don't count towards the hours or days.
+  // Ideas priced by a set package (e.g. a video) don't count towards the hours.
   const hourLines = lines.filter((l) => !pkgOf(l));
-  const days = daysFor(hourLines), t = totals(hourLines);
+  const t = totals(hourLines);
   const byKey = Object.fromEntries((copy.ideas || []).map((i) => [i.key, i]));
   const dark = () => { const s = pres.addSlide(); s.background = { data: bg }; s.addImage({ data: logoW, x: 0.9, y: H - 1.15, w: 2.3, h: 2.3 * (183 / 786) }); return s; };
   const light = (title) => {
@@ -137,32 +136,37 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const cell = (t, o = {}) => ({ text: t, options: { color: INK, fontSize: many ? 15 : 17, align: "center", ...o } });
     // Only the teams this proposal uses get a column.
     const used = TEAMS.filter(([k]) => t[k][1] > 0);
-    const many = used.length > 4, fixedW = many ? [3.2, 2.2] : [4.1, 2.5];
-    const rows = [[hd("Improvement", "left"), hd("Team"), ...used.map(([, , short]) => hd(short)), hd("Estimate")]];
-    for (const l of lines) { const sp = split(l); if (pkgOf(l)) { rows.push([cell((byKey[l.key]?.title || l.title), { align: "left", bold: true, color: NAVY }), cell(l.team.map(teamName).join(" + ")), ...used.map(() => cell("–")), cell(`${pkgOf(l).name} package`, { bold: true })]); continue; } rows.push([cell((byKey[l.key]?.title || l.title), { align: "left", bold: true, color: NAVY }), cell(l.team.map(teamName).join(" + ")), ...used.map(([k]) => cell(sp[k] ? range(...sp[k]) : "–")), cell(hrs(l.min, l.max), { bold: true })]); }
-    rows.push([cell("Total hands-on work", { align: "left", bold: true, color: NAVY, fill: { color: PALE } }), cell("", { fill: { color: PALE } }), ...used.map(([k]) => cell(t[k][1] ? range(t[k][0], t[k][1]) : "–", { bold: true, fill: { color: PALE } })), cell(`${range(t.min, t.max)} hrs`, { bold: true, color: NAVY, fill: { color: PALE } })]);
+    const many = used.length > 4, fixedW = many ? [4.8, 3.2] : [5.8, 3.6], TW = W - 1.8, EW = 2.4;
+    const pad = { margin: [0.08, 0.1, 0.08, 0.35] }; // breathing room on the left of the first column
+    const rows = [[{ ...hd("Improvement", "left"), options: { ...hd("Improvement", "left").options, ...pad } }, hd("Team"), ...used.map(([, , short]) => hd(short)), hd("Estimate")]];
+    for (const l of lines) { const sp = split(l); if (pkgOf(l)) { rows.push([cell((byKey[l.key]?.title || l.title), { align: "left", bold: true, color: NAVY, ...pad }), cell(l.team.map(teamName).join(" + ")), ...used.map(() => cell("–")), cell(`${pkgOf(l).name} package`, { bold: true })]); continue; } rows.push([cell((byKey[l.key]?.title || l.title), { align: "left", bold: true, color: NAVY, ...pad }), cell(l.team.map(teamName).join(" + ")), ...used.map(([k]) => cell(sp[k] ? range(...sp[k]) : "–")), cell(hrs(l.min, l.max), { bold: true })]); }
+    rows.push([cell("Total hands-on work", { align: "left", bold: true, color: NAVY, fill: { color: PALE }, ...pad }), cell("", { fill: { color: PALE } }), ...used.map(([k]) => cell(t[k][1] ? range(t[k][0], t[k][1]) : "–", { bold: true, fill: { color: PALE } })), cell(`${range(t.min, t.max)} hrs`, { bold: true, color: NAVY, fill: { color: PALE } })]);
     const rh = Math.min(1, 7.6 / rows.length);
-    s.addTable(rows, { x: 0.9, y: 2.3, w: 12.6, colW: [...fixedW, ...used.map(() => (12.6 - fixedW[0] - fixedW[1] - 1.8) / used.length), 1.8], rowH: rh, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" }, margin: 0.08 });
-    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 13.9, y: 2.3, w: W - 14.8, h: 7.6, rectRadius: 0.3, fill: { color: NAVY }, line: { color: NAVY } });
-    s.addText([{ text: `${days} DAY${days === 1 ? "" : "S"}`, options: { fontSize: 66, bold: true, color: TEAL, breakLine: true } }, { text: "fixed, start to finish", options: { fontSize: 22, color: WHITE, breakLine: true } }, { text: " ", options: { fontSize: 16, breakLine: true } }, { text: `${range(t.min, t.max)} hours of hands-on work, estimated for a person doing it by hand (not AI-assisted).`, options: { fontSize: 19, color: "DCDCF5", breakLine: true, paraSpaceAfter: 12 } }, { text: `The ${days} day${days === 1 ? "" : "s"} also cover your feedback, testing and launch, so the price stays fixed.`, options: { fontSize: 19, color: "DCDCF5" } }], { x: 14.3, y: 2.6, w: W - 15.6, h: 7, fontFace: FONT, valign: "top", isTextBox: true, margin: 0 });
+    s.addTable(rows, { x: 0.9, y: 2.3, w: TW, colW: [...fixedW, ...used.map(() => (TW - fixedW[0] - fixedW[1] - EW) / used.length), EW], rowH: rh, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" }, margin: 0.08 });
   }
   // 7. Retainer
   if (copy.retainer?.length && !hide.retainer) {
     const s = light("Next: a monthly retainer");
     copy.retainer.forEach((b, i) => block(s, 0.9 + (i % 2) * 9.1, 2.6 + Math.floor(i / 2) * 3.9, 8.4, 3.5, i + 1, b.title, b.text));
   }
-  // 9. Service retainer offering
+  // 9. Service retainer offering: the brand layout, staggered rows of service names (positions taken from the design, in px of a 1900px-wide slide)
   if (!hide.services) {
-    const s = dark();
-    s.addText("OUR SERVICE RETAINER OFFERING", { x: 0.9, y: 0.9, w: W - 1.8, h: 1.1, fontFace: FONT, fontSize: 44, bold: true, color: WHITE, isTextBox: true, margin: 0 });
-    s.addText("Here are just some of the services ICL can offer you as part of your retainer.*", { x: 0.9, y: 2, w: W - 1.8, h: 0.6, fontFace: FONT, fontSize: 20, color: "DCDCF5", isTextBox: true, margin: 0 });
-    const cols = 4, cw = (W - 1.8 - 0.3 * (cols - 1)) / cols;
-    SERVICES.forEach((t, i) => {
-      const x = 0.9 + (i % cols) * (cw + 0.3), y = 3.1 + Math.floor(i / cols) * 1.1;
-      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w: cw, h: 0.8, rectRadius: 0.4, fill: { color: WHITE, transparency: 88 }, line: { color: TEAL, width: 1 } });
-      s.addText(t, { x, y, w: cw, h: 0.8, fontFace: FONT, fontSize: 15, bold: true, color: WHITE, align: "center", valign: "middle", charSpacing: 1, isTextBox: true, margin: 0 });
-    });
-    s.addText("* The services we provide are limited to the time included in your package; extra days can be added at our standard day rate.", { x: 4, y: H - 1.4, w: W - 4.9, h: 0.6, fontFace: FONT, fontSize: 13, color: "BDBDE0", align: "right", isTextBox: true, margin: 0 });
+    const s = pres.addSlide(); s.background = { data: bg };
+    const px = W / 1900;
+    s.addText("OUR SERVICE RETAINER OFFERING", { x: 0.9, y: 0.75, w: W - 1.8, h: 1.1, fontFace: FONT, fontSize: 58, bold: true, color: TEAL, align: "center", valign: "middle", isTextBox: true, margin: 0 });
+    s.addText([{ text: "Here is a list of just some of the services ICL can offer you as part of your retainer. ", options: { color: WHITE } }, { text: "*", options: { color: TEAL, bold: true } }], { x: 0.9, y: 1.8, w: W - 1.8, h: 0.6, fontFace: FONT, fontSize: 20, align: "center", isTextBox: true, margin: 0 });
+    const rows = [
+      [333, [[273, "PLATFORMS"], [576, "APPS"], [862, "WEBSITES"], [1137, "SEO"], [1420, "BRANDING"], [1702, "PPC"]]],
+      [480, [[284, "ANIMATION\nDESIGN"], [670, "BROCHURE\nDESIGN"], [1056, "CONTENT\nCREATION"], [1490, "PRESENTATION\nTEMPLATES"]]],
+      [635, [[391, "HOSTING\nSOLUTIONS"], [786, "SOCIAL MEDIA\nGRAPHICS"], [1184, "CAMPAIGN\nSTRATEGY"], [1602, "COMPETITOR\nRESEARCH"]]],
+      [798, [[265, "APP\nSUPPORT"], [597, "WEBSITE\nSUPPORT"], [941, "PLATFORM\nSUPPORT"], [1317, "EMAIL\nCAMPAIGNS"], [1682, "DIGITAL\nSTRATEGY"]]],
+      [953, [[226, "POSTER\nDESIGN"], [657, "VIDEOGRAPHY &\nPHOTOGRAPHY"], [1156, "SOCIAL MEDIA\nCAMPAIGNS"], [1627, "SOFTWARE\nMANAGEMENT"]]],
+    ];
+    for (const [cy, items] of rows) for (const [cx, label] of items) {
+      const w = 4.6, h = 1.3;
+      s.addText(label, { x: cx * px - w / 2, y: cy * px - h / 2, w, h, fontFace: FONT, fontSize: 32, bold: true, color: WHITE, align: "center", valign: "middle", lineSpacingMultiple: 0.95, isTextBox: true, margin: 0 });
+    }
+    s.addText([{ text: "* ", options: { color: TEAL, bold: true } }, { text: "The services we provide will be limited to the days included in your package, and any extra days can be added at our standard day rate.", options: { color: WHITE } }], { x: 3, y: 11.05, w: W - 6, h: 0.85, fontFace: FONT, fontSize: 19, align: "center", valign: "middle", isTextBox: true, margin: 0 });
   }
   // 10. Packages: one slide per package group picked, otherwise the standard support packages
   if (!hide.packages && picked.length) for (const g of picked) {
