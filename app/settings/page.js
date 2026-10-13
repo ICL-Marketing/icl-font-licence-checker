@@ -8,6 +8,7 @@ import { normaliseClients } from "@/lib/clients";
 import { keysFor } from "@/app/launch";
 import { DEFAULT_SUBJECTS_SHARED, ICL_LINE, MAINTENANCE_DEFAULT, OPT_OUT_DEFAULT } from "@/lib/leadsShared";
 import { MAIL_KEY } from "@/app/mail";
+import { RetainerPointsEditor } from "@/app/proposal";
 
 export default function Settings() {
   const [team, setTeam] = useState([]);
@@ -132,6 +133,13 @@ export default function Settings() {
         </section>
       )}
       {section === "templates" && <TemplatesEditor />}
+      {section === "proposals" && (
+        <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+          <h2 className="font-semibold">Retainer selling points</h2>
+          <p className="mb-3 text-sm text-zinc-500">The same points for every proposal deck. Tick the ones that fit each client in the deck&apos;s step 2, and Claude builds the retainer slide from them.</p>
+          <RetainerPointsEditor />
+        </section>
+      )}
       {section === "emails" && (
         <>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
@@ -275,7 +283,7 @@ export default function Settings() {
   );
 }
 
-const SECTIONS = [["team", "Team"], ["clients", "Clients"], ["templates", "Email templates"], ["emails", "Email details"], ["leads", "Lead maintenance"], ["archived", "Archived checks"], ["connections", "Connections"]];
+const SECTIONS = [["team", "Team"], ["clients", "Clients"], ["templates", "Email templates"], ["emails", "Email details"], ["leads", "Lead maintenance"], ["proposals", "Proposals"], ["archived", "Archived checks"], ["connections", "Connections"]];
 
 function StatusRow({ ok, label, detail }) {
   return (

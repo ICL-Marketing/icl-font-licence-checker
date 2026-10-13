@@ -4,7 +4,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon } from "@/app/icons";
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
-import { TEAMS, lineFromIdea, ownLine, range, totals, daysFor, proposalPrompt, parseProposalReply } from "@/lib/proposal";
+import { TEAMS, lineFromIdea, ownLine, range, totals, daysFor, proposalPrompt, parseProposalReply, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
+import Link from "next/link";
 import { ideaType } from "@/lib/clientIdeas";
 
 function Grow({ value, className = "", ...rest }) {
@@ -38,10 +39,10 @@ function shrink(file) {
 }
 
 function TeamPicker({ team, onChange }) {
-  return <span className="inline-flex gap-1">{TEAMS.map(([k, name]) => { const on = team.includes(k); return <button key={k} type="button" onClick={() => { const next = on ? team.filter((x) => x !== k) : [...team, k]; if (next.length) onChange(next); }} className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${on ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-500 hover:bg-zinc-100"}`}>{name}</button>; })}</span>;
+  return <span className="inline-flex flex-wrap gap-1">{TEAMS.map(([k, name]) => { const on = team.includes(k); return <button key={k} type="button" onClick={() => { const next = on ? team.filter((x) => x !== k) : [...team, k]; if (next.length) onChange(next); }} className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${on ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-500 hover:bg-zinc-100"}`}>{name}</button>; })}</span>;
 }
 function Hours({ line, onChange }) {
-  return <span className="inline-flex items-center gap-1 text-xs text-zinc-500"><input type="number" min={0.5} step={0.5} value={line.min} onChange={(e) => onChange({ min: Number(e.target.value) || 0.5 })} className={num} aria-label="Hours from" />–<input type="number" min={0.5} step={0.5} value={line.max} onChange={(e) => onChange({ max: Number(e.target.value) || 0.5 })} className={num} aria-label="Hours to" /> hrs</span>;
+  return <span className="inline-flex items-center gap-1 text-xs text-zinc-500"><input type="number" min={0.5} step={0.5} value={line.max} onChange={(e) => { const h = Number(e.target.value) || 0.5; onChange({ min: h, max: h }); }} className={num} aria-label="Hours" /> hrs</span>;
 }
 function Summary({ lines }) {
   const t = totals(lines), d = daysFor(lines);
@@ -65,16 +66,47 @@ function ImageDrop({ value, onChange, label }) {
     </div>
   );
 }
-function BlockList({ label, items, onChange }) {
+// Bullet points as a proper list: Enter adds the next point, Backspace on an empty one removes it.
+function Bullets({ items, onChange }) {
+  const refs = useRef([]);
+  const list = items.length ? items : [""];
+  const focus = (n) => setTimeout(() => refs.current[n]?.focus(), 0);
+  return (
+    <ul className="space-y-1 rounded-md border border-zinc-300 px-2 py-1.5">
+      {list.map((b, i) => (
+        <li key={i} className="flex items-center gap-2 text-sm">
+          <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-900" />
+          <input ref={(el) => { refs.current[i] = el; }} value={b} placeholder="A bullet point" aria-label={`Bullet ${i + 1}`}
+            onChange={(e) => onChange(list.map((x, j) => (j === i ? e.target.value : x)))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); onChange([...list.slice(0, i + 1), "", ...list.slice(i + 1)]); focus(i + 1); }
+              if (e.key === "Backspace" && !b && list.length > 1) { e.preventDefault(); onChange(list.filter((_, j) => j !== i)); focus(Math.max(0, i - 1)); }
+            }}
+            className="min-w-0 flex-1 rounded px-1 py-0.5 outline-none focus:bg-zinc-50" />
+          <button type="button" onClick={() => onChange(list.filter((_, j) => j !== i))} aria-label="Remove bullet" className="rounded p-0.5 text-zinc-300 hover:text-red-700"><TrashIcon className="h-3.5 w-3.5" /></button>
+        </li>
+      ))}
+      <li><button type="button" onClick={() => { onChange([...list, ""]); focus(list.length); }} className="pl-3.5 text-xs text-zinc-500 hover:text-zinc-900">+ Add bullet</button></li>
+    </ul>
+  );
+}
+// Take a whole slide out of the deck (and put it back).
+function SlideToggle({ hidden, onToggle }) {
+  return hidden
+    ? <button type="button" onClick={onToggle} className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] font-medium normal-case tracking-normal text-blue-700 hover:bg-blue-50">Put slide back</button>
+    : <button type="button" onClick={onToggle} title="Leave this slide out of the deck" className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium normal-case tracking-normal text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-3.5 w-3.5" /> Remove slide</button>;
+}
+function BlockList({ label, items, onChange, hidden, onToggle }) {
   if (!items?.length) return null;
   return (
-    <div><div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{label}</div>
+    <div><div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500"><span className={hidden ? "line-through" : ""}>{label}</span>{hidden && <span className="normal-case tracking-normal text-zinc-400">Not in the deck</span>}<span className="ml-auto"><SlideToggle hidden={hidden} onToggle={onToggle} /></span></div>
+      {!hidden && <>
       <div className="grid gap-2 sm:grid-cols-2">{items.map((b, i) => (
         <div key={i} className="space-y-1 rounded-md border border-zinc-200 p-2">
           <input value={b.title} onChange={(e) => onChange(items.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))} className={`${input} font-semibold`} />
           <Grow value={b.text} onChange={(e) => onChange(items.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} className={input} />
         </div>))}
-      </div>
+      </div></>}
     </div>
   );
 }
@@ -90,8 +122,10 @@ export function ProposalModal({ group, onClose }) {
   const [reply, setReply] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState({ title: "", why: "", min: 2, max: 3, team: ["dev"] });
+  const [draft, setDraft] = useState({ title: "", why: "", min: 2, max: 2, team: ["dev"] });
   const saveT = useRef(null);
+  const [points, setPoints] = useState(RETAINER_DEFAULTS);
+  useEffect(() => { fetch("/api/settings?key=retainer-points").then((r) => r.json()).then((j) => { if (j.shared && j.value?.items) setPoints(normalisePoints(j.value)); }).catch(() => {}); }, []);
 
   useEffect(() => {
     let live = true;
@@ -115,14 +149,16 @@ export function ProposalModal({ group, onClose }) {
     saveT.current = setTimeout(() => saveOne(id, next), 800);
     return next;
   });
-  const lines = doc ? [...pool.filter((i) => doc.picked[i.key]).map((i) => doc.picked[i.key]), ...Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key) && !l.custom), ...doc.own] : [];
+  const lines = (doc ? [...pool.filter((i) => doc.picked[i.key]).map((i) => doc.picked[i.key]), ...Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key) && !l.custom), ...doc.own] : []).map((l) => (l.min === l.max ? l : { ...l, min: l.max })); // one set figure (older drafts had a range)
   const setLine = (key, fields) => change((d) => (d.own.some((l) => l.key === key) ? { ...d, own: d.own.map((l) => (l.key === key ? { ...l, ...fields, max: Math.max(fields.max ?? l.max, fields.min ?? l.min) } : l)) } : { ...d, picked: { ...d.picked, [key]: { ...d.picked[key], ...fields, max: Math.max(fields.max ?? d.picked[key].max, fields.min ?? d.picked[key].min) } } }));
-  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines, notes: doc.notes })) : "";
+  const chosenIds = doc?.points || points.filter((x) => x.always).map((x) => x.id);
+  const chosen = points.filter((x) => chosenIds.includes(x.id));
+  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines, notes: doc.notes, points: chosen })) : "";
 
   function applyReply(text) {
     const copy = parseProposalReply(text);
     if (!copy.ideas.length) throw new Error("No ideas in that reply. Paste Claude's whole JSON block.");
-    change((d) => ({ ...d, copy, step: 3 }));
+    change((d) => ({ ...d, copy: { ...copy, hide: d.copy?.hide || {} }, step: 3 }));
     setReply(""); setErr("");
     return `Proposal copy for ${group.name}: ${copy.ideas.length} idea slides`;
   }
@@ -138,6 +174,8 @@ export function ProposalModal({ group, onClose }) {
     setBusy(false);
   }
   const setCopy = (fields) => change((d) => ({ ...d, copy: { ...d.copy, ...fields } }));
+  const hidden = doc?.copy?.hide || {};
+  const toggle = (k) => ({ hidden: !!hidden[k], onToggle: () => setCopy({ hide: { ...hidden, [k]: !hidden[k] } }) });
   const setIdeaCopy = (key, fields) => setCopy({ ideas: doc.copy.ideas.map((x) => (x.key === key ? { ...x, ...fields } : x)) });
   const step = doc?.step || 0;
   const canGo = (n) => n === 0 || (n <= 2 ? lines.length > 0 : !!doc?.copy);
@@ -181,7 +219,12 @@ export function ProposalModal({ group, onClose }) {
                   <input value={draft.title} onChange={(e) => setDraft((o) => ({ ...o, title: e.target.value }))} placeholder="e.g. Mobile and final QA" className={input} />
                   <input value={draft.why} onChange={(e) => setDraft((o) => ({ ...o, why: e.target.value }))} placeholder="What it involves, in a line (Claude turns it into the slide)" className={input} />
                   <div className="flex flex-wrap items-center gap-3"><Hours line={draft} onChange={(f) => setDraft((o) => ({ ...o, ...f }))} /><TeamPicker team={draft.team} onChange={(team) => setDraft((o) => ({ ...o, team }))} />
-                    <button onClick={() => { if (!draft.title.trim()) return; change((d) => ({ ...d, own: [...d.own, ownLine(draft)] })); setDraft({ title: "", why: "", min: 2, max: 3, team: ["dev"] }); }} disabled={!draft.title.trim()} className="ml-auto rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm hover:bg-zinc-100 disabled:opacity-40">+ Add</button></div>
+                    <button onClick={() => { if (!draft.title.trim()) return; change((d) => ({ ...d, own: [...d.own, ownLine(draft)] })); setDraft({ title: "", why: "", min: 2, max: 2, team: ["dev"] }); }} disabled={!draft.title.trim()} className="ml-auto rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm hover:bg-zinc-100 disabled:opacity-40">+ Add</button></div>
+                </div>
+                <div className="rounded-lg border border-zinc-200 p-3">
+                  <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Retainer selling points<Link href="/settings?section=proposals" target="_blank" className="ml-auto font-medium normal-case tracking-normal text-blue-700 hover:underline">Edit in Settings</Link></div>
+                  <div className="flex flex-wrap gap-1.5">{points.map((x) => { const on = chosenIds.includes(x.id); return <button key={x.id} type="button" title={x.text} onClick={() => change((d) => ({ ...d, points: on ? chosenIds.filter((y) => y !== x.id) : [...chosenIds, x.id] }))} className={`rounded-full border px-2.5 py-1 text-xs font-medium ${on ? "border-emerald-600 bg-emerald-600 text-white" : "border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-100"}`}>{on ? "✓ " : ""}{x.title}</button>; })}</div>
+                  <p className="mt-1.5 text-[11px] text-zinc-500">Claude builds the retainer slide from the ones ticked. Untick any that don&apos;t fit this client (e.g. Local to you).</p>
                 </div>
                 <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Notes for Claude (optional)<textarea value={doc.notes} onChange={(e) => change((d) => ({ ...d, notes: e.target.value }))} rows={2} placeholder="e.g. They're launching a new service in spring; keep it to a refresh, not a rebuild" className={`${input} mt-0.5 font-normal normal-case tracking-normal`} /></label>
                 <div className="flex justify-between"><button onClick={() => change((d) => ({ ...d, step: 0 }))} className="rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100">Back</button><button onClick={() => change((d) => ({ ...d, step: 2 }))} disabled={!lines.length} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: Claude writes it</button></div>
@@ -190,7 +233,7 @@ export function ProposalModal({ group, onClose }) {
 
             {step === 2 && (
               <div className="space-y-3">
-                <p className="text-xs text-zinc-600">Claude checks {website || "their website"} and writes the deck copy: background, biggest wins, a slide per idea, the {daysFor(lines)}-day plan and the retainer pitch. It also flags any hour estimate that looks wrong. Use a new chat with web search on.</p>
+                <p className="text-xs text-zinc-600">Claude checks {website || "their website"} and writes the deck copy: background, biggest wins, a slide per idea and the retainer pitch. It also flags any hour estimate that looks wrong. Use a new chat with web search on.</p>
                 <div className="flex flex-wrap gap-2">
                   <button onClick={() => copyPrompt(true)} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white"><ExternalIcon /> Copy and open Claude</button>
                   <button onClick={() => copyPrompt(false)} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-100">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy prompt</>}</button>
@@ -208,8 +251,8 @@ export function ProposalModal({ group, onClose }) {
                   <ImageDrop value={images.cover} onChange={(v) => setImages((o) => ({ ...o, cover: v }))} label="Cover image (e.g. their homepage today)" />
                   <label className="min-w-[14rem] flex-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Deck title<input value={doc.copy.deckTitle} onChange={(e) => setCopy({ deckTitle: e.target.value.toUpperCase() })} className={`${input} mt-0.5`} /><span className="mt-1 block font-normal normal-case tracking-normal text-zinc-500">Images stay in this browser only (not saved), so add them just before you download.</span></label>
                 </div>
-                <BlockList label="Background" items={doc.copy.background} onChange={(background) => setCopy({ background })} />
-                <BlockList label="Where the biggest wins are" items={doc.copy.wins} onChange={(wins) => setCopy({ wins })} />
+                <BlockList label="Background" items={doc.copy.background} onChange={(background) => setCopy({ background })} {...toggle("background")} />
+                <BlockList label="Where the biggest wins are" items={doc.copy.wins} onChange={(wins) => setCopy({ wins })} {...toggle("wins")} />
                 <div className="space-y-2"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Idea slides</div>
                   {lines.map((l, n) => { const c = doc.copy.ideas.find((x) => x.key === l.key); return (
                     <div key={l.key} className="flex flex-wrap gap-3 rounded-lg border border-zinc-200 p-3">
@@ -217,17 +260,21 @@ export function ProposalModal({ group, onClose }) {
                         {!c ? <p className="text-sm text-amber-700">{n + 1}. {l.title}: Claude didn&apos;t write this one, so the slide uses your title and notes.</p> : <>
                           <input value={c.title} onChange={(e) => setIdeaCopy(l.key, { title: e.target.value })} className={`${input} font-semibold`} aria-label="Slide title" />
                           <Grow value={c.intro} onChange={(e) => setIdeaCopy(l.key, { intro: e.target.value })} className={input} aria-label="Intro" />
-                          <Grow value={c.bullets.join("\n")} onChange={(e) => setIdeaCopy(l.key, { bullets: e.target.value.split("\n") })} className={input} aria-label="Bullet points, one per line" />
+                          <Bullets items={c.bullets} onChange={(bullets) => setIdeaCopy(l.key, { bullets })} />
                           <input value={c.closing} onChange={(e) => setIdeaCopy(l.key, { closing: e.target.value })} placeholder="Closing benefit (optional)" className={input} />
                         </>}
                         <div className="flex flex-wrap items-center gap-2 pt-1"><Hours line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, { team })} />
-                          {c?.min && (c.min !== l.min || c.max !== l.max) && <button onClick={() => setLine(l.key, { min: c.min, max: Math.max(c.max || c.min, c.min) })} title={c.hoursNote} className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-200">Claude suggests {range(c.min, c.max || c.min)} hrs{c.hoursNote ? `: ${c.hoursNote}` : ""} · use</button>}</div>
+                          {c?.max && c.max !== l.max && <button onClick={() => setLine(l.key, { min: c.max, max: c.max })} title={c.hoursNote} className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-200">Claude suggests {c.max} hrs{c.hoursNote ? `: ${c.hoursNote}` : ""} · use</button>}</div>
                       </div>
                       <ImageDrop value={images[l.key]} onChange={(v) => setImages((o) => ({ ...o, [l.key]: v }))} label="Screenshot or mock-up" />
                     </div>); })}
                 </div>
-                <BlockList label={`${daysFor(lines)}-day plan`} items={doc.copy.plan} onChange={(plan) => setCopy({ plan })} />
-                <BlockList label="Retainer pitch" items={doc.copy.retainer} onChange={(retainer) => setCopy({ retainer })} />
+                <BlockList label="Retainer pitch" items={doc.copy.retainer} onChange={(retainer) => setCopy({ retainer })} {...toggle("retainer")} />
+                <div><div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Standard slides</div>
+                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["effort", "Estimated effort table and days"], ["services", "Our service retainer offering"], ["packages", "Support packages (Bronze, Silver, Gold)"]].map(([k, name]) => (
+                    <li key={k} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className={hidden[k] ? "text-zinc-400 line-through" : ""}>{name}</span><span className="ml-auto"><SlideToggle {...toggle(k)} /></span></li>))}
+                  </ul>
+                </div>
                 {err && <p className="text-sm text-red-700">{err}</p>}
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 pt-3">
                   <button onClick={() => change((d) => ({ ...d, step: 2 }))} className="rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100">Back: ask Claude again</button>
@@ -238,6 +285,35 @@ export function ProposalModal({ group, onClose }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Settings → Proposals: the retainer selling points every proposal can pick from.
+export function RetainerPointsEditor() {
+  const [items, setItems] = useState(null);
+  const [state, setState] = useState("");
+  useEffect(() => { fetch("/api/settings?key=retainer-points").then((r) => r.json()).then((j) => setItems(normalisePoints(j.shared ? j.value : null))).catch(() => setItems(normalisePoints(null))); }, []);
+  async function save(next) {
+    setItems(next); setState("Saving…");
+    const r = await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "retainer-points", value: { items: next } }) }).then((x) => x.json()).catch(() => ({}));
+    setState(r.shared ? "Saved" : "Saved on this page only (no shared store)");
+  }
+  if (!items) return <p className="text-sm text-zinc-500">Loading…</p>;
+  const set = (n, f) => setItems(items.map((x, j) => (j === n ? { ...x, ...f } : x)));
+  return (
+    <div className="space-y-2">
+      {items.map((x, n) => (
+        <div key={x.id} className="flex flex-wrap items-start gap-2 rounded-lg border border-zinc-200 p-2">
+          <div className="min-w-[16rem] flex-1 space-y-1">
+            <input value={x.title} onChange={(e) => set(n, { title: e.target.value })} onBlur={() => save(items)} placeholder="e.g. Local to you" className={`${input} font-semibold`} />
+            <Grow value={x.text} onChange={(e) => set(n, { text: e.target.value })} onBlur={() => save(items)} placeholder="One sentence Claude can use" className={input} />
+          </div>
+          <label className="mt-1 inline-flex items-center gap-1.5 text-xs text-zinc-600" title="Ticked for every new proposal (you can untick it per client)"><input type="checkbox" checked={x.always} onChange={(e) => save(items.map((y, j) => (j === n ? { ...y, always: e.target.checked } : y)))} /> Ticked by default</label>
+          <button onClick={() => save(items.filter((_, j) => j !== n))} aria-label="Delete point" className="mt-0.5 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button>
+        </div>
+      ))}
+      <div className="flex items-center gap-3"><button onClick={() => save([...items, { id: `p${Date.now().toString(36)}`, title: "New point", text: "", always: false }])} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-100">+ Add point</button><span className="text-xs text-zinc-500">{state}</span></div>
     </div>
   );
 }

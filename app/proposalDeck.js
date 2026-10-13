@@ -43,10 +43,10 @@ export async function buildDeck({ client, website, lines, copy, images = {} }) {
   const [bg, logoW, logoN] = await Promise.all(["/proposal/bg-dark.jpg", "/proposal/logo-white.png", "/proposal/logo-navy.png"].map(dataUrl));
   const days = daysFor(lines), t = totals(lines);
   const byKey = Object.fromEntries((copy.ideas || []).map((i) => [i.key, i]));
-  const dark = () => { const s = pres.addSlide(); s.background = { data: bg }; s.addImage({ data: logoW, x: 0.9, y: H - 1.55, w: 2.6, h: 2.6 * (254 / 814) }); return s; };
+  const dark = () => { const s = pres.addSlide(); s.background = { data: bg }; s.addImage({ data: logoW, x: 0.9, y: H - 1.15, w: 2.3, h: 2.3 * (199 / 858) }); return s; };
   const light = (title) => {
     const s = pres.addSlide(); s.background = { color: WHITE };
-    s.addImage({ data: logoN, x: 0.9, y: H - 1.05, w: 2.2, h: 2.2 * (68 / 286) });
+    s.addImage({ data: logoN, x: 0.9, y: H - 1.15, w: 2.3, h: 2.3 * (199 / 858) });
     s.addText(String(lines.length ? client : "").toUpperCase(), { x: W - 7.9, y: H - 1.1, w: 7, h: 0.5, fontFace: FONT, fontSize: 12, color: GREY, align: "right", charSpacing: 2, isTextBox: true });
     if (title) s.addText(title.toUpperCase(), { x: 0.9, y: 0.75, w: W - 1.8, h: 1.1, fontFace: FONT, fontSize: 44, bold: true, color: NAVY, isTextBox: true, margin: 0 });
     return s;
@@ -67,22 +67,22 @@ export async function buildDeck({ client, website, lines, copy, images = {} }) {
     }
     const tw = cover ? 9 : W - 1.8;
     s.addShape(pres.shapes.RECTANGLE, { x: 0.9, y: 3.2, w: 1.6, h: 0.14, fill: { color: TEAL }, line: { color: TEAL } });
-    s.addText(client.toUpperCase(), { x: 0.9, y: 3.6, w: tw, h: 2.2, fontFace: FONT, fontSize: 66, bold: true, color: WHITE, valign: "top", fit: "shrink", isTextBox: true, margin: 0 });
-    s.addText(copy.deckTitle || "WEBSITE PROPOSAL", { x: 0.9, y: 5.9, w: tw, h: 1, fontFace: FONT, fontSize: 32, bold: true, color: TEAL, isTextBox: true, margin: 0 });
-    s.addText([{ text: `${days} day${days === 1 ? "" : "s"} of focused improvements`, options: { breakLine: true } }, { text: [website, new Date().toLocaleDateString("en-GB")].filter(Boolean).join("  ·  ") }], { x: 0.9, y: 7.2, w: tw, h: 1.3, fontFace: FONT, fontSize: 20, color: "CFCFF0", isTextBox: true, margin: 0 });
-  }
-  // 2. Who are ICL
-  {
-    const s = dark();
-    s.addText([{ text: "WHO ARE ICL?", options: { color: TEAL, fontSize: 40, bold: true, breakLine: true } }, { text: " ", options: { fontSize: 18, breakLine: true } }, { text: "WE ARE TRANSFORMATION SPECIALISTS, WHO SEAMLESSLY INTEGRATE CREATIVITY WITH TECHNOLOGY. WE HAVE OVER A DECADE OF EXPERIENCE BUILDING BEAUTIFUL, FUNCTIONAL, CUSTOM-MADE PLATFORMS, WEBSITES AND APPLICATIONS. WE AIM TO EMPOWER OUR CLIENTS THROUGH TECHNOLOGY AS A “DIGITAL PARTNER”.", options: { color: WHITE, fontSize: 36, bold: true } }], { x: 0.9, y: 1.8, w: W - 3.5, h: 8, fontFace: FONT, valign: "middle", lineSpacingMultiple: 1.1, isTextBox: true, margin: 0 });
+    // As big as fits: sized so the longest word stays on one line (shrink-to-fit isn't applied until the deck is edited).
+    const longest = Math.max(...client.split(/\s+/).map((w) => w.length), 1);
+    const nameSize = Math.max(40, Math.min(110, Math.floor((tw * 72) / (longest * 0.82))));
+    const nameLines = Math.min(3, Math.ceil((client.length * 0.82 * nameSize) / 72 / tw)), nameH = (nameLines * nameSize * 1.1) / 72, subY = 3.6 + nameH + 0.35;
+    s.addText(client.toUpperCase(), { x: 0.9, y: 3.6, w: tw, h: nameH, fontFace: FONT, fontSize: nameSize, bold: true, color: WHITE, valign: "top", fit: "shrink", isTextBox: true, margin: 0 });
+    s.addText(copy.deckTitle || "WEBSITE PROPOSAL", { x: 0.9, y: subY, w: tw, h: 1.6, valign: "top", fontFace: FONT, fontSize: 50, bold: true, color: TEAL, isTextBox: true, margin: 0 });
+    s.addText([website, new Date().toLocaleDateString("en-GB")].filter(Boolean).join("  ·  "), { x: 0.9, y: subY + 1.9, w: tw, h: 0.8, fontFace: FONT, fontSize: 26, color: "CFCFF0", isTextBox: true, margin: 0 });
   }
   // 3. Background
-  if (copy.background?.length) {
+  const hide = copy.hide || {}; // slides taken out in the review step
+  if (copy.background?.length && !hide.background) {
     const s = light("The background");
     copy.background.forEach((b, i) => block(s, 0.9 + (i % 2) * 9.1, 2.6 + Math.floor(i / 2) * 3.9, 8.4, 3.5, i + 1, b.title, b.text));
   }
   // 4. Where the biggest wins are
-  if (copy.wins?.length) {
+  if (copy.wins?.length && !hide.wins) {
     const s = dark();
     s.addText("WHERE THE BIGGEST WINS ARE", { x: 0.9, y: 0.9, w: W - 1.8, h: 1.1, fontFace: FONT, fontSize: 44, bold: true, color: WHITE, isTextBox: true, margin: 0 });
     const n = copy.wins.length, gap = 0.45, cw = (W - 1.8 - gap * (n - 1)) / n;
@@ -120,43 +120,32 @@ export async function buildDeck({ client, website, lines, copy, images = {} }) {
     const sp = split(l), parts = TEAMS.filter(([k]) => sp[k]).map(([k, name]) => `${name} ${hrs(...sp[k])}`).join("  ·  ");
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: W - 1.8, h: 1.25, rectRadius: 0.2, fill: { color: PALE }, line: { color: PALE } });
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: 0.18, h: 1.25, rectRadius: 0.05, fill: { color: TEAL }, line: { color: TEAL } });
-    s.addText([{ text: "ESTIMATE  ", options: { color: GREY, fontSize: 15, bold: true } }, { text: hrs(l.min, l.max), options: { color: NAVY, fontSize: 24, bold: true } }, { text: "      TEAM  ", options: { color: GREY, fontSize: 15, bold: true } }, { text: l.team.map(teamName).join(" + "), options: { color: NAVY, fontSize: 20, bold: true } }], { x: 1.4, y: 9.6, w: 10.5, h: 1.15, fontFace: FONT, valign: "middle", isTextBox: true, margin: 0 });
-    s.addText(parts, { x: 11.9, y: 9.6, w: W - 13.2, h: 1.15, fontFace: FONT, fontSize: 15, color: GREY, align: "right", valign: "middle", isTextBox: true, margin: 0 });
+    s.addText([{ text: "ESTIMATE  ", options: { color: GREY, fontSize: 15, bold: true } }, { text: hrs(l.min, l.max), options: { color: NAVY, fontSize: 24, bold: true } }, { text: "      TEAM  ", options: { color: GREY, fontSize: 15, bold: true } }, { text: l.team.map(teamName).join(" + "), options: { color: NAVY, fontSize: 20, bold: true } }], { x: 1.4, y: 9.6, w: 10.5, h: 1.15, fontFace: FONT, valign: "middle", fit: "shrink", isTextBox: true, margin: 0 });
+    s.addText(parts, { x: 11.9, y: 9.6, w: W - 13.2, h: 1.15, fontFace: FONT, fontSize: 15, color: GREY, align: "right", valign: "middle", fit: "shrink", isTextBox: true, margin: 0 });
   }
   // 6. Estimated effort
-  {
+  if (!hide.effort) {
     const s = light("Estimated effort");
-    const hd = (t, al = "center") => ({ text: t, options: { bold: true, color: WHITE, fill: { color: NAVY }, align: al, fontSize: 16 } });
-    const cell = (t, o = {}) => ({ text: t, options: { color: INK, fontSize: 17, align: "center", ...o } });
-    const rows = [[hd("Improvement", "left"), hd("Team"), hd("Design"), hd("Dev"), hd("Marketing"), hd("Estimate")]];
-    for (const l of lines) { const sp = split(l); rows.push([cell((byKey[l.key]?.title || l.title), { align: "left", bold: true, color: NAVY }), cell(l.team.map(teamName).join(" + ")), ...TEAMS.map(([k]) => cell(sp[k] ? range(...sp[k]) : "–")), cell(hrs(l.min, l.max), { bold: true })]); }
-    rows.push([cell("Total hands-on work", { align: "left", bold: true, color: NAVY, fill: { color: PALE } }), cell("", { fill: { color: PALE } }), ...TEAMS.map(([k]) => cell(t[k][1] ? range(t[k][0], t[k][1]) : "–", { bold: true, fill: { color: PALE } })), cell(`${range(t.min, t.max)} hrs`, { bold: true, color: NAVY, fill: { color: PALE } })]);
+    const hd = (t, al = "center") => ({ text: t, options: { bold: true, color: WHITE, fill: { color: NAVY }, align: al, fontSize: many ? 12 : 16 } });
+    const cell = (t, o = {}) => ({ text: t, options: { color: INK, fontSize: many ? 15 : 17, align: "center", ...o } });
+    // Only the teams this proposal uses get a column.
+    const used = TEAMS.filter(([k]) => t[k][1] > 0);
+    const many = used.length > 4, fixedW = many ? [3.2, 2.2] : [4.1, 2.5];
+    const rows = [[hd("Improvement", "left"), hd("Team"), ...used.map(([, , short]) => hd(short)), hd("Estimate")]];
+    for (const l of lines) { const sp = split(l); rows.push([cell((byKey[l.key]?.title || l.title), { align: "left", bold: true, color: NAVY }), cell(l.team.map(teamName).join(" + ")), ...used.map(([k]) => cell(sp[k] ? range(...sp[k]) : "–")), cell(hrs(l.min, l.max), { bold: true })]); }
+    rows.push([cell("Total hands-on work", { align: "left", bold: true, color: NAVY, fill: { color: PALE } }), cell("", { fill: { color: PALE } }), ...used.map(([k]) => cell(t[k][1] ? range(t[k][0], t[k][1]) : "–", { bold: true, fill: { color: PALE } })), cell(`${range(t.min, t.max)} hrs`, { bold: true, color: NAVY, fill: { color: PALE } })]);
     const rh = Math.min(1, 7.6 / rows.length);
-    s.addTable(rows, { x: 0.9, y: 2.3, w: 12.6, colW: [4.1, 2.5, 1.3, 1.3, 1.6, 1.8], rowH: rh, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" }, margin: 0.08 });
+    s.addTable(rows, { x: 0.9, y: 2.3, w: 12.6, colW: [...fixedW, ...used.map(() => (12.6 - fixedW[0] - fixedW[1] - 1.8) / used.length), 1.8], rowH: rh, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" }, margin: 0.08 });
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 13.9, y: 2.3, w: W - 14.8, h: 7.6, rectRadius: 0.3, fill: { color: NAVY }, line: { color: NAVY } });
     s.addText([{ text: `${days} DAY${days === 1 ? "" : "S"}`, options: { fontSize: 66, bold: true, color: TEAL, breakLine: true } }, { text: "fixed, start to finish", options: { fontSize: 22, color: WHITE, breakLine: true } }, { text: " ", options: { fontSize: 16, breakLine: true } }, { text: `${range(t.min, t.max)} hours of hands-on work, estimated for a person doing it by hand (not AI-assisted).`, options: { fontSize: 19, color: "DCDCF5", breakLine: true, paraSpaceAfter: 12 } }, { text: `The ${days} day${days === 1 ? "" : "s"} also cover your feedback, testing and launch, so the price stays fixed.`, options: { fontSize: 19, color: "DCDCF5" } }], { x: 14.3, y: 2.6, w: W - 15.6, h: 7, fontFace: FONT, valign: "top", isTextBox: true, margin: 0 });
   }
-  // 7. Plan
-  if (copy.plan?.length) {
-    const s = dark();
-    s.addText(`${days} DAY${days === 1 ? "" : "S"}, START TO FINISH`, { x: 0.9, y: 0.9, w: W - 1.8, h: 1.1, fontFace: FONT, fontSize: 44, bold: true, color: WHITE, isTextBox: true, margin: 0 });
-    const n = copy.plan.length, cw = (W - 1.8) / n;
-    s.addShape(pres.shapes.RECTANGLE, { x: 0.9 + cw / 2, y: 3.6, w: cw * (n - 1), h: 0.12, fill: { color: TEAL }, line: { color: TEAL } });
-    copy.plan.forEach((b, i) => {
-      const cx = 0.9 + i * cw + cw / 2;
-      s.addShape(pres.shapes.OVAL, { x: cx - 0.8, y: 2.86, w: 1.6, h: 1.6, fill: { color: TEAL }, line: { color: WHITE, width: 3 } });
-      s.addText(String(i + 1), { x: cx - 0.8, y: 2.86, w: 1.6, h: 1.6, fontFace: FONT, fontSize: 40, bold: true, color: NAVY, align: "center", valign: "middle", isTextBox: true, margin: 0 });
-      const label = days >= n ? `DAY ${days === n ? i + 1 : `${Math.floor((i * days) / n) + 1}–${Math.floor(((i + 1) * days) / n)}`}` : `STAGE ${i + 1}`;
-      s.addText([{ text: label.replace(/DAY (\d+)–\1$/, "DAY $1"), options: { fontSize: 18, bold: true, color: TEAL, breakLine: true } }, { text: b.title.toUpperCase(), options: { fontSize: 26, bold: true, color: WHITE, breakLine: true } }, { text: " ", options: { fontSize: 10, breakLine: true } }, { text: b.text, options: { fontSize: 19, color: "DCDCF5" } }], { x: cx - cw / 2 + 0.4, y: 5, w: cw - 0.8, h: 5, fontFace: FONT, align: "center", valign: "top", isTextBox: true, margin: 0 });
-    });
-  }
-  // 8. Retainer
-  if (copy.retainer?.length) {
+  // 7. Retainer
+  if (copy.retainer?.length && !hide.retainer) {
     const s = light("Next: a monthly retainer");
     copy.retainer.forEach((b, i) => block(s, 0.9 + (i % 2) * 9.1, 2.6 + Math.floor(i / 2) * 3.9, 8.4, 3.5, i + 1, b.title, b.text));
   }
   // 9. Service retainer offering
-  {
+  if (!hide.services) {
     const s = dark();
     s.addText("OUR SERVICE RETAINER OFFERING", { x: 0.9, y: 0.9, w: W - 1.8, h: 1.1, fontFace: FONT, fontSize: 44, bold: true, color: WHITE, isTextBox: true, margin: 0 });
     s.addText("Here are just some of the services ICL can offer you as part of your retainer.*", { x: 0.9, y: 2, w: W - 1.8, h: 0.6, fontFace: FONT, fontSize: 20, color: "DCDCF5", isTextBox: true, margin: 0 });
@@ -169,7 +158,7 @@ export async function buildDeck({ client, website, lines, copy, images = {} }) {
     s.addText("* The services we provide are limited to the time included in your package; extra days can be added at our standard day rate.", { x: 4, y: H - 1.4, w: W - 4.9, h: 0.6, fontFace: FONT, fontSize: 13, color: "BDBDE0", align: "right", isTextBox: true, margin: 0 });
   }
   // 10. Support packages
-  {
+  if (!hide.packages) {
     const s = light("Support packages");
     const rows = PACKAGES.map((r, i) => r.map((t, j) => ({ text: t, options: i === 0 ? { bold: true, color: j ? WHITE : NAVY, fill: { color: j ? [0, "9C6B3F", "8A8FA0", "C9A227"][j] : WHITE }, align: "center", fontSize: 17 } : { color: j ? INK : NAVY, bold: !j || i === PACKAGES.length - 1, fontSize: 14, align: j ? "center" : "left", fill: { color: i % 2 ? PALE : WHITE } } })));
     s.addTable(rows, { x: 0.9, y: 2.2, w: W - 1.8, colW: [3.84, 4.4, 4.4, 5], rowH: [0.8, 1.35, 0.75, 0.65, 0.65, 0.65, 0.65, 0.65, 0.8], fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" }, margin: 0.1 });
@@ -178,7 +167,7 @@ export async function buildDeck({ client, website, lines, copy, images = {} }) {
   // 11. Closing
   {
     const s = pres.addSlide(); s.background = { data: bg };
-    s.addImage({ data: logoW, x: (W - 7) / 2, y: 3.2, w: 7, h: 7 * (254 / 814) });
+    s.addImage({ data: logoW, x: (W - 7) / 2, y: 3.2, w: 7, h: 7 * (199 / 858) });
     s.addText([{ text: "www.icldigital.com", options: { fontSize: 26, bold: true, color: TEAL, breakLine: true } }, { text: "© ICL Digital – All rights reserved.", options: { fontSize: 16, color: WHITE } }], { x: 1, y: 6.2, w: W - 2, h: 1.5, fontFace: FONT, align: "center", isTextBox: true, margin: 0 });
     s.addText("Commercial-in-confidence. This document in its entirety has been specifically prepared for the client and its agents directly involved with this project. As such, it is considered confidential and proprietary and must not be disclosed to or used by any third party without written consent from ICL Group Limited.", { x: 2.5, y: H - 2.4, w: W - 5, h: 1.3, fontFace: FONT, fontSize: 12, color: "BDBDE0", align: "center", isTextBox: true, margin: 0 });
   }
