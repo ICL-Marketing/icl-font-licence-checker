@@ -49,7 +49,7 @@ function TeamPicker({ team, onChange }) {
 }
 function Hours({ line, onChange, picked = [] }) {
   // SEO, PPC and Videography are sold as packages: no hours to set.
-  if (isPackageLine(line)) { const g = packagesOf(line, picked)[0]; const t = g?.tiers.find((x) => g.picked.includes(x.id)); return <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-800" title="Priced by the package, not by the hour. Change the tier in step 2">{g ? `${g.name} package · ${t?.price} ${t?.period}` : "Package"}</span>; }
+  if (isPackageLine(line)) { const g = packagesOf(line, picked)[0]; const t = g?.tiers.find((x) => g.picked.includes(x.id)); return <span className="whitespace-nowrap rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-800" title="Priced by the package, not by the hour. Change the tier in step 2">{g ? `${g.name} package · ${t?.price} ${t?.period}` : "Package"}</span>; }
   return <span className="inline-flex items-center gap-1 text-xs text-zinc-500"><input type="number" min={0.5} step={0.5} value={line.max} onChange={(e) => { const h = Number(e.target.value) || 0.5; onChange({ min: h, max: h }); }} className={num} aria-label="Hours" /> hrs</span>;
 }
 function Summary({ lines: all, picked = [] }) {
@@ -243,7 +243,7 @@ export function ProposalModal({ group, onClose }) {
                       <input type="checkbox" checked={!!l} onChange={() => change((d) => { const p = { ...d.picked }; if (p[i.key]) delete p[i.key]; else p[i.key] = lineFromIdea(i); return { ...d, picked: p }; })} className="h-4 w-4" />
                       <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${i.ai ? "bg-violet-100 text-violet-800" : "bg-zinc-100 text-zinc-700"}`}>{i.ai ? "AI" : "ICL"}</span>
                       {i.starred && <span className="text-amber-500">★</span>}
-                      <span className="min-w-0 flex-1" title={i.why}>{i.title}</span>
+                      <span className="min-w-[16rem] flex-1 leading-snug" title={i.why}>{i.title}</span>
                       {l && <><Hours picked={picked} line={l} onChange={(f) => setLine(i.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(i.key, { team })} /></>}
                     </li>); })}
                 </ul>
@@ -254,7 +254,7 @@ export function ProposalModal({ group, onClose }) {
             {step === 1 && (
               <div className="space-y-3">
                 {doc.own.length > 0 && <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{doc.own.map((l) => (
-                  <li key={l.key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"><span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">Yours</span><span className="min-w-0 flex-1" title={l.why}>{l.title}</span><Hours picked={picked} line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, { team })} /><button onClick={() => change((d) => ({ ...d, own: d.own.filter((x) => x.key !== l.key) }))} aria-label="Remove" className="rounded p-1 text-zinc-400 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button></li>))}
+                  <li key={l.key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"><span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">Yours</span><span className="min-w-[16rem] flex-1 leading-snug" title={l.why}>{l.title}</span><Hours picked={picked} line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, { team })} /><button onClick={() => change((d) => ({ ...d, own: d.own.filter((x) => x.key !== l.key) }))} aria-label="Remove" className="rounded p-1 text-zinc-400 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button></li>))}
                 </ul>}
                 <div className="space-y-2 rounded-lg border border-zinc-200 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Add an improvement</div>
