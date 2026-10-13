@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon, TrashIcon } from "@/app/icons";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, withTitle } from "@/app/claudeInbox";
+import { ProposalModal } from "@/app/proposal";
 import { iclFooter, setEmailTemplates } from "@/lib/leadsShared";
 import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, greetingFor, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, ideaType, supportEmail, PLANS, checkIdeasPrompt } from "@/lib/clientIdeas";
 
@@ -81,10 +82,11 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   const [minHours, setMinHoursState] = useState(() => { try { return Number(localStorage.getItem("flc-ideas-min-hours") || 0) || 0; } catch { return 0; } });
   const setMinHours = (v) => { setMinHoursState(v); try { localStorage.setItem("flc-ideas-min-hours", String(v)); } catch {} };
   const [addFor, setAddFor] = useState(null); // the client group an idea is being added to
+  const [deckFor, setDeckFor] = useState(null); // the client group a proposal deck is being made for
   // Feedback on bad ideas, shared with the team: fed into research prompts, and repeat offenders drop out of the top 3.
   const [feedback, setFeedback] = useState([]);
   const feedbackRef = useRef([]);
-  useEffect(() => { fetch("/api/settings?key=idea-feedback").then((r) => r.json()).then((j) => { if (j.shared && Array.isArray(j.value)) { feedbackRef.current = j.value; setFeedback(j.value); } }).catch(() => {}); }, []);
+  useEffect(() => { fetch("/api/settings?key=idea-feedback").then((r) => r.json()).then((j) => { const items = Array.isArray(j.value) ? j.value : Array.isArray(j.value?.items) ? j.value.items : null; if (j.shared && items) { feedbackRef.current = items; setFeedback(items); } }).catch(() => {}); }, []);
   // A custom idea goes on the client's first site record (or a new one if they have none yet), top of the queue.
   function addIdea(g, data) {
     const c = clients.find((x) => x.id === g.clientId) || { id: g.clientId, name: g.name, manager: g.manager, emails: [], poc: "" };
@@ -97,9 +99,12 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     const entry = { at: new Date().toISOString(), client: rec.name, title: idea.title, service: idea.service || serviceFor(idea.title), key: idea.ai ? "" : idea.key, reason };
     const next = [entry, ...feedbackRef.current].slice(0, 200);
     feedbackRef.current = next; setFeedback(next);
-    fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "idea-feedback", value: next }) }).catch(() => {});
+    fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "idea-feedback", value: { items: next } }) }).catch(() => {}); // the store takes objects, not lists
   }
-  const badRuleKeys = new Set(Object.entries(feedback.reduce((m, f) => { if (f.key) m[f.key] = (m[f.key] || 0) + 1; return m; }, {})).filter(([, n]) => n >= 2).map(([k]) => k)); // null = closed, [] = next batch, [clientId] = that client
+  // Every "bad idea" mark: the shared list, plus any declined idea with a reason (so nothing is lost if the list wasn't saved).
+  const seenBad = new Set(feedback.map((f) => `${f.client}|${f.title}`));
+  const allFeedback = [...feedback, ...Object.values(recs).flatMap((r) => (r.ideas || []).filter((i) => i.status === "declined" && i.badReason && !seenBad.has(`${r.name}|${i.title}`)).map((i) => ({ at: i.statusAt || "", client: r.name, title: i.title, service: i.service || serviceFor(i.title), key: i.ai ? "" : i.key, reason: i.badReason })))];
+  const badRuleKeys = new Set(Object.entries(allFeedback.reduce((m, f) => { if (f.key) m[f.key] = (m[f.key] || 0) + 1; return m; }, {})).filter(([, n]) => n >= 2).map(([k]) => k)); // null = closed, [] = next batch, [clientId] = that client
   useEffect(() => { fetch("/api/ideas").then((r) => r.json()).then(setCfg).catch(() => {}); }, []);
 
   useEffect(() => {
@@ -218,7 +223,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     return { clientsDone, ideasAdded, doneIds };
   }
   // The research prompt lives in the one Claude window at the top of the page.
-  useClaudeJob("client-research", { label: "Client research", order: 5, count: () => clients.filter((c) => !Object.values(recs).some((r) => r.clientId === c.id && r.ai)).length, render: (o, close) => <ResearchModal feedback={feedback} clients={clients} recs={recs} preset={o.preset || []} initialManager={manager} onClose={close} onImport={importResearch} /> });
+  useClaudeJob("client-research", { label: "Client research", order: 5, count: () => clients.filter((c) => !Object.values(recs).some((r) => r.clientId === c.id && r.ai)).length, render: (o, close) => <ResearchModal feedback={allFeedback} clients={clients} recs={recs} preset={o.preset || []} initialManager={manager} onClose={close} onImport={importResearch} /> });
   // Research replies pasted into the one "Paste from Claude" box land here.
   useClaudeHandler("client-research", (text) => {
     const list = parseResearchReply(text);
@@ -369,7 +374,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
                 <tr key={g.clientId || g.name} className="align-top">
                   <td className="px-4 py-3"><div className="flex items-start gap-2"><div className="min-w-0 flex-1 font-medium">{g.name}</div>{g.clientId && (g.client?.ideasHidden
                     ? <button onClick={() => hideClient(g.clientId, false)} title="Put this client back on Client Ideas" className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-blue-700 hover:bg-blue-50">Restore</button>
-                    : <button onClick={() => { if (window.confirm(`Remove ${g.name} from Client Ideas? They stay in Settings, and you can restore them from "Removed clients".`)) hideClient(g.clientId, true); }} aria-label={`Remove ${g.name} from Client Ideas`} title="Remove from Client Ideas" className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button>)}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return <span className="inline-flex items-center gap-1 text-[11px]">{w && <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700 hover:underline">{w} <ExternalIcon /></a>}{g.clientId && <button onClick={() => { const v = window.prompt(`${g.name}: the right website address`, w ? `https://${w}` : "https://"); if (v) changeSite(g, w || "", v); }} title="Wrong website? Change it here: the old site's ideas are dropped, the new one is checked and Claude research opens" className="rounded px-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">{w ? "edit" : "+ website"}</button>}</span>; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button></div></td>
+                    : <button onClick={() => { if (window.confirm(`Remove ${g.name} from Client Ideas? They stay in Settings, and you can restore them from "Removed clients".`)) hideClient(g.clientId, true); }} aria-label={`Remove ${g.name} from Client Ideas`} title="Remove from Client Ideas" className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button>)}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return <span className="inline-flex items-center gap-1 text-[11px]">{w && <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700 hover:underline">{w} <ExternalIcon /></a>}{g.clientId && <button onClick={() => { const v = window.prompt(`${g.name}: the right website address`, w ? `https://${w}` : "https://"); if (v) changeSite(g, w || "", v); }} title="Wrong website? Change it here: the old site's ideas are dropped, the new one is checked and Claude research opens" className="rounded px-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">{w ? "edit" : "+ website"}</button>}</span>; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button><button onClick={() => setDeckFor(g)} title="Make a proposal slide deck: pick ideas, add your own, Claude writes it, download the .pptx" className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-zinc-700">Proposal deck</button></div></td>
                   <td className="max-w-0 px-3 py-3">
                   <div className="grid snap-x auto-cols-[calc((100%-2.25rem)/3.2)] grid-flow-col gap-3 overflow-x-auto pb-1">
                   {g.top.length === 0 && <div className="text-xs text-zinc-400">No big ideas yet.</div>}
@@ -436,6 +441,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
 
       {view === "replies" && <IdeaBoard cards={shown.filter((c) => normStatus(c.status) !== "queued").map((c) => ({ ...c, status: normStatus(c.status) }))} filtering={!!(q || kind)} onOpen={(id, key) => setOpen({ id, key })} onMove={(id, key, status) => updateIdea(id, key, { status })} />}
 
+      {deckFor && <ProposalModal group={groups.find((x) => (x.clientId || x.name) === (deckFor.clientId || deckFor.name)) || deckFor} onClose={() => setDeckFor(null)} />}
       {addFor && <AddIdeaModal group={addFor} onResearch={addFor.clientId ? () => { setAddFor(null); openClaude({ job: "client-research", preset: [addFor.clientId] }); } : null} onClose={() => setAddFor(null)} onSave={(data) => { addIdea(addFor, data); setAddFor(null); }} />}
 
       {current && currentIdea && (
