@@ -18,17 +18,21 @@ const STEPS = ["Assess ideas", "Add your own", "Claude writes it", "Review & dow
 const input = "w-full rounded-md border border-zinc-300 px-2 py-1 text-sm";
 const num = "w-14 rounded-md border border-zinc-300 px-1.5 py-0.5 text-right text-sm";
 
-async function loadAll() {
-  const j = await fetch("/api/settings?key=proposals").then((r) => r.json()).catch(() => ({}));
-  return j.shared ? j.value?.byClient || {} : null;
+// Each client's proposal is saved straight away in this browser, and to the shared store (one record per client).
+const LOCAL = "flc-proposals-v1";
+const readLocal = () => { try { return JSON.parse(localStorage.getItem(LOCAL) || "{}") || {}; } catch { return {}; } };
+const newer = (a, b) => (!a ? b : !b ? a : String(a.updatedAt || "") >= String(b.updatedAt || "") ? a : b);
+async function loadDoc(id) {
+  const local = readLocal()[id] || null;
+  const [res, old] = await Promise.all([
+    fetch("/api/results?kind=proposals").then((r) => r.json()).catch(() => ({})),
+    fetch("/api/settings?key=proposals").then((r) => r.json()).catch(() => ({})), // where drafts were kept before
+  ]);
+  return newer(newer(local, res.results?.[id] || null), old.value?.byClient?.[id] || null);
 }
-async function saveOne(id, doc) {
-  const all = (await loadAll()) || {};
-  all[id] = doc;
-  // Keep the newest 60 so the shared store stays small.
-  const byClient = Object.fromEntries(Object.entries(all).sort((a, b) => String(b[1].updatedAt || "").localeCompare(String(a[1].updatedAt || ""))).slice(0, 60));
-  await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "proposals", value: { byClient } }) }).catch(() => {});
-}
+function saveLocal(id, doc) { try { const all = readLocal(); all[id] = doc; localStorage.setItem(LOCAL, JSON.stringify(all)); } catch {} }
+// keepalive lets the save finish even if the page is closed or refreshed straight after.
+const saveShared = (id, doc) => fetch("/api/results", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "proposals", site: id, data: doc }) }).then((r) => r.json()).catch(() => ({ error: true }));
 // Screenshots are shrunk to 1800px wide JPEGs so the deck stays a sensible size.
 function shrink(file) {
   return new Promise((ok, bad) => {
@@ -127,14 +131,24 @@ export function ProposalModal({ group, onClose }) {
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState({ title: "", why: "", min: 2, max: 2, team: ["dev"] });
   const saveT = useRef(null);
+  const pending = useRef(null);
+  const [saved, setSaved] = useState("");
+  const flush = () => {
+    const d = pending.current; if (!d) return;
+    pending.current = null; clearTimeout(saveT.current); setSaved("Saving…");
+    saveShared(id, d).then((r) => setSaved(r.shared ? "Saved" : r.error ? "Saved on this computer only (couldn't reach the shared store)" : "Saved on this computer"));
+  };
+  const flushRef = useRef(flush);
+  useEffect(() => { flushRef.current = flush; });
+  // Anything not yet sent goes when the window closes or the page is left.
+  useEffect(() => { const f = () => flushRef.current(); window.addEventListener("pagehide", f); return () => { window.removeEventListener("pagehide", f); f(); }; }, []);
   const [points, setPoints] = useState(RETAINER_DEFAULTS);
   useEffect(() => { fetch("/api/settings?key=retainer-points").then((r) => r.json()).then((j) => { if (j.shared && j.value?.items) setPoints(normalisePoints(j.value)); }).catch(() => {}); }, []);
 
   useEffect(() => {
     let live = true;
-    loadAll().then((all) => {
+    loadDoc(id).then((saved) => {
       if (!live) return;
-      const saved = all?.[id];
       if (saved) { setDoc(saved); return; }
       // First time: starred ideas, then Claude's top ideas while the total stays inside about 3 days (18 hrs).
       const order = [...pool.filter((i) => i.starred), ...group.top.filter((i) => !i.internal && ideaType(i) !== "fix"), ...pool].filter((i, n, a) => a.findIndex((x) => x.key === i.key) === n);
@@ -148,8 +162,10 @@ export function ProposalModal({ group, onClose }) {
 
   const change = (fn) => setDoc((d) => {
     const next = { ...fn(d), updatedAt: new Date().toISOString(), client: group.name };
+    saveLocal(id, next);
+    pending.current = next;
     clearTimeout(saveT.current);
-    saveT.current = setTimeout(() => saveOne(id, next), 800);
+    saveT.current = setTimeout(flush, 300);
     return next;
   });
   const lines = (doc ? [...pool.filter((i) => doc.picked[i.key]).map((i) => doc.picked[i.key]), ...Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key) && !l.custom), ...doc.own] : []).map((l) => (l.min === l.max ? l : { ...l, min: l.max })); // one set figure (older drafts had a range)
@@ -188,7 +204,7 @@ export function ProposalModal({ group, onClose }) {
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
       <div className="w-full max-w-4xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3"><h3 className="text-lg font-semibold">Proposal deck: {group.name}</h3>{website && <a href={`https://${website}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-700 hover:underline">{website} <ExternalIcon /></a>}<button onClick={onClose} aria-label="Close" className="ml-auto rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button></div>
+        <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3"><h3 className="text-lg font-semibold">Proposal deck: {group.name}</h3>{website && <a href={`https://${website}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-700 hover:underline">{website} <ExternalIcon /></a>}<span className="ml-auto text-xs text-zinc-400">{saved}</span><button onClick={onClose} aria-label="Close" className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button></div>
         {!doc ? <div className="flex items-center gap-2 p-6 text-sm text-zinc-500"><SpinnerIcon className="h-4 w-4 animate-spin" /> Loading…</div> : (
           <div className="space-y-4 px-5 py-4">
             <ol className="flex flex-wrap gap-1.5">{STEPS.map((s, n) => (

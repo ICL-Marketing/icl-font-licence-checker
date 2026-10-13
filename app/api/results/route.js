@@ -4,7 +4,7 @@ import { mergeDoc } from "@/lib/merge";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const KINDS = ["fonts", "images", "launch", "post", "design", "leads", "ideas"];
+const KINDS = ["fonts", "images", "launch", "post", "design", "leads", "ideas", "proposals"];
 
 // Shared scan results. GET ?kind=… returns {site: data}. POST {kind, site, data} saves one site;
 // DELETE {kind, site} removes one, DELETE {kind} clears the kind.
