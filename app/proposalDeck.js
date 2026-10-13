@@ -123,11 +123,11 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     }
     // Effort box
     const pkg = pkgOf(l);
-    const sp = split(l), parts = pkg ? "A set price for a set amount of work" : TEAMS.filter(([k]) => sp[k]).map(([k, name]) => `${name} ${hrs(...sp[k])}`).join("  ·  ");
+    const sp = split(l), parts = pkg ? "A set price for a set amount of work" : l.team.length < 2 ? "" : TEAMS.filter(([k]) => sp[k]).map(([k, name]) => `${name} ${hrs(...sp[k])}`).join("  ·  ");
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: W - 1.8, h: 1.25, rectRadius: 0.2, fill: { color: PALE }, line: { color: PALE } });
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: 0.18, h: 1.25, rectRadius: 0.05, fill: { color: TEAL }, line: { color: TEAL } });
     s.addText([{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, fontSize: 20, bold: true } }, { text: (pkg ? priceOf(pkg) : hrs(l.min, l.max)).toUpperCase(), options: { color: NAVY, fontSize: 20, bold: true } }, { text: "      TEAM  ", options: { color: GREY, fontSize: 20, bold: true } }, { text: l.team.map(teamName).join(" + ").toUpperCase(), options: { color: NAVY, fontSize: 20, bold: true } }], { x: 1.4, y: 9.6, w: 10.5, h: 1.15, fontFace: FONT, valign: "middle", fit: "shrink", isTextBox: true, margin: 0 });
-    s.addText(parts.toUpperCase(), { x: 11.9, y: 9.6, w: W - 13.2, h: 1.15, fontFace: FONT, fontSize: 20, color: GREY, align: "right", valign: "middle", fit: "shrink", isTextBox: true, margin: 0 });
+    if (parts) s.addText(parts.toUpperCase(), { x: 11.9, y: 9.6, w: W - 13.2, h: 1.15, fontFace: FONT, fontSize: 20, color: GREY, align: "right", valign: "middle", fit: "shrink", isTextBox: true, margin: 0 });
   }
   // 6. Estimated effort
   if (!hide.effort && hourLines.length) {
