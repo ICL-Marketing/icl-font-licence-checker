@@ -1,11 +1,15 @@
 // Builds the ICL proposal deck (.pptx) in the browser with pptxgenjs, in the house style:
 // dark gradient slides with the white logo, white slides with navy titles, teal accents, Obviously.
 import { TEAMS, range, split, totals } from "@/lib/proposal";
-import { pickedPackages, packageFor } from "@/lib/packages";
+import { pickedPackages, packageFor, packagesOf, hourTeams } from "@/lib/packages";
+import { drawVisual } from "@/lib/visuals";
 
 const W = 19.44, H = 12.5;
 const NAVY = "252560", INDIGO = "291F8E", TEAL = "1EDD9B", INK = "1B1B3A", GREY = "5B5B78", PALE = "F3F3FA", WHITE = "FFFFFF";
 const FONT = "Obviously";
+// Tier colours (bronze, silver, gold), and darker versions for text on white.
+const METAL = { bronze: "D69C3C", silver: "C9CBD1", gold: "F5D63D" };
+const METAL_DARK = { bronze: "A8712A", silver: "7C808C", gold: "B8960F" };
 
 const PACKAGES = [
   ["", "BRONZE SUPPORT", "SILVER SUPPORT", "GOLD SUPPORT"],
@@ -115,15 +119,18 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       const f = fit(await sizeOf(img), 8.6, 7.2);
       s.addImage({ data: img, x: W - 0.9 - f.w, y: 2.2 + (7.2 - f.h) / 2, w: f.w, h: f.h });
     } else {
-      // No screenshot: a navy panel with the number, the service and what we found, so the slide isn't half empty.
+      // No screenshot: a mock-up that shows the idea, or failing that a navy panel with the number and service.
+      if (c.visual) drawVisual(pres, s, c.visual, { x: 10.9, y: 2.2, w: W - 11.8, h: 7 }, { NAVY, INDIGO, TEAL, WHITE, INK, GREY, PALE, FONT });
+      else {
       const px = 10.9, pw = W - 0.9 - px;
       s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: px, y: 2.2, w: pw, h: 7, rectRadius: 0.3, fill: { color: NAVY }, line: { color: NAVY } });
       s.addText(String(n + 1).padStart(2, "0"), { x: px + 0.6, y: 2.6, w: pw - 1.2, h: 1.8, fontFace: FONT, fontSize: 96, bold: true, color: TEAL, isTextBox: true, margin: 0 });
       s.addText([{ text: (l.service || "").toUpperCase(), options: { fontSize: 18, bold: true, color: TEAL, charSpacing: 2, breakLine: true } }, { text: " ", options: { fontSize: 10, breakLine: true } }, { text: c.closing || (c.intro && l.why) || "", options: { fontSize: 26, color: WHITE } }], { x: px + 0.6, y: 4.7, w: pw - 1.2, h: 4.1, fontFace: FONT, valign: "top", fit: "shrink", isTextBox: true, margin: 0 });
+      }
     }
     // Effort box
     const pkg = pkgOf(l);
-    const sp = split(l), parts = pkg ? "A set price for a set amount of work" : l.team.length < 2 ? "" : TEAMS.filter(([k]) => sp[k]).map(([k, name]) => `${name} ${hrs(...sp[k])}`).join("  ·  ");
+    const sp = split(l), parts = pkg ? (pkg.fixed ? "A set price for a set amount of work" : "Monthly package") : [hourTeams(l).length > 1 ? TEAMS.filter(([k]) => sp[k]).map(([k, name]) => `${name} ${hrs(...sp[k])}`).join("  ·  ") : "", ...packagesOf(l, picked).map((g) => `+ ${g.name} package`)].filter(Boolean).join("  ·  ");
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: W - 1.8, h: 1.25, rectRadius: 0.2, fill: { color: PALE }, line: { color: PALE } });
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: 0.18, h: 1.25, rectRadius: 0.05, fill: { color: TEAL }, line: { color: TEAL } });
     s.addText([{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, fontSize: 20, bold: true } }, { text: (pkg ? priceOf(pkg) : hrs(l.min, l.max)).toUpperCase(), options: { color: NAVY, fontSize: 20, bold: true } }, { text: "      TEAM  ", options: { color: GREY, fontSize: 20, bold: true } }, { text: l.team.map(teamName).join(" + ").toUpperCase(), options: { color: NAVY, fontSize: 20, bold: true } }], { x: 1.4, y: 9.6, w: 10.5, h: 1.15, fontFace: FONT, valign: "middle", fit: "shrink", isTextBox: true, margin: 0 });
@@ -139,10 +146,23 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const many = used.length > 4, fixedW = many ? [4.8, 3.2] : [5.8, 3.6], TW = W - 1.8, EW = 2.4;
     const pad = { margin: [0.08, 0.1, 0.08, 0.35] }; // breathing room on the left of the first column
     const rows = [[{ ...hd("Improvement", "left"), options: { ...hd("Improvement", "left").options, ...pad } }, hd("Team"), ...used.map(([, , short]) => hd(short)), hd("Estimate")]];
-    for (const l of lines) { const sp = split(l); if (pkgOf(l)) { rows.push([cell((byKey[l.key]?.title || l.title), { align: "left", bold: true, color: NAVY, ...pad }), cell(l.team.map(teamName).join(" + ")), ...used.map(() => cell("–")), cell(`${pkgOf(l).name} package`, { bold: true })]); continue; } rows.push([cell((byKey[l.key]?.title || l.title), { align: "left", bold: true, color: NAVY, ...pad }), cell(l.team.map(teamName).join(" + ")), ...used.map(([k]) => cell(sp[k] ? range(...sp[k]) : "–")), cell(hrs(l.min, l.max), { bold: true })]); }
+    for (const l of hourLines) { const sp = split(l); rows.push([cell((byKey[l.key]?.title || l.title), { align: "left", bold: true, color: NAVY, ...pad }), cell(l.team.map(teamName).join(" + ")), ...used.map(([k]) => cell(sp[k] ? range(...sp[k]) : "–")), cell(hrs(l.min, l.max), { bold: true })]); }
     rows.push([cell("Total hands-on work", { align: "left", bold: true, color: NAVY, fill: { color: PALE }, ...pad }), cell("", { fill: { color: PALE } }), ...used.map(([k]) => cell(t[k][1] ? range(t[k][0], t[k][1]) : "–", { bold: true, fill: { color: PALE } })), cell(`${range(t.min, t.max)} hrs`, { bold: true, color: NAVY, fill: { color: PALE } })]);
     const rh = Math.min(1, 7.6 / rows.length);
     s.addTable(rows, { x: 0.9, y: 2.3, w: TW, colW: [...fixedW, ...used.map(() => (TW - fixedW[0] - fixedW[1] - EW) / used.length), EW], rowH: rh, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" }, margin: 0.08 });
+  }
+  // 6b. Costs: package work (SEO, PPC, videography, support) kept apart from the hours
+  if (!hide.costs && picked.length) {
+    const s = light(picked.some((g) => g.fixed) ? (picked.some((g) => !g.fixed) ? "Monthly & one-off costs" : "One-off costs") : "Monthly costs");
+    const hd = (t, al = "left") => ({ text: t, options: { bold: true, color: WHITE, fill: { color: NAVY }, align: al, fontSize: 17, margin: [0.08, 0.1, 0.08, al === "left" ? 0.35 : 0.1] } });
+    const cell = (t, o = {}) => ({ text: t, options: { color: INK, fontSize: 18, margin: [0.1, 0.1, 0.1, 0.35], ...o } });
+    const rows = [[hd("Package"), hd("Covers"), hd("Cost", "right")]];
+    for (const g of [...picked.filter((x) => !x.fixed), ...picked.filter((x) => x.fixed)]) for (const t of g.tiers.filter((x) => g.picked.includes(x.id))) {
+      const covers = lines.filter((l) => packagesOf(l, picked).some((x) => x.id === g.id)).map((l) => byKey[l.key]?.title || l.title);
+      rows.push([cell(`${g.name}: ${t.name}`, { bold: true, color: NAVY }), cell(covers.length ? covers.join(", ") : t.best), cell(`${t.price} ${t.period}`, { bold: true, color: NAVY, align: "right" })]);
+    }
+    s.addTable(rows, { x: 0.9, y: 2.3, w: W - 1.8, colW: [5.6, 7.04, 5], rowH: 0.95, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" } });
+    s.addText(["All prices exclude VAT.", picked.some((g) => g.id === "ppc") && "PPC is our monthly management fee plus your Google ad spend, paid to Google.", picked.some((g) => g.fixed) && "Videography is a set price for a set amount of work."].filter(Boolean).join(" "), { x: 0.9, y: Math.min(9.9, 2.6 + rows.length * 0.95), w: W - 1.8, h: 0.6, fontFace: FONT, fontSize: 15, italic: true, color: GREY, isTextBox: true, margin: 0 });
   }
   // 7. Retainer
   if (copy.retainer?.length && !hide.retainer) {
@@ -174,15 +194,15 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     s.addText(g.intro, { x: 0.9, y: 1.95, w: W - 1.8, h: 0.8, fontFace: FONT, fontSize: 20, color: GREY, isTextBox: true, margin: 0 });
     const n = g.tiers.length, gap = 0.35, cw = (W - 1.8 - gap * (n - 1)) / n;
     g.tiers.forEach((x, i) => {
-      const on = g.picked.includes(x.id), cx = 0.9 + i * (cw + gap), fg = on ? WHITE : INK;
-      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx, y: 3.3, w: cw, h: 6.4, rectRadius: 0.25, fill: { color: on ? NAVY : PALE }, line: { color: on ? TEAL : PALE, width: on ? 2.5 : 1 } });
+      const on = g.picked.includes(x.id), cx = 0.9 + i * (cw + gap), fg = on ? WHITE : INK, metal = METAL[x.id] || TEAL;
+      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx, y: 3.3, w: cw, h: 6.4, rectRadius: 0.25, fill: { color: on ? NAVY : PALE }, line: { color: on ? metal : PALE, width: on ? 2.5 : 1 } });
       if (on) {
-        s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, rectRadius: 0.25, fill: { color: TEAL }, line: { color: TEAL } });
+        s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, rectRadius: 0.25, fill: { color: metal }, line: { color: metal } });
         s.addText("RECOMMENDED", { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, fontFace: FONT, fontSize: 13, bold: true, color: NAVY, align: "center", valign: "middle", charSpacing: 1, isTextBox: true, margin: 0 });
       }
       const sz = n > 3 ? 1 : 1.12;
       s.addText([
-        { text: x.name.toUpperCase(), options: { fontSize: 19 * sz, bold: true, color: on ? TEAL : NAVY, breakLine: true } },
+        { text: x.name.toUpperCase(), options: { fontSize: 19 * sz, bold: true, color: on ? metal : METAL[x.id] ? METAL_DARK[x.id] : NAVY, breakLine: true } },
         { text: x.price, options: { fontSize: 44 * sz, bold: true, color: fg, breakLine: true } },
         { text: x.period, options: { fontSize: 15 * sz, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 10 } },
         { text: x.best, options: { fontSize: 16 * sz, italic: true, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 12 } },
@@ -193,7 +213,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   }
   if (!hide.packages && !picked.length) {
     const s = light("Support packages");
-    const rows = PACKAGES.map((r, i) => r.map((t, j) => ({ text: t, options: i === 0 ? { bold: true, color: j ? WHITE : NAVY, fill: { color: j ? [0, "9C6B3F", "8A8FA0", "C9A227"][j] : WHITE }, align: "center", fontSize: 17 } : { color: j ? INK : NAVY, bold: !j || i === PACKAGES.length - 1, fontSize: 14, align: j ? "center" : "left", fill: { color: i % 2 ? PALE : WHITE } } })));
+    const rows = PACKAGES.map((r, i) => r.map((t, j) => ({ text: t, options: i === 0 ? { bold: true, color: NAVY, fill: { color: j ? [0, METAL.bronze, METAL.silver, METAL.gold][j] : WHITE }, align: "center", fontSize: 17 } : { color: j ? INK : NAVY, bold: !j || i === PACKAGES.length - 1, fontSize: 14, align: j ? "center" : "left", fill: { color: i % 2 ? PALE : WHITE } } })));
     s.addTable(rows, { x: 0.9, y: 2.2, w: W - 1.8, colW: [3.84, 4.4, 4.4, 5], rowH: [0.8, 1.35, 0.75, 0.65, 0.65, 0.65, 0.65, 0.65, 0.8], fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" }, margin: 0.1 });
     s.addText("These packages are a starting point only. Depending on your needs, we'll put together a custom package.", { x: 0.9, y: 9.9, w: W - 1.8, h: 0.6, fontFace: FONT, fontSize: 15, italic: true, color: GREY, isTextBox: true, margin: 0 });
   }

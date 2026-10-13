@@ -6,8 +6,9 @@ import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon } 
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
 import { TEAMS, lineFromIdea, ownLine, range, totals, daysFor, proposalPrompt, parseProposalReply, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
 import Link from "next/link";
-import { PACKAGE_GROUPS, pickedPackages, packageFor } from "@/lib/packages";
+import { PACKAGE_GROUPS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER } from "@/lib/packages";
 import { ideaType } from "@/lib/clientIdeas";
+import { VISUALS, isListField } from "@/lib/visuals";
 
 function Grow({ value, className = "", ...rest }) {
   const ref = useRef(null);
@@ -46,11 +47,13 @@ function shrink(file) {
 function TeamPicker({ team, onChange }) {
   return <span className="inline-flex flex-wrap gap-1">{TEAMS.map(([k, name]) => { const on = team.includes(k); return <button key={k} type="button" onClick={() => { const next = on ? team.filter((x) => x !== k) : [...team, k]; if (next.length) onChange(next); }} className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${on ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-500 hover:bg-zinc-100"}`}>{name}</button>; })}</span>;
 }
-function Hours({ line, onChange }) {
+function Hours({ line, onChange, picked = [] }) {
+  // SEO, PPC and Videography are sold as packages: no hours to set.
+  if (isPackageLine(line)) { const g = packagesOf(line, picked)[0]; const t = g?.tiers.find((x) => g.picked.includes(x.id)); return <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-800" title="Priced by the package, not by the hour. Change the tier in step 2">{g ? `${g.name} package · ${t?.price} ${t?.period}` : "Package"}</span>; }
   return <span className="inline-flex items-center gap-1 text-xs text-zinc-500"><input type="number" min={0.5} step={0.5} value={line.max} onChange={(e) => { const h = Number(e.target.value) || 0.5; onChange({ min: h, max: h }); }} className={num} aria-label="Hours" /> hrs</span>;
 }
 function Summary({ lines: all, picked = [] }) {
-  const lines = all.filter((l) => !packageFor(l, picked));
+  const lines = all.filter((l) => !isPackageLine(l));
   const t = totals(lines), d = daysFor(lines);
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-zinc-900 px-4 py-2 text-sm text-white">
@@ -102,6 +105,24 @@ function SlideToggle({ hidden, onToggle }) {
   return hidden
     ? <button type="button" onClick={onToggle} className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] font-medium normal-case tracking-normal text-blue-700 hover:bg-blue-50">Put slide back</button>
     : <button type="button" onClick={onToggle} title="Leave this slide out of the deck" className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium normal-case tracking-normal text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-3.5 w-3.5" /> Remove slide</button>;
+}
+// The mock-up drawn on the idea slide when there's no screenshot: pick the kind, edit the words.
+function VisualEditor({ value, onChange }) {
+  const kind = value?.kind || "";
+  const spec = VISUALS[kind];
+  return (
+    <div className="w-48 shrink-0 space-y-1 text-xs">
+      <select value={kind} onChange={(e) => onChange(e.target.value ? { kind: e.target.value, caption: "" } : null)} className="w-full rounded-md border border-zinc-300 bg-white px-1.5 py-1 text-xs" title="Drawn on the slide when there's no screenshot">
+        <option value="">No mock-up</option>{Object.entries(VISUALS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+      </select>
+      {spec && <>
+        <input value={value.caption || ""} onChange={(e) => onChange({ ...value, caption: e.target.value })} placeholder={spec.caption || "Caption"} className="w-full rounded border border-zinc-200 px-1.5 py-0.5" />
+        {Object.entries(spec.fields).map(([k, label]) => isListField(k)
+          ? <textarea key={k} value={(value[k] || []).join("\n")} onChange={(e) => onChange({ ...value, [k]: e.target.value.split("\n") })} rows={2} placeholder={label} title={label} className="w-full rounded border border-zinc-200 px-1.5 py-0.5" />
+          : <input key={k} value={value[k] || ""} onChange={(e) => onChange({ ...value, [k]: e.target.value })} placeholder={label} title={label} className="w-full rounded border border-zinc-200 px-1.5 py-0.5" />)}
+      </>}
+    </div>
+  );
 }
 function BlockList({ label, items, onChange, hidden, onToggle }) {
   if (!items?.length) return null;
@@ -172,7 +193,7 @@ export function ProposalModal({ group, onClose }) {
   const setLine = (key, fields) => change((d) => (d.own.some((l) => l.key === key) ? { ...d, own: d.own.map((l) => (l.key === key ? { ...l, ...fields, max: Math.max(fields.max ?? l.max, fields.min ?? l.min) } : l)) } : { ...d, picked: { ...d.picked, [key]: { ...d.picked[key], ...fields, max: Math.max(fields.max ?? d.picked[key].max, fields.min ?? d.picked[key].min) } } }));
   const chosenIds = doc?.points || points.filter((x) => x.always).map((x) => x.id);
   const chosen = points.filter((x) => chosenIds.includes(x.id));
-  const pkgIds = doc?.packages || [];
+  const pkgIds = effectivePackages(doc?.packages || [], lines);
   const picked = pickedPackages(pkgIds);
   const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines, notes: doc.notes, points: chosen, packages: picked })) : "";
 
@@ -223,7 +244,7 @@ export function ProposalModal({ group, onClose }) {
                       <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${i.ai ? "bg-violet-100 text-violet-800" : "bg-zinc-100 text-zinc-700"}`}>{i.ai ? "AI" : "ICL"}</span>
                       {i.starred && <span className="text-amber-500">★</span>}
                       <span className="min-w-0 flex-1" title={i.why}>{i.title}</span>
-                      {l && <><Hours line={l} onChange={(f) => setLine(i.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(i.key, { team })} /></>}
+                      {l && <><Hours picked={picked} line={l} onChange={(f) => setLine(i.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(i.key, { team })} /></>}
                     </li>); })}
                 </ul>
                 <div className="flex justify-end"><button onClick={() => change((d) => ({ ...d, step: 1 }))} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white">Next: add your own</button></div>
@@ -233,23 +254,23 @@ export function ProposalModal({ group, onClose }) {
             {step === 1 && (
               <div className="space-y-3">
                 {doc.own.length > 0 && <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{doc.own.map((l) => (
-                  <li key={l.key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"><span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">Yours</span><span className="min-w-0 flex-1" title={l.why}>{l.title}</span><Hours line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, { team })} /><button onClick={() => change((d) => ({ ...d, own: d.own.filter((x) => x.key !== l.key) }))} aria-label="Remove" className="rounded p-1 text-zinc-400 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button></li>))}
+                  <li key={l.key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"><span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">Yours</span><span className="min-w-0 flex-1" title={l.why}>{l.title}</span><Hours picked={picked} line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, { team })} /><button onClick={() => change((d) => ({ ...d, own: d.own.filter((x) => x.key !== l.key) }))} aria-label="Remove" className="rounded p-1 text-zinc-400 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button></li>))}
                 </ul>}
                 <div className="space-y-2 rounded-lg border border-zinc-200 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Add an improvement</div>
                   <input value={draft.title} onChange={(e) => setDraft((o) => ({ ...o, title: e.target.value }))} placeholder="e.g. Mobile and final QA" className={input} />
                   <input value={draft.why} onChange={(e) => setDraft((o) => ({ ...o, why: e.target.value }))} placeholder="What it involves, in a line (Claude turns it into the slide)" className={input} />
-                  <div className="flex flex-wrap items-center gap-3"><Hours line={draft} onChange={(f) => setDraft((o) => ({ ...o, ...f }))} /><TeamPicker team={draft.team} onChange={(team) => setDraft((o) => ({ ...o, team }))} />
+                  <div className="flex flex-wrap items-center gap-3"><Hours picked={picked} line={draft} onChange={(f) => setDraft((o) => ({ ...o, ...f }))} /><TeamPicker team={draft.team} onChange={(team) => setDraft((o) => ({ ...o, team }))} />
                     <button onClick={() => { if (!draft.title.trim()) return; change((d) => ({ ...d, own: [...d.own, ownLine(draft)] })); setDraft({ title: "", why: "", min: 2, max: 2, team: ["dev"] }); }} disabled={!draft.title.trim()} className="ml-auto rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm hover:bg-zinc-100 disabled:opacity-40">+ Add</button></div>
                 </div>
                 <div className="rounded-lg border border-zinc-200 p-3">
                   <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Packages to offer (optional)</div>
                   <div className="space-y-1.5">{PACKAGE_GROUPS.map((g) => (
                     <div key={g.id} className="flex flex-wrap items-center gap-1.5"><span className="w-32 shrink-0 text-xs font-semibold text-zinc-700">{g.name}{g.fixed ? <span className="block text-[10px] font-normal text-zinc-500">Set price, no hours</span> : <span className="block text-[10px] font-normal text-zinc-500">Monthly</span>}</span>
-                      {g.tiers.map((x) => { const id = `${g.id}:${x.id}`, on = pkgIds.includes(id); return <button key={id} type="button" title={x.items.join(" · ")} onClick={() => change((d) => ({ ...d, packages: on ? pkgIds.filter((y) => y !== id) : [...pkgIds, id] }))} className={`rounded-full border px-2.5 py-1 text-xs font-medium ${on ? "border-indigo-700 bg-indigo-700 text-white" : "border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-100"}`}>{on ? "✓ " : ""}{x.name} · {x.price}</button>; })}
+                      {g.tiers.map((x) => { const id = `${g.id}:${x.id}`, on = pkgIds.includes(id); return <button key={id} type="button" title={x.items.join(" · ")} onClick={() => change((d) => ({ ...d, packages: SINGLE_TIER.has(g.id) ? [...pkgIds.filter((y) => !y.startsWith(`${g.id}:`)), ...(on ? [] : [id])] : on ? pkgIds.filter((y) => y !== id) : [...pkgIds, id] }))} className={`rounded-full border px-2.5 py-1 text-xs font-medium ${on ? "border-indigo-700 bg-indigo-700 text-white" : "border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-100"}`}>{on ? "✓ " : ""}{x.name} · {x.price}</button>; })}
                     </div>))}
                   </div>
-                  <p className="mt-1.5 text-[11px] text-zinc-500">Each package you pick gets its own slide, and Claude mentions it in the copy. Ideas done only by Videography are priced by the package, so their hours drop out of the estimate.</p>
+                  <p className="mt-1.5 text-[11px] text-zinc-500">Each package you pick gets its own slide, and Claude mentions it in the copy. SEO, PPC and Videography work is always priced by its package (Bronze by default, videography from £1,999), so it has no hours and shows under costs instead.</p>
                 </div>
                 <div className="rounded-lg border border-zinc-200 p-3">
                   <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Retainer selling points<Link href="/settings?section=proposals" target="_blank" className="ml-auto font-medium normal-case tracking-normal text-blue-700 hover:underline">Edit in Settings</Link></div>
@@ -293,15 +314,16 @@ export function ProposalModal({ group, onClose }) {
                           <Bullets items={c.bullets} onChange={(bullets) => setIdeaCopy(l.key, { bullets })} />
                           <input value={c.closing} onChange={(e) => setIdeaCopy(l.key, { closing: e.target.value })} placeholder="Closing benefit (optional)" className={input} />
                         </>}
-                        <div className="flex flex-wrap items-center gap-2 pt-1"><Hours line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, { team })} />
+                        <div className="flex flex-wrap items-center gap-2 pt-1"><Hours picked={picked} line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, { team })} />
                           {c?.max && c.max !== l.max && <button onClick={() => setLine(l.key, { min: c.max, max: c.max })} title={c.hoursNote} className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-200">Claude suggests {c.max} hrs{c.hoursNote ? `: ${c.hoursNote}` : ""} · use</button>}</div>
                       </div>
                       <ImageDrop value={images[l.key]} onChange={(v) => setImages((o) => ({ ...o, [l.key]: v }))} label="Screenshot or mock-up" />
+                      {c && !images[l.key] && <VisualEditor value={c.visual} onChange={(visual) => setIdeaCopy(l.key, { visual })} />}
                     </div>); })}
                 </div>
                 <BlockList label="Retainer pitch" items={doc.copy.retainer} onChange={(retainer) => setCopy({ retainer })} {...toggle("retainer")} />
                 <div><div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Standard slides</div>
-                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["effort", "Estimated effort table and days"], ["services", "Our service retainer offering"], ["packages", picked.length ? `Package slides (${picked.map((g) => g.name).join(", ")})` : "Support packages (Bronze, Silver, Gold)"]].map(([k, name]) => (
+                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["effort", "Estimated effort table"], ["costs", "Monthly / one-off costs table"], ["services", "Our service retainer offering"], ["packages", picked.length ? `Package slides (${picked.map((g) => g.name).join(", ")})` : "Support packages (Bronze, Silver, Gold)"]].map(([k, name]) => (
                     <li key={k} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className={hidden[k] ? "text-zinc-400 line-through" : ""}>{name}</span><span className="ml-auto"><SlideToggle {...toggle(k)} /></span></li>))}
                   </ul>
                 </div>
