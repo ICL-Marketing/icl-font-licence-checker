@@ -1,6 +1,7 @@
 // Builds the ICL proposal deck (.pptx) in the browser with pptxgenjs, in the house style:
 // dark gradient slides with the white logo, white slides with navy titles, teal accents, Obviously.
 import { TEAMS, range, split, totals, daysFor } from "@/lib/proposal";
+import { pickedPackages, packageFor } from "@/lib/packages";
 
 const W = 19.44, H = 12.5;
 const NAVY = "252560", INDIGO = "291F8E", TEAL = "1EDD9B", INK = "1B1B3A", GREY = "5B5B78", PALE = "F3F3FA", WHITE = "FFFFFF";
@@ -31,7 +32,7 @@ const teamName = (k) => TEAMS.find(([x]) => x === k)?.[1] || k;
 const hrs = (a, b) => `${range(a, b)}\u00A0hr${a === b && a === 1 ? "" : "s"}`;
 const fileSafe = (s) => String(s).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "Client";
 
-export async function buildDeck({ client, website, lines, copy, images = {} }) {
+export async function buildDeck({ client, website, lines, copy, images = {}, packages = [] }) {
   const { default: PptxGenJS } = await import("pptxgenjs");
   const pres = new PptxGenJS();
   pres.defineLayout({ name: "ICL", width: W, height: H });
@@ -41,7 +42,12 @@ export async function buildDeck({ client, website, lines, copy, images = {} }) {
   pres.theme = { headFontFace: FONT, bodyFontFace: FONT };
 
   const [bg, logoW, logoN] = await Promise.all(["/proposal/bg-dark.jpg", "/proposal/logo-white.png", "/proposal/logo-navy.png"].map(dataUrl));
-  const days = daysFor(lines), t = totals(lines);
+  const picked = pickedPackages(packages);
+  const pkgOf = (l) => packageFor(l, picked);
+  const priceOf = (g) => g.tiers.filter((x) => g.picked.includes(x.id)).map((x) => `${x.price} ${x.period}`).join(" or ");
+  // Ideas priced by a set package (e.g. a video) don't count towards the hours or days.
+  const hourLines = lines.filter((l) => !pkgOf(l));
+  const days = daysFor(hourLines), t = totals(hourLines);
   const byKey = Object.fromEntries((copy.ideas || []).map((i) => [i.key, i]));
   const dark = () => { const s = pres.addSlide(); s.background = { data: bg }; s.addImage({ data: logoW, x: 0.9, y: H - 1.15, w: 2.3, h: 2.3 * (199 / 858) }); return s; };
   const light = (title) => {
@@ -117,14 +123,15 @@ export async function buildDeck({ client, website, lines, copy, images = {} }) {
       s.addText([{ text: (l.service || "").toUpperCase(), options: { fontSize: 18, bold: true, color: TEAL, charSpacing: 2, breakLine: true } }, { text: " ", options: { fontSize: 10, breakLine: true } }, { text: c.closing || (c.intro && l.why) || "", options: { fontSize: 26, color: WHITE } }], { x: px + 0.6, y: 4.7, w: pw - 1.2, h: 4.1, fontFace: FONT, valign: "top", fit: "shrink", isTextBox: true, margin: 0 });
     }
     // Effort box
-    const sp = split(l), parts = TEAMS.filter(([k]) => sp[k]).map(([k, name]) => `${name} ${hrs(...sp[k])}`).join("  ·  ");
+    const pkg = pkgOf(l);
+    const sp = split(l), parts = pkg ? "A set price for a set amount of work" : TEAMS.filter(([k]) => sp[k]).map(([k, name]) => `${name} ${hrs(...sp[k])}`).join("  ·  ");
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: W - 1.8, h: 1.25, rectRadius: 0.2, fill: { color: PALE }, line: { color: PALE } });
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: 0.18, h: 1.25, rectRadius: 0.05, fill: { color: TEAL }, line: { color: TEAL } });
-    s.addText([{ text: "ESTIMATE  ", options: { color: GREY, fontSize: 15, bold: true } }, { text: hrs(l.min, l.max), options: { color: NAVY, fontSize: 24, bold: true } }, { text: "      TEAM  ", options: { color: GREY, fontSize: 15, bold: true } }, { text: l.team.map(teamName).join(" + "), options: { color: NAVY, fontSize: 20, bold: true } }], { x: 1.4, y: 9.6, w: 10.5, h: 1.15, fontFace: FONT, valign: "middle", fit: "shrink", isTextBox: true, margin: 0 });
+    s.addText([{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, fontSize: 15, bold: true } }, { text: pkg ? priceOf(pkg) : hrs(l.min, l.max), options: { color: NAVY, fontSize: 24, bold: true } }, { text: "      TEAM  ", options: { color: GREY, fontSize: 15, bold: true } }, { text: l.team.map(teamName).join(" + "), options: { color: NAVY, fontSize: 20, bold: true } }], { x: 1.4, y: 9.6, w: 10.5, h: 1.15, fontFace: FONT, valign: "middle", fit: "shrink", isTextBox: true, margin: 0 });
     s.addText(parts, { x: 11.9, y: 9.6, w: W - 13.2, h: 1.15, fontFace: FONT, fontSize: 15, color: GREY, align: "right", valign: "middle", fit: "shrink", isTextBox: true, margin: 0 });
   }
   // 6. Estimated effort
-  if (!hide.effort) {
+  if (!hide.effort && hourLines.length) {
     const s = light("Estimated effort");
     const hd = (t, al = "center") => ({ text: t, options: { bold: true, color: WHITE, fill: { color: NAVY }, align: al, fontSize: many ? 12 : 16 } });
     const cell = (t, o = {}) => ({ text: t, options: { color: INK, fontSize: many ? 15 : 17, align: "center", ...o } });
@@ -132,7 +139,7 @@ export async function buildDeck({ client, website, lines, copy, images = {} }) {
     const used = TEAMS.filter(([k]) => t[k][1] > 0);
     const many = used.length > 4, fixedW = many ? [3.2, 2.2] : [4.1, 2.5];
     const rows = [[hd("Improvement", "left"), hd("Team"), ...used.map(([, , short]) => hd(short)), hd("Estimate")]];
-    for (const l of lines) { const sp = split(l); rows.push([cell((byKey[l.key]?.title || l.title), { align: "left", bold: true, color: NAVY }), cell(l.team.map(teamName).join(" + ")), ...used.map(([k]) => cell(sp[k] ? range(...sp[k]) : "–")), cell(hrs(l.min, l.max), { bold: true })]); }
+    for (const l of lines) { const sp = split(l); if (pkgOf(l)) { rows.push([cell((byKey[l.key]?.title || l.title), { align: "left", bold: true, color: NAVY }), cell(l.team.map(teamName).join(" + ")), ...used.map(() => cell("–")), cell(`${pkgOf(l).name} package`, { bold: true })]); continue; } rows.push([cell((byKey[l.key]?.title || l.title), { align: "left", bold: true, color: NAVY }), cell(l.team.map(teamName).join(" + ")), ...used.map(([k]) => cell(sp[k] ? range(...sp[k]) : "–")), cell(hrs(l.min, l.max), { bold: true })]); }
     rows.push([cell("Total hands-on work", { align: "left", bold: true, color: NAVY, fill: { color: PALE } }), cell("", { fill: { color: PALE } }), ...used.map(([k]) => cell(t[k][1] ? range(t[k][0], t[k][1]) : "–", { bold: true, fill: { color: PALE } })), cell(`${range(t.min, t.max)} hrs`, { bold: true, color: NAVY, fill: { color: PALE } })]);
     const rh = Math.min(1, 7.6 / rows.length);
     s.addTable(rows, { x: 0.9, y: 2.3, w: 12.6, colW: [...fixedW, ...used.map(() => (12.6 - fixedW[0] - fixedW[1] - 1.8) / used.length), 1.8], rowH: rh, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" }, margin: 0.08 });
@@ -157,8 +164,30 @@ export async function buildDeck({ client, website, lines, copy, images = {} }) {
     });
     s.addText("* The services we provide are limited to the time included in your package; extra days can be added at our standard day rate.", { x: 4, y: H - 1.4, w: W - 4.9, h: 0.6, fontFace: FONT, fontSize: 13, color: "BDBDE0", align: "right", isTextBox: true, margin: 0 });
   }
-  // 10. Support packages
-  if (!hide.packages) {
+  // 10. Packages: one slide per package group picked, otherwise the standard support packages
+  if (!hide.packages && picked.length) for (const g of picked) {
+    const s = light(g.title);
+    s.addText(g.intro, { x: 0.9, y: 1.95, w: W - 1.8, h: 0.8, fontFace: FONT, fontSize: 20, color: GREY, isTextBox: true, margin: 0 });
+    const n = g.tiers.length, gap = 0.35, cw = (W - 1.8 - gap * (n - 1)) / n;
+    g.tiers.forEach((x, i) => {
+      const on = g.picked.includes(x.id), cx = 0.9 + i * (cw + gap), fg = on ? WHITE : INK;
+      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx, y: 3.3, w: cw, h: 6.4, rectRadius: 0.25, fill: { color: on ? NAVY : PALE }, line: { color: on ? TEAL : PALE, width: on ? 2.5 : 1 } });
+      if (on) {
+        s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, rectRadius: 0.25, fill: { color: TEAL }, line: { color: TEAL } });
+        s.addText("RECOMMENDED", { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, fontFace: FONT, fontSize: 13, bold: true, color: NAVY, align: "center", valign: "middle", charSpacing: 1, isTextBox: true, margin: 0 });
+      }
+      const sz = n > 3 ? 1 : 1.12;
+      s.addText([
+        { text: x.name.toUpperCase(), options: { fontSize: 19 * sz, bold: true, color: on ? TEAL : NAVY, breakLine: true } },
+        { text: x.price, options: { fontSize: 44 * sz, bold: true, color: fg, breakLine: true } },
+        { text: x.period, options: { fontSize: 15 * sz, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 10 } },
+        { text: x.best, options: { fontSize: 16 * sz, italic: true, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 12 } },
+        ...x.items.map((it, k) => ({ text: it, options: { fontSize: 16 * sz, color: fg, bullet: { indent: 18 }, paraSpaceAfter: 8, ...(k < x.items.length - 1 ? { breakLine: true } : {}) } })),
+      ], { x: cx + 0.45, y: 3.8, w: cw - 0.9, h: 5.7, fontFace: FONT, valign: "top", fit: "shrink", isTextBox: true, margin: 0 });
+    });
+    s.addText(g.footnote, { x: 0.9, y: 9.95, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 14, italic: true, color: GREY, isTextBox: true, margin: 0 });
+  }
+  if (!hide.packages && !picked.length) {
     const s = light("Support packages");
     const rows = PACKAGES.map((r, i) => r.map((t, j) => ({ text: t, options: i === 0 ? { bold: true, color: j ? WHITE : NAVY, fill: { color: j ? [0, "9C6B3F", "8A8FA0", "C9A227"][j] : WHITE }, align: "center", fontSize: 17 } : { color: j ? INK : NAVY, bold: !j || i === PACKAGES.length - 1, fontSize: 14, align: j ? "center" : "left", fill: { color: i % 2 ? PALE : WHITE } } })));
     s.addTable(rows, { x: 0.9, y: 2.2, w: W - 1.8, colW: [3.84, 4.4, 4.4, 5], rowH: [0.8, 1.35, 0.75, 0.65, 0.65, 0.65, 0.65, 0.65, 0.8], fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" }, margin: 0.1 });

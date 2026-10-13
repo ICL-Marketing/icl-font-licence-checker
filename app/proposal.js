@@ -6,6 +6,7 @@ import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon } 
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
 import { TEAMS, lineFromIdea, ownLine, range, totals, daysFor, proposalPrompt, parseProposalReply, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
 import Link from "next/link";
+import { PACKAGE_GROUPS, pickedPackages, packageFor } from "@/lib/packages";
 import { ideaType } from "@/lib/clientIdeas";
 
 function Grow({ value, className = "", ...rest }) {
@@ -44,13 +45,15 @@ function TeamPicker({ team, onChange }) {
 function Hours({ line, onChange }) {
   return <span className="inline-flex items-center gap-1 text-xs text-zinc-500"><input type="number" min={0.5} step={0.5} value={line.max} onChange={(e) => { const h = Number(e.target.value) || 0.5; onChange({ min: h, max: h }); }} className={num} aria-label="Hours" /> hrs</span>;
 }
-function Summary({ lines }) {
+function Summary({ lines: all, picked = [] }) {
+  const lines = all.filter((l) => !packageFor(l, picked));
   const t = totals(lines), d = daysFor(lines);
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-zinc-900 px-4 py-2 text-sm text-white">
       <span><b>{lines.length}</b> improvement{lines.length === 1 ? "" : "s"}</span>
       <span><b>{lines.length ? range(t.min, t.max) : 0}</b> hrs hands-on</span>
       {TEAMS.map(([k, name]) => t[k][1] > 0 && <span key={k} className="text-zinc-300">{name} {range(t[k][0], t[k][1])}</span>)}
+      {picked.map((g) => <span key={g.id} className="rounded-full bg-white/15 px-2 py-0.5 text-xs">+ {g.name}: {g.tiers.filter((x) => g.picked.includes(x.id)).map((x) => `${x.price} ${x.period}`).join(" / ")}</span>)}
       <span className="ml-auto rounded-full bg-emerald-400 px-2.5 py-0.5 font-bold text-zinc-900" title="Top of the range plus a quarter for feedback, testing and launch, in 7.5 hour days">{lines.length ? d : 0} day{d === 1 ? "" : "s"}</span>
     </div>
   );
@@ -153,7 +156,9 @@ export function ProposalModal({ group, onClose }) {
   const setLine = (key, fields) => change((d) => (d.own.some((l) => l.key === key) ? { ...d, own: d.own.map((l) => (l.key === key ? { ...l, ...fields, max: Math.max(fields.max ?? l.max, fields.min ?? l.min) } : l)) } : { ...d, picked: { ...d.picked, [key]: { ...d.picked[key], ...fields, max: Math.max(fields.max ?? d.picked[key].max, fields.min ?? d.picked[key].min) } } }));
   const chosenIds = doc?.points || points.filter((x) => x.always).map((x) => x.id);
   const chosen = points.filter((x) => chosenIds.includes(x.id));
-  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines, notes: doc.notes, points: chosen })) : "";
+  const pkgIds = doc?.packages || [];
+  const picked = pickedPackages(pkgIds);
+  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines, notes: doc.notes, points: chosen, packages: picked })) : "";
 
   function applyReply(text) {
     const copy = parseProposalReply(text);
@@ -169,7 +174,7 @@ export function ProposalModal({ group, onClose }) {
   }
   async function download() {
     setBusy(true); setErr("");
-    try { const { buildDeck } = await import("@/app/proposalDeck"); await buildDeck({ client: group.name, website, lines, copy: doc.copy, images }); }
+    try { const { buildDeck } = await import("@/app/proposalDeck"); await buildDeck({ client: group.name, website, lines, copy: doc.copy, images, packages: pkgIds }); }
     catch (e) { setErr(`Couldn't build the deck: ${e.message}`); }
     setBusy(false);
   }
@@ -189,7 +194,7 @@ export function ProposalModal({ group, onClose }) {
             <ol className="flex flex-wrap gap-1.5">{STEPS.map((s, n) => (
               <li key={s}><button onClick={() => canGo(n) && change((d) => ({ ...d, step: n }))} disabled={!canGo(n)} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium disabled:opacity-40 ${step === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{n < step ? <CheckIcon className="h-3.5 w-3.5 text-emerald-500" /> : <span className="opacity-60">{n + 1}</span>}{s}</button></li>))}
             </ol>
-            <Summary lines={lines} />
+            <Summary lines={lines} picked={picked} />
 
             {step === 0 && (
               <div className="space-y-2">
@@ -220,6 +225,15 @@ export function ProposalModal({ group, onClose }) {
                   <input value={draft.why} onChange={(e) => setDraft((o) => ({ ...o, why: e.target.value }))} placeholder="What it involves, in a line (Claude turns it into the slide)" className={input} />
                   <div className="flex flex-wrap items-center gap-3"><Hours line={draft} onChange={(f) => setDraft((o) => ({ ...o, ...f }))} /><TeamPicker team={draft.team} onChange={(team) => setDraft((o) => ({ ...o, team }))} />
                     <button onClick={() => { if (!draft.title.trim()) return; change((d) => ({ ...d, own: [...d.own, ownLine(draft)] })); setDraft({ title: "", why: "", min: 2, max: 2, team: ["dev"] }); }} disabled={!draft.title.trim()} className="ml-auto rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm hover:bg-zinc-100 disabled:opacity-40">+ Add</button></div>
+                </div>
+                <div className="rounded-lg border border-zinc-200 p-3">
+                  <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Packages to offer (optional)</div>
+                  <div className="space-y-1.5">{PACKAGE_GROUPS.map((g) => (
+                    <div key={g.id} className="flex flex-wrap items-center gap-1.5"><span className="w-32 shrink-0 text-xs font-semibold text-zinc-700">{g.name}{g.fixed ? <span className="block text-[10px] font-normal text-zinc-500">Set price, no hours</span> : <span className="block text-[10px] font-normal text-zinc-500">Monthly</span>}</span>
+                      {g.tiers.map((x) => { const id = `${g.id}:${x.id}`, on = pkgIds.includes(id); return <button key={id} type="button" title={x.items.join(" · ")} onClick={() => change((d) => ({ ...d, packages: on ? pkgIds.filter((y) => y !== id) : [...pkgIds, id] }))} className={`rounded-full border px-2.5 py-1 text-xs font-medium ${on ? "border-indigo-700 bg-indigo-700 text-white" : "border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-100"}`}>{on ? "✓ " : ""}{x.name} · {x.price}</button>; })}
+                    </div>))}
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-zinc-500">Each package you pick gets its own slide, and Claude mentions it in the copy. Ideas done only by Videography are priced by the package, so their hours drop out of the estimate.</p>
                 </div>
                 <div className="rounded-lg border border-zinc-200 p-3">
                   <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Retainer selling points<Link href="/settings?section=proposals" target="_blank" className="ml-auto font-medium normal-case tracking-normal text-blue-700 hover:underline">Edit in Settings</Link></div>
@@ -271,7 +285,7 @@ export function ProposalModal({ group, onClose }) {
                 </div>
                 <BlockList label="Retainer pitch" items={doc.copy.retainer} onChange={(retainer) => setCopy({ retainer })} {...toggle("retainer")} />
                 <div><div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Standard slides</div>
-                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["effort", "Estimated effort table and days"], ["services", "Our service retainer offering"], ["packages", "Support packages (Bronze, Silver, Gold)"]].map(([k, name]) => (
+                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["effort", "Estimated effort table and days"], ["services", "Our service retainer offering"], ["packages", picked.length ? `Package slides (${picked.map((g) => g.name).join(", ")})` : "Support packages (Bronze, Silver, Gold)"]].map(([k, name]) => (
                     <li key={k} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className={hidden[k] ? "text-zinc-400 line-through" : ""}>{name}</span><span className="ml-auto"><SlideToggle {...toggle(k)} /></span></li>))}
                   </ul>
                 </div>
