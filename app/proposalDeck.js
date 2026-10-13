@@ -49,7 +49,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   const hourLines = lines.filter((l) => !pkgOf(l));
   const days = daysFor(hourLines), t = totals(hourLines);
   const byKey = Object.fromEntries((copy.ideas || []).map((i) => [i.key, i]));
-  const dark = () => { const s = pres.addSlide(); s.background = { data: bg }; s.addImage({ data: logoW, x: 0.9, y: H - 1.15, w: 2.3, h: 2.3 * (199 / 858) }); return s; };
+  const dark = () => { const s = pres.addSlide(); s.background = { data: bg }; s.addImage({ data: logoW, x: 0.9, y: H - 1.15, w: 2.3, h: 2.3 * (183 / 786) }); return s; };
   const light = (title) => {
     const s = pres.addSlide(); s.background = { color: WHITE };
     s.addImage({ data: logoN, x: 0.9, y: H - 1.15, w: 2.3, h: 2.3 * (199 / 858) });
@@ -107,8 +107,8 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const textW = 8.7;
     s.addText(`${n + 1}. ${(c.title || l.title).toUpperCase()}`, { x: 0.9, y: 0.75, w: W - 1.8, h: 1.1, fontFace: FONT, fontSize: 40, bold: true, color: NAVY, fit: "shrink", isTextBox: true, margin: 0 });
     const body = [];
-    if (!c.intro && !l.why && !(c.bullets || []).length) body.push({ text: c.title || l.title, options: { fontSize: 26, color: INK, breakLine: true } });
-    if (c.intro || l.why) body.push({ text: c.intro || l.why, options: { fontSize: 26, color: INK, breakLine: true, paraSpaceAfter: 16 } });
+    if (!c.intro && !l.why && !(c.bullets || []).length) body.push({ text: c.title || l.title, options: { fontSize: 23, color: INK, breakLine: true } });
+    if (c.intro || l.why) body.push({ text: c.intro || l.why, options: { fontSize: 23, color: INK, breakLine: true, paraSpaceAfter: 16 } });
     (c.bullets || []).map((b) => b.trim()).filter(Boolean).forEach((b) => body.push({ text: b, options: { fontSize: 23, color: INK, bullet: { indent: 26 }, breakLine: true, paraSpaceAfter: 10 } }));
     if (c.closing && img) body.push({ text: c.closing, options: { fontSize: 23, color: INDIGO, bold: true, paraSpaceBefore: 12 } });
     if (body.length) { delete body[body.length - 1].options.breakLine; s.addText(body, { x: 0.9, y: 2.3, w: textW, h: 6.6, fontFace: FONT, valign: "top", fit: "shrink", isTextBox: true, margin: 0 }); }
@@ -127,8 +127,8 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const sp = split(l), parts = pkg ? "A set price for a set amount of work" : TEAMS.filter(([k]) => sp[k]).map(([k, name]) => `${name} ${hrs(...sp[k])}`).join("  ·  ");
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: W - 1.8, h: 1.25, rectRadius: 0.2, fill: { color: PALE }, line: { color: PALE } });
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: 0.18, h: 1.25, rectRadius: 0.05, fill: { color: TEAL }, line: { color: TEAL } });
-    s.addText([{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, fontSize: 15, bold: true } }, { text: pkg ? priceOf(pkg) : hrs(l.min, l.max), options: { color: NAVY, fontSize: 24, bold: true } }, { text: "      TEAM  ", options: { color: GREY, fontSize: 15, bold: true } }, { text: l.team.map(teamName).join(" + "), options: { color: NAVY, fontSize: 20, bold: true } }], { x: 1.4, y: 9.6, w: 10.5, h: 1.15, fontFace: FONT, valign: "middle", fit: "shrink", isTextBox: true, margin: 0 });
-    s.addText(parts, { x: 11.9, y: 9.6, w: W - 13.2, h: 1.15, fontFace: FONT, fontSize: 15, color: GREY, align: "right", valign: "middle", fit: "shrink", isTextBox: true, margin: 0 });
+    s.addText([{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, fontSize: 20, bold: true } }, { text: (pkg ? priceOf(pkg) : hrs(l.min, l.max)).toUpperCase(), options: { color: NAVY, fontSize: 20, bold: true } }, { text: "      TEAM  ", options: { color: GREY, fontSize: 20, bold: true } }, { text: l.team.map(teamName).join(" + ").toUpperCase(), options: { color: NAVY, fontSize: 20, bold: true } }], { x: 1.4, y: 9.6, w: 10.5, h: 1.15, fontFace: FONT, valign: "middle", fit: "shrink", isTextBox: true, margin: 0 });
+    s.addText(parts.toUpperCase(), { x: 11.9, y: 9.6, w: W - 13.2, h: 1.15, fontFace: FONT, fontSize: 20, color: GREY, align: "right", valign: "middle", fit: "shrink", isTextBox: true, margin: 0 });
   }
   // 6. Estimated effort
   if (!hide.effort && hourLines.length) {
@@ -196,7 +196,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   // 11. Closing
   {
     const s = pres.addSlide(); s.background = { data: bg };
-    s.addImage({ data: logoW, x: (W - 7) / 2, y: 3.2, w: 7, h: 7 * (199 / 858) });
+    s.addImage({ data: logoW, x: (W - 7) / 2, y: 3.2, w: 7, h: 7 * (183 / 786) });
     s.addText([{ text: "www.icldigital.com", options: { fontSize: 26, bold: true, color: TEAL, breakLine: true } }, { text: "© ICL Digital – All rights reserved.", options: { fontSize: 16, color: WHITE } }], { x: 1, y: 6.2, w: W - 2, h: 1.5, fontFace: FONT, align: "center", isTextBox: true, margin: 0 });
     s.addText("Commercial-in-confidence. This document in its entirety has been specifically prepared for the client and its agents directly involved with this project. As such, it is considered confidential and proprietary and must not be disclosed to or used by any third party without written consent from ICL Group Limited.", { x: 2.5, y: H - 2.4, w: W - 5, h: 1.3, fontFace: FONT, fontSize: 12, color: "BDBDE0", align: "center", isTextBox: true, margin: 0 });
   }
