@@ -58,19 +58,6 @@ function Hours({ line, onChange, picked = [] }) {
     </span>
   );
 }
-function Summary({ lines: all, picked = [] }) {
-  const lines = all.filter((l) => !isPackageLine(l));
-  const t = totals(lines), d = daysFor(lines);
-  return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-zinc-900 px-4 py-2 text-sm text-white">
-      <span><b>{lines.length}</b> improvement{lines.length === 1 ? "" : "s"}</span>
-      <span><b>{lines.length ? range(t.min, t.max) : 0}</b> hrs hands-on</span>
-      {TEAMS.map(([k, name]) => t[k][1] > 0 && <span key={k} className="text-zinc-300">{name} {range(t[k][0], t[k][1])}</span>)}
-      {picked.map((g) => <span key={g.id} className="rounded-full bg-white/15 px-2 py-0.5 text-xs">+ {g.name}: {g.tiers.filter((x) => g.picked.includes(x.id)).map((x) => `${x.price} ${x.period}`).join(" / ")}</span>)}
-      <span className="ml-auto rounded-full bg-emerald-400 px-2.5 py-0.5 font-bold text-zinc-900" title="Top of the range plus a quarter for feedback, testing and launch, in 7.5 hour days">{lines.length ? d : 0} day{d === 1 ? "" : "s"}</span>
-    </div>
-  );
-}
 function ImageDrop({ value, onChange, label, status, onShot }) {
   const ref = useRef(null);
   const take = async (f) => { if (f && f.type.startsWith("image/")) onChange(await shrink(f)); };
@@ -239,7 +226,6 @@ export function ProposalModal({ group, onClose }) {
             <ol className="flex flex-wrap gap-1.5">{STEPS.map((s, n) => (
               <li key={s}><button onClick={() => canGo(n) && change((d) => ({ ...d, step: n }))} disabled={!canGo(n)} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium disabled:opacity-40 ${step === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{n < step ? <CheckIcon className="h-3.5 w-3.5 text-emerald-500" /> : <span className="opacity-60">{n + 1}</span>}{s}</button></li>))}
             </ol>
-            <Summary lines={lines} picked={picked} />
 
             {step === 0 && (
               <div className="space-y-2">
