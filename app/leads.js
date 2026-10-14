@@ -1938,7 +1938,8 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
     ...(r.own || []).map((x) => ({ key: `own:${x}`, label: x, from: "You" })),
   ];
   // Claude's issue is preselected as the main one; tap another to change it.
-  const mainKey = r.lead && cands.some((c) => c.key === r.lead) ? r.lead : (cands.find((c) => c.key === "claude") || cands[0])?.key;
+  // A lead that was once in Web maintenance keeps that pick in its review; once it is back on the board the real issues take over.
+  const mainKey = r.lead && (maint || r.lead !== "chk:maintenance") && cands.some((c) => c.key === r.lead) ? r.lead : (cands.find((c) => c.key === "claude") || cands[0])?.key;
   const lead = cands.find((c) => c.key === mainKey) || (maint ? cands.find((c) => c.key === "chk:maintenance") || { key: "chk:maintenance", label: "Website maintenance", from: "Checker" } : null);
   // The main issue decides the subject line (Settings → Emails holds the wording for each issue).
   const subjectOf = (c) => {
@@ -1948,7 +1949,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
     if (c.key === "claude") return l.claude?.issue_subject || subjectForText(`${l.claude?.issue_label || ""} ${c.label || ""}`, subjects);
     return subjectForText(c.key.replace(/^(you|own):/, ""), subjects);
   };
-  const path = r.path || suggestPath(lead?.issue?.id || lead?.label || "", l);
+  const path = (r.path && (maint || r.path !== "maintenance") ? r.path : "") || suggestPath(lead?.issue?.id || lead?.label || "", l);
   const first = greetNames(l.contactName);
   // What the email should say: used for this lead's own prompt, and saved on the lead for the batch prompt.
   const brief = lead ? { leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => c.key !== mainKey && (c.from === "You" || (r.also || []).includes(c.key))).map((c) => c.label), /* what you noticed is always mentioned */ notes: r.notes || "", path, template: lead.issue?.body || "" } : null;
@@ -2078,7 +2079,6 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
               </div>
             </div>
             <div className="flex justify-end"><button onClick={() => setR({ step: 3, path, lead: mainKey, siteChecked: true, ...(lead?.key === "chk:maintenance" && !r.drafted ? { drafted: new Date().toISOString() } : {}) }, { ...(r.subjectTyped ? {} : { subject: subjectOf(lead) }), ...(toDraftNow ? { status: "to-draft", draftBrief: brief } : {}), ...(lead?.key === "chk:maintenance" && !r.drafted ? { email: emailTemplates().maintenance.body, emailEdited: false, issueId: "maintenance" } : {}) })} disabled={!lead || !siteOk} title={siteOk ? "" : "Confirm the website first"} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: draft the email →</button></div>
-            {lead?.key !== "chk:maintenance" && <div className="flex justify-end"><button onClick={() => { setR({ step: 3, path, lead: mainKey, siteChecked: true }, { draftBrief: brief, status: "to-draft", ...(r.subjectTyped ? {} : { subject: subjectOf(lead) }) }); onNext?.(false); }} disabled={!lead} title="Save the issue and approach, move it to Email to draft and go to the next lead. Claude writes all of those emails in one prompt." className="text-xs font-medium text-blue-700 underline disabled:opacity-40">or add to the email batch and go to the next lead →</button></div>}
           </div>
         )}
       </div>}
