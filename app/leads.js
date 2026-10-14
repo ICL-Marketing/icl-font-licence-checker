@@ -482,6 +482,20 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   // Stop aborts the request in flight as well, so it does not wait for the current company to finish.
   const abortRef = useRef(null);
   // A queue of searches to run one after another: each remembers its own source, business type and area.
+  // Searches already run (source, type, towns, miles, date), shared with the team, so a repeat gets a warning.
+  const [done, setDone] = useState(() => { try { return JSON.parse(localStorage.getItem("flc-searches-done") || "[]") || []; } catch { return []; } });
+  const doneRef = useRef(done);
+  useEffect(() => { fetch("/api/settings?key=searches-done").then((r) => r.json()).then((j) => { if (j.shared && Array.isArray(j.value?.items)) { const merged = [...j.value.items, ...doneRef.current.filter((d) => !j.value.items.some((x) => x.at === d.at))].slice(-200); doneRef.current = merged; setDone(merged); } }).catch(() => {}); }, []);
+  function noteSearch(q) {
+    const entry = { mode: q.mode, what: q.what || "", centres: [...q.centres], miles: q.miles, at: new Date().toISOString() };
+    const next = [...doneRef.current, entry].slice(-200);
+    doneRef.current = next; setDone(next);
+    try { localStorage.setItem("flc-searches-done", JSON.stringify(next)); } catch {}
+    fetch("/api/settings", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "searches-done", value: { items: next } }) }).catch(() => {});
+  }
+  // A past search covers this one when it was the same source and type, from the same towns (or more), with the same radius or wider, in the last 60 days.
+  const covering = (q) => doneRef.current.filter((d) => d.mode === q.mode && (q.mode !== "maps" || d.what === q.what) && Number(d.miles) >= Number(q.miles) && q.centres.every((c) => d.centres.map((x) => x.toLowerCase()).includes(c.toLowerCase())) && Date.now() - new Date(d.at).getTime() < 60 * 86400000).sort((a, b) => b.at.localeCompare(a.at))[0];
+  const repeat = leadSource !== "claude" ? covering({ mode: leadSource, what: mapsWhat, centres: areaCentres, miles: areaMiles }) : null;
   const [queue, setQueue] = useState([]);
   const queueRef = useRef([]);
   const [queueAt, setQueueAt] = useState(null); // { n, total, label } while the queue runs
@@ -578,6 +592,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       }
       if (candidates.length) saveScan({ kind: "find", mode, queue: candidates, done: st.done, total: st.total, found: st.found, minAssets: floor }); else saveScan(null);
       pushSeen();
+      if (!stopRef.current) noteSearch({ mode, what: "", centres: resume?.centres || areaCentres, miles: resume?.miles || areaMiles });
       st.phase = stopRef.current ? `Stopped with ${candidates.length} companies still to check.` : `Done: ${st.found} new lead${st.found === 1 ? "" : "s"} from ${st.done} companies checked${st.parked ? `, ${st.parked} parked` : ""}${skipped ? `, ${skipped} skipped as already checked in the last ${SEEN_DAYS} days` : ""}.`;
       setRun({ ...st });
       if (candidates.length) setPending(loadScan());
@@ -700,6 +715,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         } catch (e) { if (stopRef.current) break; st.errors.push(`${x.name}: ${e.message}`); }
         st.done++; setRun({ ...st });
       }
+      if (!stopRef.current && !items) noteSearch({ mode, what: mode === "maps" ? mapsWhatNow : "", centres, miles });
       st.phase = stopRef.current ? "Stopped." : `Done: ${st.found} new lead${st.found === 1 ? "" : "s"} from ${st.done} checked${st.parked ? `, ${st.parked} parked` : ""}${st.soleTraders ? `, ${st.soleTraders} sole trader${st.soleTraders === 1 ? "" : "s"} left out` : ""}.${mode === "maps" ? ` ${st.spent || 0} Google search${st.spent === 1 ? "" : "es"} used.` : ""}`;
       setRun({ ...st });
     } catch (e) { st.phase = `Stopped: ${e.message}`; setRun({ ...st }); }
@@ -1232,10 +1248,13 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
             <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
           </div>
         </div>
+        {repeat && !running && (
+          <p className="mt-2 text-xs text-amber-800"><span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold">Already searched</span> {(LEAD_SOURCES.find((x) => x[0] === repeat.mode) || [])[1]}{repeat.what ? `: ${repeat.what}` : ""} within {repeat.miles} miles of {repeat.centres.join(", ")} on {new Date(repeat.at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}, which covers this search. Running it again mostly finds the same businesses.</p>
+        )}
         {(queue.length > 0 || queueAt) && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
             {queueAt && <span className="rounded-full bg-blue-600 px-2 py-0.5 font-medium text-white">Running {queueAt.n} of {queueAt.total}: {queueAt.label}</span>}
-            {queue.map((q) => <span key={q.id} className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700">{queueLabel(q)}<button onClick={() => unqueue(q.id)} aria-label="Remove from queue" className="text-zinc-400 hover:text-zinc-700">✕</button></span>)}
+            {queue.map((q) => <span key={q.id} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${covering(q) ? "bg-amber-100 text-amber-900" : "bg-zinc-100 text-zinc-700"}`} title={covering(q) ? "Already searched: a past search covers this one" : ""}>{covering(q) ? "⚠ " : ""}{queueLabel(q)}<button onClick={() => unqueue(q.id)} aria-label="Remove from queue" className="text-zinc-400 hover:text-zinc-700">✕</button></span>)}
             {!queueAt && <span className="text-zinc-500">Queued: they run one after another when you click Run queue.</span>}
           </div>
         )}
