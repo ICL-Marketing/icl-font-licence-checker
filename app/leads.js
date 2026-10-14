@@ -2044,7 +2044,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
                 </div>
               </div>
             )}
-            <textarea value={r.notes || ""} onChange={(e) => setR({ notes: e.target.value })} rows={2} placeholder="Anything else worth saying? (optional, Claude uses it in the email)" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" />
+            <textarea value={r.notes || ""} onChange={(e) => setR({ notes: e.target.value })} rows={2} placeholder="Notes for Claude: what you noticed, or something to check first, e.g. “based in Woking, check how they rank for electrician Woking” (optional)" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" />
           </div>
         )}
       </div>}
