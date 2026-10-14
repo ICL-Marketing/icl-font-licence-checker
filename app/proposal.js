@@ -6,6 +6,7 @@ import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon } 
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
 import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, withTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
 import Link from "next/link";
+import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY } from "@/lib/deckTemplate";
 import { PACKAGE_GROUPS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER } from "@/lib/packages";
 import { ideaType } from "@/lib/clientIdeas";
 
@@ -210,9 +211,8 @@ export function ProposalModal({ group, onClose }) {
     setBusy(true); setErr("");
     try {
       const { buildDeck } = await import("@/app/proposalDeck");
-      const got = await Promise.all(FIXED_SLIDES.map(([k]) => fetch(`/api/settings?key=slide-${k}`).then((r) => r.json()).catch(() => ({}))));
-      const fixed = Object.fromEntries(FIXED_SLIDES.map(([k], n) => [k, got[n].value?.image]).filter(([, v]) => v));
-      await buildDeck({ client: group.name, website, lines, copy: doc.copy, images, packages: pkgIds, fixed });
+      const template = await loadTemplate().catch(() => null);
+      await buildDeck({ client: group.name, website, lines, copy: doc.copy, images, packages: pkgIds, template });
     }
     catch (e) { setErr(`Couldn't build the deck: ${e.message}`); }
     setBusy(false);
@@ -378,38 +378,71 @@ export function RetainerPointsEditor() {
   );
 }
 
-// Settings → Proposals: pictures of slides that never change. Each replaces the built-in version in every deck.
-export function FixedSlidesEditor() {
-  const [slides, setSlides] = useState(null);
-  const [state, setState] = useState({});
-  useEffect(() => {
-    Promise.all(FIXED_SLIDES.map(([k]) => fetch(`/api/settings?key=slide-${k}`).then((r) => r.json()).catch(() => ({}))))
-      .then((got) => setSlides(Object.fromEntries(FIXED_SLIDES.map(([k], n) => [k, got[n].value?.image || null]))));
-  }, []);
-  async function put(k, file) {
-    if (file && !file.type.startsWith("image/")) return;
-    setState((o) => ({ ...o, [k]: "Saving…" }));
-    let image = null;
-    // Big enough to look sharp on a full slide, small enough for the shared store.
-    if (file) for (const [w, q] of [[2400, 0.88], [2000, 0.82], [1700, 0.75]]) { image = await shrink(file, w, q); if (image.length < 850000) break; }
-    const r = await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: `slide-${k}`, value: image ? { image, at: new Date().toISOString() } : {} }) }).then((x) => x.json()).catch(() => ({}));
-    setSlides((o) => ({ ...o, [k]: image }));
-    setState((o) => ({ ...o, [k]: r.shared ? (image ? "Saved" : "Removed: the built-in slide is used") : r.error ? `Couldn't save: ${r.error}` : "No shared store, so it can't be saved" }));
+// Settings → Proposals: your own PowerPoint slides for the parts of the deck that never change.
+export function TemplateEditor() {
+  const [meta, setMeta] = useState(undefined); // the saved template's details (null = none)
+  const [file, setFile] = useState(null); // { name, zip, slides }
+  const [slots, setSlots] = useState({}); // slot -> index into file.slides
+  const [state, setState] = useState("");
+  useEffect(() => { templateMeta().then(setMeta).catch(() => setMeta(null)); }, []);
+  async function pick(f) {
+    if (!f || !/\.pptx$/i.test(f.name)) { setState("Choose a .pptx file"); return; }
+    setState("Reading…");
+    try {
+      const { default: JSZip } = await import("jszip");
+      const zip = await JSZip.loadAsync(f);
+      const slides = await listSlides(zip);
+      // A first guess at which slide is which, from the words on it.
+      const guess = (re) => slides.findIndex((x) => re.test(x.title));
+      const g = { support: guess(/support packages|bronze support/i), services: guess(/service retainer offering/i), seo: guess(/\bseo\b.*package|seo packages/i), ppc: guess(/\bppc\b.*package|ppc packages/i), video: guess(/videography/i), closing: slides.length - 1 };
+      setFile({ name: f.name, zip, slides }); setSlots(Object.fromEntries(Object.entries(g).filter(([, v]) => v >= 0))); setState("");
+    } catch (e) { setState(`Couldn't read that file: ${e.message}`); }
   }
-  if (!slides) return <p className="text-sm text-zinc-500">Loading…</p>;
+  async function save() {
+    const chosen = Object.entries(slots).filter(([, v]) => Number.isInteger(v));
+    if (!chosen.length) { setState("Pick at least one slide"); return; }
+    setState("Preparing…");
+    try {
+      const [{ default: PptxGenJS }, { pruneTemplate, saveTemplate }] = await Promise.all([import("pptxgenjs"), import("@/lib/deckTemplate")]);
+      const shell = new PptxGenJS(); shell.defineLayout({ name: "ICL", width: 19.44, height: 12.5 }); shell.layout = "ICL";
+      const paths = [...new Set(chosen.map(([, v]) => file.slides[v].path))];
+      const blob = await pruneTemplate(file.zip, paths, await shell.write({ outputType: "blob" }));
+      const map = Object.fromEntries(chosen.map(([k, v]) => [k, paths.indexOf(file.slides[v].path)]));
+      const m = await saveTemplate(blob, map, file.name, (i, n) => setState(`Uploading… ${i} of ${n}`));
+      setMeta(m); setFile(null); setState("Saved");
+    } catch (e) { setState(`Couldn't save: ${e.message}`); }
+  }
+  async function remove() {
+    if (!window.confirm("Remove your template? Decks go back to the built-in slides.")) return;
+    await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: TEMPLATE_KEY, value: {} }) }).catch(() => {});
+    setMeta(null); setState("Removed");
+  }
+  const sel = "rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm";
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {FIXED_SLIDES.map(([k, name]) => (
-        <div key={k} className="space-y-1.5 rounded-lg border border-zinc-200 p-2">
-          <div className="flex items-center gap-2 text-sm font-semibold">{name}<span className="ml-auto text-[11px] font-normal text-zinc-500">{state[k] || (slides[k] ? "Your design" : "Built-in")}</span></div>
-          <label tabIndex={0} onPaste={(e) => put(k, [...e.clipboardData.files][0])} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); put(k, e.dataTransfer.files[0]); }} className="flex aspect-[1.555] cursor-pointer items-center justify-center overflow-hidden rounded-md border-2 border-dashed border-zinc-300 bg-zinc-50 text-center text-[11px] text-zinc-500 hover:border-zinc-400">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            {slides[k] ? <img src={slides[k]} alt={name} className="h-full w-full object-cover" /> : <span className="px-3">Drop, paste or click to upload<br />a PNG or JPG of the finished slide</span>}
-            <input type="file" accept="image/*" className="hidden" onChange={(e) => put(k, e.target.files[0])} />
-          </label>
-          {slides[k] && <button onClick={() => put(k, null)} className="text-xs text-red-700 hover:underline">Remove (use the built-in slide)</button>}
+    <div className="space-y-3 text-sm">
+      {meta === undefined ? <p className="text-zinc-500">Loading…</p> : meta ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2">
+          <span><b>Your template is in use</b>: {meta.name} · {Object.keys(meta.slots || {}).length} slide{Object.keys(meta.slots || {}).length === 1 ? "" : "s"} · {new Date(meta.at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · {FIXED_SLIDES.filter(([k]) => k in (meta.slots || {})).map(([, n]) => n).join(", ")}</span>
+          <button onClick={remove} className="ml-auto text-xs text-red-700 hover:underline">Remove</button>
         </div>
-      ))}
+      ) : <p className="text-zinc-500">No template uploaded: decks use the built-in slides.</p>}
+      <label className="flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 px-4 py-5 text-center text-zinc-600 hover:border-zinc-400" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); pick(e.dataTransfer.files[0]); }}>
+        <span>{file ? <><b>{file.name}</b>: {file.slides.length} slides. Now say which slide is which below.</> : <>Drop your .pptx here or click to choose {meta ? "a new version" : "it"}</>}</span>
+        <input type="file" accept=".pptx" className="hidden" onChange={(e) => pick(e.target.files[0])} />
+      </label>
+      {file && (
+        <div className="space-y-2 rounded-lg border border-zinc-200 p-3">
+          {FIXED_SLIDES.map(([k, name]) => (
+            <label key={k} className="flex flex-wrap items-center gap-2"><span className="w-56 font-medium">{name}</span>
+              <select value={Number.isInteger(slots[k]) ? slots[k] : ""} onChange={(e) => setSlots((o) => { const n = { ...o }; if (e.target.value === "") delete n[k]; else n[k] = Number(e.target.value); return n; })} className={`${sel} min-w-0 flex-1`}>
+                <option value="">Built-in slide</option>
+                {file.slides.map((x, i) => <option key={x.path} value={i}>Slide {i + 1}: {x.title}</option>)}
+              </select>
+            </label>))}
+          <div className="flex items-center gap-3 pt-1"><button onClick={save} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white">Save template</button><button onClick={() => { setFile(null); setState(""); }} className="text-zinc-500 hover:underline">Cancel</button></div>
+        </div>
+      )}
+      {state && <p className="text-xs text-zinc-600">{state}</p>}
     </div>
   );
 }

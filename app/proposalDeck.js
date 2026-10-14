@@ -23,9 +23,13 @@ const teamName = (k) => TEAMS.find(([x]) => x === k)?.[1] || k;
 const hrs = (a, b) => `${range(a, b)}\u00A0hr${a === b && a === 1 ? "" : "s"}`;
 const fileSafe = (s) => String(s).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "Client";
 
-export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], fixed = {} }) {
+export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null }) {
   const { default: PptxGenJS } = await import("pptxgenjs");
   const pres = new PptxGenJS();
+  // Where each slide goes: null for one built here, or a slot name for a slide copied from the uploaded template.
+  const order = [];
+  const realAdd = pres.addSlide.bind(pres);
+  pres.addSlide = (o) => { order.push(null); return realAdd(o); };
   pres.defineLayout({ name: "ICL", width: W, height: H });
   pres.layout = "ICL";
   pres.author = "ICL Digital";
@@ -39,8 +43,8 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   // Ideas priced by a set package (e.g. a video) don't count towards the hours.
   const hourLines = lines.filter((l) => !pkgOf(l));
   const t = totals(hourLines);
-  // An uploaded picture of a finished slide (Settings → Proposals) is used as the whole slide, exactly as designed.
-  const fixedSlide = (slot) => { if (!fixed[slot]) return false; pres.addSlide().addImage({ data: fixed[slot], x: 0, y: 0, w: W, h: H, sizing: { type: "cover", w: W, h: H } }); return true; };
+  // A slide you designed yourself (Settings → Proposals) takes the place of the built-in one.
+  const fixedSlide = (slot) => { if (!template?.slots?.[slot]) return false; order.push(slot); return true; };
   const byKey = Object.fromEntries((copy.ideas || []).map((i) => [i.key, i]));
   const dark = () => { const s = pres.addSlide(); s.background = { data: bg }; s.addImage({ data: logoW, x: 0.9, y: H - 1.15, w: 2.3, h: 2.3 * (183 / 786) }); return s; };
   const light = (title) => {
@@ -243,6 +247,14 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     s.addText([{ text: "© ICL Digital – All rights reserved.", options: { fontSize: 14, bold: true, breakLine: true } }, { text: " ", options: { fontSize: 8, breakLine: true } }, { text: "Commercial-in-confidence. This document in its entirety has been specifically prepared for the client and its agents directly involved with this project. As such, it is considered confidential and proprietary and must not be disclosed to or used by any third party without written consent from ICL Group Limited.", options: { fontSize: 12, bold: true } }], { x: 1.74, y: 10.5, w: 15.97, h: 1.3, fontFace: FONT, color: WHITE, align: "center", valign: "top", isTextBox: true, margin: 0 });
   }
   const fileName = `${fileSafe(client)}-Proposal.pptx`;
-  await pres.writeFile({ fileName });
+  if (!order.some(Boolean)) { await pres.writeFile({ fileName }); return fileName; }
+  // Your own slides are copied in after the deck is built, so they stay fully editable.
+  const [{ default: JSZip }, { copySlides }] = await Promise.all([import("jszip"), import("@/lib/deckTemplate")]);
+  const dst = await JSZip.loadAsync(await pres.write({ outputType: "blob" }));
+  const picks = []; let at = 0;
+  for (const slot of order) { if (slot) picks.push({ slide: template.slots[slot], at }); else at++; }
+  await copySlides(template.zip, dst, picks);
+  const blob = await dst.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation", compression: "DEFLATE" });
+  const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 10000);
   return fileName;
 }

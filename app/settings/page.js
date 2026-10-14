@@ -8,7 +8,7 @@ import { normaliseClients } from "@/lib/clients";
 import { keysFor } from "@/app/launch";
 import { DEFAULT_SUBJECTS_SHARED, ICL_LINE, MAINTENANCE_DEFAULT, OPT_OUT_DEFAULT } from "@/lib/leadsShared";
 import { MAIL_KEY } from "@/app/mail";
-import { RetainerPointsEditor, FixedSlidesEditor } from "@/app/proposal";
+import { RetainerPointsEditor, TemplateEditor } from "@/app/proposal";
 
 export default function Settings() {
   const [team, setTeam] = useState([]);
@@ -140,9 +140,9 @@ export default function Settings() {
           <RetainerPointsEditor />
         </section>
         <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
-          <h2 className="font-semibold">Fixed slides</h2>
-          <p className="mb-3 text-sm text-zinc-500">For slides that never change. Design them in PowerPoint, then <b>File → Export → PNG</b> (just this slide) and upload here. Every proposal deck then uses your picture as that whole slide; remove it to go back to the built-in version. Slide size 19.44 × 12.5 in (the ICL template).</p>
-          <FixedSlidesEditor />
+          <h2 className="font-semibold">Your slides for the fixed pages</h2>
+          <p className="mb-3 text-sm text-zinc-500">Design the pages that never change (support packages, services, SEO, PPC, videography, closing) in PowerPoint, upload the .pptx and say which slide is which. Every proposal deck then uses your slides for those pages, still fully editable in PowerPoint. Use the ICL slide size (19.44 × 12.5 in). To change a page, edit the file and upload it again.</p>
+          <TemplateEditor />
         </section>
       </>)}
       {section === "emails" && (
