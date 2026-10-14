@@ -45,6 +45,8 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   const t = totals(hourLines);
   // A slide you designed yourself (Settings → Proposals) takes the place of the built-in one.
   const fixedSlide = (slot) => { if (!template?.slots?.[slot]) return false; order.push(slot); return true; };
+  // Extra slides from your template, at the point in the deck you chose for them (unless taken out in the review step).
+  const extrasAt = (anchor) => { (template?.extras || []).forEach((e, i) => { if (e.after === anchor && !hide[`extra:${i}`] && template.slots[`extra:${i}`]) order.push(`extra:${i}`); }); };
   const byKey = Object.fromEntries((copy.ideas || []).map((i) => [i.key, i]));
   const dark = () => { const s = pres.addSlide(); s.background = { data: bg }; s.addImage({ data: logoW, x: 0.9, y: H - 1.15, w: 2.3, h: 2.3 * (183 / 786) }); return s; };
   const light = (title) => {
@@ -89,12 +91,14 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     s.addText(copy.deckTitle || "WEBSITE PROPOSAL", { x: 0.9, y: subY, w: tw, h: 1.6, valign: "top", fontFace: FONT, fontSize: 50, bold: true, color: TEAL, isTextBox: true, margin: 0 });
     s.addText([website, new Date().toLocaleDateString("en-GB")].filter(Boolean).join("  ·  "), { x: 0.9, y: subY + 1.9, w: tw, h: 0.8, fontFace: FONT, fontSize: 26, color: "CFCFF0", isTextBox: true, margin: 0 });
   }
+  extrasAt("cover");
   // 3. Background
   const hide = copy.hide || {}; // slides taken out in the review step
   if (copy.background?.length && !hide.background) {
     const s = light("The background");
     blockGrid(s, copy.background);
   }
+  extrasAt("background");
   // 4. Where the biggest wins are
   if (copy.wins?.length && !hide.wins) {
     const s = dark();
@@ -107,6 +111,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       s.addText([{ text: b.title.toUpperCase(), options: { fontSize: 24, bold: true, color: WHITE, breakLine: true } }, { text: " ", options: { fontSize: 12, breakLine: true } }, { text: b.text, options: { fontSize: 22, color: "DCDCF5" } }], { x: x + 0.5, y: 4.6, w: cw - 1, h: 5.3, fontFace: FONT, valign: "top", isTextBox: true, margin: 0 });
     });
   }
+  extrasAt("wins");
   // 5. One slide per idea
   for (const [n, l] of lines.entries()) {
     const c = byKey[l.key] || {};
@@ -137,6 +142,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       s.addText(parts.toUpperCase(), { x: W - 1.3 - rw, y: 9.6, w: rw, h: 1.15, fontFace: FONT, fontSize: rfs, color: GREY, align: "right", valign: "middle", wrap: false, isTextBox: true, margin: 0 });
     }
   }
+  extrasAt("ideas");
   // 6. Estimated effort
   if (!hide.effort && hourLines.length) {
     const s = light("Estimated effort");
@@ -165,11 +171,13 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     s.addTable(rows, { x: 0.9, y: 2.3, w: W - 1.8, colW: [5.6, 7.04, 5], rowH: 0.95, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" } });
     s.addText(["All prices exclude VAT.", picked.some((g) => g.id === "ppc") && "PPC is our monthly management fee plus your Google ad spend, paid to Google.", picked.some((g) => g.fixed) && "Videography is a set price for a set amount of work."].filter(Boolean).join(" "), { x: 0.9, y: Math.min(9.9, 2.6 + rows.length * 0.95), w: W - 1.8, h: 0.6, fontFace: FONT, fontSize: 15, italic: true, color: GREY, isTextBox: true, margin: 0 });
   }
+  extrasAt("costs");
   // 7. Retainer
   if (copy.retainer?.length && !hide.retainer) {
     const s = light("Next: a monthly retainer");
     blockGrid(s, copy.retainer);
   }
+  extrasAt("retainer");
   // 8. Support packages: the template's page 11 (tier headings in their colours, open table with rules)
   if (!hide.support && !fixedSlide("support")) {
     const s = light();
@@ -196,6 +204,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     rows.forEach((r, i) => r.forEach((c) => { c.options.border = i === 0 ? [null, null, { type: "solid", pt: 1, color: INDIGO }, null] : i === rows.length - 1 ? [{ type: "solid", pt: 1, color: INDIGO }, null, null, null] : [null, null, null, null]; }));
     s.addTable(rows, { x: 0.71, y: 2.48, w: 18.1, colW: [4.88, 4.37, 4.34, 4.51], rowH: [0.87, 2.04, 0.91, 0.87, 0.67, 0.71, 0.67, 0.87, 0.87], fontFace: FONT, fontSize: 20, valign: "middle", margin: [0.04, 0.1, 0.04, 0.04] });
   }
+  extrasAt("support");
   // 9. Service retainer offering: the brand layout, staggered rows of service names (positions taken from the design, in px of a 1900px-wide slide)
   if (!hide.services && !fixedSlide("services")) {
     const s = pres.addSlide(); s.background = { data: bg };
@@ -215,6 +224,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     }
     s.addText([{ text: "* ", options: { color: TEAL, bold: true } }, { text: "The services we provide will be limited to the days included in your package, and any extra days can be added at our standard day rate.", options: { color: WHITE } }], { x: 3, y: 11.05, w: W - 6, h: 0.85, fontFace: FONT, fontSize: 19, align: "center", valign: "middle", isTextBox: true, margin: 0 });
   }
+  extrasAt("services");
   // 10. Packages: one slide per package group picked, otherwise the standard support packages
   if (!hide.packages) for (const g of picked.filter((x) => x.id !== "support")) {
     if (fixedSlide(g.id)) continue;
@@ -239,6 +249,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     });
     s.addText(g.footnote, { x: 0.9, y: 9.95, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 14, italic: true, color: GREY, isTextBox: true, margin: 0 });
   }
+  extrasAt("packages");
   // 11. Closing: the template's last slide (logo with strapline, web address, copyright, confidentiality)
   if (!fixedSlide("closing")) {
     const s = pres.addSlide(); s.background = { data: bg };

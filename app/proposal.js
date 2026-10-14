@@ -6,7 +6,7 @@ import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon } 
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
 import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, withTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
 import Link from "next/link";
-import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY } from "@/lib/deckTemplate";
+import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY, ANCHORS } from "@/lib/deckTemplate";
 import { PACKAGE_GROUPS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER } from "@/lib/packages";
 import { ideaType } from "@/lib/clientIdeas";
 
@@ -150,6 +150,8 @@ export function ProposalModal({ group, onClose }) {
   // Anything not yet sent goes when the window closes or the page is left.
   useEffect(() => { const f = () => flushRef.current(); window.addEventListener("pagehide", f); return () => { window.removeEventListener("pagehide", f); f(); }; }, []);
   const [points, setPoints] = useState(RETAINER_DEFAULTS);
+  const [tplExtras, setTplExtras] = useState([]); // extra slides from the uploaded template, so they can be left out of this deck
+  useEffect(() => { templateMeta().then((m) => setTplExtras(m?.extras || [])).catch(() => {}); }, []);
   useEffect(() => { fetch("/api/settings?key=retainer-points").then((r) => r.json()).then((j) => { if (j.shared && j.value?.items) setPoints(normalisePoints(j.value)); }).catch(() => {}); }, []);
 
   useEffect(() => {
@@ -331,7 +333,7 @@ export function ProposalModal({ group, onClose }) {
                 </div>
                 <BlockList label="Retainer pitch" items={doc.copy.retainer} onChange={(retainer) => setCopy({ retainer })} {...toggle("retainer")} />
                 <div><div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Standard slides</div>
-                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["effort", "Estimated effort table"], ["costs", "Monthly / one-off costs table"], ["services", "Our service retainer offering"], ["support", "Support packages (Bronze, Silver, Gold)"], ["packages", "SEO / PPC / Videography package slides"]].map(([k, name]) => (
+                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["effort", "Estimated effort table"], ["costs", "Monthly / one-off costs table"], ["services", "Our service retainer offering"], ["support", "Support packages (Bronze, Silver, Gold)"], ["packages", "SEO / PPC / Videography package slides"], ...tplExtras.map((e, i) => [`extra:${i}`, `Your slide: ${e.title.slice(0, 50)}`])].map(([k, name]) => (
                     <li key={k} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className={hidden[k] ? "text-zinc-400 line-through" : ""}>{name}</span><span className="ml-auto"><SlideToggle {...toggle(k)} /></span></li>))}
                   </ul>
                 </div>
@@ -383,6 +385,7 @@ export function TemplateEditor() {
   const [meta, setMeta] = useState(undefined); // the saved template's details (null = none)
   const [file, setFile] = useState(null); // { name, zip, slides }
   const [slots, setSlots] = useState({}); // slot -> index into file.slides
+  const [extras, setExtras] = useState({}); // index into file.slides -> anchor (extra slides to include)
   const [state, setState] = useState("");
   useEffect(() => { templateMeta().then(setMeta).catch(() => setMeta(null)); }, []);
   async function pick(f) {
@@ -395,20 +398,21 @@ export function TemplateEditor() {
       // A first guess at which slide is which, from the words on it.
       const guess = (re) => slides.findIndex((x) => re.test(x.title));
       const g = { support: guess(/support packages|bronze support/i), services: guess(/service retainer offering/i), seo: guess(/\bseo\b.*package|seo packages/i), ppc: guess(/\bppc\b.*package|ppc packages/i), video: guess(/videography/i), closing: slides.length - 1 };
-      setFile({ name: f.name, zip, slides }); setSlots(Object.fromEntries(Object.entries(g).filter(([, v]) => v >= 0))); setState("");
+      setFile({ name: f.name, zip, slides }); setSlots(Object.fromEntries(Object.entries(g).filter(([, v]) => v >= 0))); setExtras({}); setState("");
     } catch (e) { setState(`Couldn't read that file: ${e.message}`); }
   }
   async function save() {
     const chosen = Object.entries(slots).filter(([, v]) => Number.isInteger(v));
-    if (!chosen.length) { setState("Pick at least one slide"); return; }
+    const extraList = Object.entries(extras).map(([i, after]) => ({ i: Number(i), after })).sort((a, b) => a.i - b.i);
+    if (!chosen.length && !extraList.length) { setState("Pick at least one slide"); return; }
     setState("Preparing…");
     try {
       const [{ default: PptxGenJS }, { pruneTemplate, saveTemplate }] = await Promise.all([import("pptxgenjs"), import("@/lib/deckTemplate")]);
       const shell = new PptxGenJS(); shell.defineLayout({ name: "ICL", width: 19.44, height: 12.5 }); shell.layout = "ICL";
-      const paths = [...new Set(chosen.map(([, v]) => file.slides[v].path))];
+      const paths = [...new Set([...chosen.map(([, v]) => file.slides[v].path), ...extraList.map((e) => file.slides[e.i].path)])];
       const blob = await pruneTemplate(file.zip, paths, await shell.write({ outputType: "blob" }));
       const map = Object.fromEntries(chosen.map(([k, v]) => [k, paths.indexOf(file.slides[v].path)]));
-      const m = await saveTemplate(blob, map, file.name, (i, n) => setState(`Uploading… ${i} of ${n}`));
+      const m = await saveTemplate(blob, map, file.name, (i, n) => setState(`Uploading… ${i} of ${n}`), extraList.map((e) => ({ index: paths.indexOf(file.slides[e.i].path), after: e.after, title: file.slides[e.i].title })));
       setMeta(m); setFile(null); setState("Saved");
     } catch (e) { setState(`Couldn't save: ${e.message}`); }
   }
@@ -422,7 +426,7 @@ export function TemplateEditor() {
     <div className="space-y-3 text-sm">
       {meta === undefined ? <p className="text-zinc-500">Loading…</p> : meta ? (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2">
-          <span><b>Your template is in use</b>: {meta.name} · {Object.keys(meta.slots || {}).length} slide{Object.keys(meta.slots || {}).length === 1 ? "" : "s"} · {new Date(meta.at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · {FIXED_SLIDES.filter(([k]) => k in (meta.slots || {})).map(([, n]) => n).join(", ")}</span>
+          <span><b>Your template is in use</b>: {meta.name} · {Object.keys(meta.slots || {}).length + (meta.extras || []).length} slide{Object.keys(meta.slots || {}).length + (meta.extras || []).length === 1 ? "" : "s"} · {new Date(meta.at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · {[...FIXED_SLIDES.filter(([k]) => k in (meta.slots || {})).map(([, n]) => n), ...(meta.extras || []).map((e) => `“${e.title.slice(0, 30)}”`)].join(", ")}</span>
           <button onClick={remove} className="ml-auto text-xs text-red-700 hover:underline">Remove</button>
         </div>
       ) : <p className="text-zinc-500">No template uploaded: decks use the built-in slides.</p>}
@@ -439,6 +443,18 @@ export function TemplateEditor() {
                 {file.slides.map((x, i) => <option key={x.path} value={i}>Slide {i + 1}: {x.title}</option>)}
               </select>
             </label>))}
+          <div className="mt-2 border-t border-zinc-200 pt-2">
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Extra slides to include</div>
+            <p className="mb-1.5 text-xs text-zinc-500">Tick any other slide to add it to every deck, and say where it goes. They can be left out of a single deck in its review step.</p>
+            <ul className="max-h-72 divide-y divide-zinc-100 overflow-y-auto rounded-md border border-zinc-200">{file.slides.map((x, i) => {
+              const used = Object.values(slots).includes(i); const on = i in extras; return (
+              <li key={x.path} className={`flex flex-wrap items-center gap-2 px-2 py-1 text-xs ${used ? "text-zinc-400" : ""}`}>
+                <input type="checkbox" checked={on} disabled={used} onChange={(e) => setExtras((o) => { const n = { ...o }; if (e.target.checked) n[i] = "ideas"; else delete n[i]; return n; })} />
+                <span className="min-w-0 flex-1 truncate" title={x.title}>Slide {i + 1}: {x.title}{used ? " (used above)" : ""}</span>
+                {on && <select value={extras[i]} onChange={(e) => setExtras((o) => ({ ...o, [i]: e.target.value }))} className={sel}>{ANCHORS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select>}
+              </li>); })}
+            </ul>
+          </div>
           <div className="flex items-center gap-3 pt-1"><button onClick={save} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white">Save template</button><button onClick={() => { setFile(null); setState(""); }} className="text-zinc-500 hover:underline">Cancel</button></div>
         </div>
       )}
