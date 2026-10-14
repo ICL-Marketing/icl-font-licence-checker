@@ -113,6 +113,33 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   }
   extrasAt("wins");
   // 5. One slide per idea
+  // A package slide (SEO, PPC or videography): shown right after the first idea that uses it, otherwise with the other packages.
+  const shownPkg = new Set();
+  const packageSlide = (g) => {
+    if (hide.packages || g.id === "support" || shownPkg.has(g.id) || !picked.includes(g)) return;
+    shownPkg.add(g.id);
+    if (fixedSlide(g.id)) return;
+    const s = light(g.title);
+    s.addText(g.intro, { x: 0.9, y: 1.95, w: W - 1.8, h: 0.8, fontFace: FONT, fontSize: 20, color: GREY, isTextBox: true, margin: 0 });
+    const n = g.tiers.length, gap = 0.35, cw = (W - 1.8 - gap * (n - 1)) / n;
+    g.tiers.forEach((x, i) => {
+      const on = g.picked.includes(x.id), cx = 0.9 + i * (cw + gap), fg = on ? WHITE : INK, metal = METAL[x.id] || TEAL;
+      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx, y: 3.3, w: cw, h: 6.4, rectRadius: 0.25, fill: { color: on ? NAVY : PALE }, line: { color: on ? metal : PALE, width: on ? 2.5 : 1 } });
+      if (on) {
+        s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, rectRadius: 0.25, fill: { color: metal }, line: { color: metal } });
+        s.addText("RECOMMENDED", { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, fontFace: FONT, fontSize: 13, bold: true, color: NAVY, align: "center", valign: "middle", charSpacing: 1, isTextBox: true, margin: 0 });
+      }
+      const sz = n > 3 ? 1 : 1.12;
+      s.addText([
+        { text: x.name.toUpperCase(), options: { fontSize: 19 * sz, bold: true, color: on ? metal : METAL[x.id] ? METAL_DARK[x.id] : NAVY, breakLine: true } },
+        { text: x.price.toUpperCase(), options: { fontSize: 44 * sz, bold: true, color: fg, breakLine: true } },
+        { text: x.period, options: { fontSize: 15 * sz, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 10 } },
+        { text: x.best, options: { fontSize: 16 * sz, italic: true, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 12 } },
+        ...x.items.map((it, k) => ({ text: it, options: { fontSize: 16 * sz, color: fg, bullet: { indent: 18 }, paraSpaceAfter: 8, ...(k < x.items.length - 1 ? { breakLine: true } : {}) } })),
+      ], { x: cx + 0.45, y: 3.8, w: cw - 0.9, h: 5.7, fontFace: FONT, valign: "top", fit: "shrink", isTextBox: true, margin: 0 });
+    });
+    s.addText(g.footnote, { x: 0.9, y: 9.95, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 14, italic: true, color: GREY, isTextBox: true, margin: 0 });
+  };
   for (const [n, l] of lines.entries()) {
     const c = byKey[l.key] || {};
     const s = light();
@@ -140,6 +167,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const runs = [{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, bold: true } }, { text: (pkg ? priceOf(pkg) : hrs(l.min, l.max)).toUpperCase(), options: { color: NAVY, bold: true } }, { text: "      TEAM:  ", options: { color: GREY, bold: true } }, { text: teamText.toUpperCase(), options: { color: NAVY, bold: true } }];
     const chars = runs.reduce((n, r) => n + r.text.length, 0), fs = Math.max(11, Math.min(20, Math.floor(((W - 2.9) * 72) / (chars * 0.7))));
     s.addText(runs, { x: 1.4, y: 9.6, w: W - 2.9, h: 1.15, fontFace: FONT, fontSize: fs, valign: "middle", wrap: false, isTextBox: true, margin: 0 });
+    for (const g of packagesOf(l, picked)) packageSlide(g);
   }
   extrasAt("ideas");
   // 6. Estimated effort
@@ -228,29 +256,8 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   }
   extrasAt("services");
   // 10. Packages: one slide per package group picked, otherwise the standard support packages
-  if (!hide.packages) for (const g of picked.filter((x) => x.id !== "support")) {
-    if (fixedSlide(g.id)) continue;
-    const s = light(g.title);
-    s.addText(g.intro, { x: 0.9, y: 1.95, w: W - 1.8, h: 0.8, fontFace: FONT, fontSize: 20, color: GREY, isTextBox: true, margin: 0 });
-    const n = g.tiers.length, gap = 0.35, cw = (W - 1.8 - gap * (n - 1)) / n;
-    g.tiers.forEach((x, i) => {
-      const on = g.picked.includes(x.id), cx = 0.9 + i * (cw + gap), fg = on ? WHITE : INK, metal = METAL[x.id] || TEAL;
-      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx, y: 3.3, w: cw, h: 6.4, rectRadius: 0.25, fill: { color: on ? NAVY : PALE }, line: { color: on ? metal : PALE, width: on ? 2.5 : 1 } });
-      if (on) {
-        s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, rectRadius: 0.25, fill: { color: metal }, line: { color: metal } });
-        s.addText("RECOMMENDED", { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, fontFace: FONT, fontSize: 13, bold: true, color: NAVY, align: "center", valign: "middle", charSpacing: 1, isTextBox: true, margin: 0 });
-      }
-      const sz = n > 3 ? 1 : 1.12;
-      s.addText([
-        { text: x.name.toUpperCase(), options: { fontSize: 19 * sz, bold: true, color: on ? metal : METAL[x.id] ? METAL_DARK[x.id] : NAVY, breakLine: true } },
-        { text: x.price.toUpperCase(), options: { fontSize: 44 * sz, bold: true, color: fg, breakLine: true } },
-        { text: x.period, options: { fontSize: 15 * sz, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 10 } },
-        { text: x.best, options: { fontSize: 16 * sz, italic: true, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 12 } },
-        ...x.items.map((it, k) => ({ text: it, options: { fontSize: 16 * sz, color: fg, bullet: { indent: 18 }, paraSpaceAfter: 8, ...(k < x.items.length - 1 ? { breakLine: true } : {}) } })),
-      ], { x: cx + 0.45, y: 3.8, w: cw - 0.9, h: 5.7, fontFace: FONT, valign: "top", fit: "shrink", isTextBox: true, margin: 0 });
-    });
-    s.addText(g.footnote, { x: 0.9, y: 9.95, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 14, italic: true, color: GREY, isTextBox: true, margin: 0 });
-  }
+  // 10. Packages not tied to an idea slide
+  for (const g of picked) packageSlide(g);
   extrasAt("packages");
   // 11. Closing: the template's last slide (logo with strapline, web address, copyright, confidentiality)
   if (!fixedSlide("closing")) {
