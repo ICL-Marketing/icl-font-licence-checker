@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon } from "@/app/icons";
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
-import { TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, withTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
+import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, withTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
 import Link from "next/link";
 import { PACKAGE_GROUPS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER } from "@/lib/packages";
 import { ideaType } from "@/lib/clientIdeas";
@@ -34,11 +34,11 @@ function saveLocal(id, doc) { try { const all = readLocal(); all[id] = doc; loca
 // keepalive lets the save finish even if the page is closed or refreshed straight after.
 const saveShared = (id, doc) => fetch("/api/results", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "proposals", site: id, data: doc }) }).then((r) => r.json()).catch(() => ({ error: true }));
 // Screenshots are shrunk to 1800px wide JPEGs so the deck stays a sensible size.
-function shrink(file) {
+function shrink(file, maxW = 1800, quality = 0.86) {
   return new Promise((ok, bad) => {
     const r = new FileReader();
     r.onerror = bad;
-    r.onload = () => { const img = new Image(); img.onerror = bad; img.onload = () => { const k = Math.min(1, 1800 / img.naturalWidth); const c = document.createElement("canvas"); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k); const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height); x.drawImage(img, 0, 0, c.width, c.height); ok(c.toDataURL("image/jpeg", 0.86)); }; img.src = r.result; };
+    r.onload = () => { const img = new Image(); img.onerror = bad; img.onload = () => { const k = Math.min(1, maxW / img.naturalWidth); const c = document.createElement("canvas"); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k); const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height); x.drawImage(img, 0, 0, c.width, c.height); ok(c.toDataURL("image/jpeg", quality)); }; img.src = r.result; };
     r.readAsDataURL(file);
   });
 }
@@ -174,7 +174,9 @@ export function ProposalModal({ group, onClose }) {
     saveT.current = setTimeout(flush, 300);
     return next;
   });
-  const lines = (doc ? [...pool.filter((i) => doc.picked[i.key]).map((i) => doc.picked[i.key]), ...Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key) && !l.custom), ...doc.own] : []).map((l) => (l.min === l.max ? l : { ...l, min: l.max })); // one set figure (older drafts had a range)
+  const lines = (doc ? [...pool.filter((i) => doc.picked[i.key]).map((i) => doc.picked[i.key]), ...Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key) && !l.custom), ...doc.own] : []).map((l) => (l.min === l.max ? l : { ...l, min: l.max })) // one set figure (older drafts had a range)
+    // Biggest first: most hours at the top, package-priced ideas (SEO, PPC, video) after the hourly work.
+    .sort((a, b) => (isPackageLine(a) - isPackageLine(b)) || b.max - a.max);
   // Take an idea out of this proposal (yours are deleted; Client Ideas ones are just unticked).
   const removeLine = (key) => change((d) => { const picked = { ...d.picked }; delete picked[key]; return { ...d, picked, own: d.own.filter((x) => x.key !== key) }; });
   const setLine = (key, fields) => change((d) => (d.own.some((l) => l.key === key) ? { ...d, own: d.own.map((l) => (l.key === key ? { ...l, ...fields, max: Math.max(fields.max ?? l.max, fields.min ?? l.min) } : l)) } : { ...d, picked: { ...d.picked, [key]: { ...d.picked[key], ...fields, max: Math.max(fields.max ?? d.picked[key].max, fields.min ?? d.picked[key].min) } } }));
@@ -182,7 +184,7 @@ export function ProposalModal({ group, onClose }) {
   const chosen = points.filter((x) => chosenIds.includes(x.id));
   const pkgIds = effectivePackages(doc?.packages || [], lines);
   const picked = pickedPackages(pkgIds);
-  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines, notes: doc.notes, points: chosen, packages: picked })) : "";
+  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines, notes: doc.notes, points: chosen, packages: picked, manager: group.manager })) : "";
 
   function applyReply(text) {
     const copy = parseProposalReply(text);
@@ -206,7 +208,12 @@ export function ProposalModal({ group, onClose }) {
   }
   async function download() {
     setBusy(true); setErr("");
-    try { const { buildDeck } = await import("@/app/proposalDeck"); await buildDeck({ client: group.name, website, lines, copy: doc.copy, images, packages: pkgIds }); }
+    try {
+      const { buildDeck } = await import("@/app/proposalDeck");
+      const got = await Promise.all(FIXED_SLIDES.map(([k]) => fetch(`/api/settings?key=slide-${k}`).then((r) => r.json()).catch(() => ({}))));
+      const fixed = Object.fromEntries(FIXED_SLIDES.map(([k], n) => [k, got[n].value?.image]).filter(([, v]) => v));
+      await buildDeck({ client: group.name, website, lines, copy: doc.copy, images, packages: pkgIds, fixed });
+    }
     catch (e) { setErr(`Couldn't build the deck: ${e.message}`); }
     setBusy(false);
   }
@@ -367,6 +374,42 @@ export function RetainerPointsEditor() {
         </div>
       ))}
       <div className="flex items-center gap-3"><button onClick={() => save([...items, { id: `p${Date.now().toString(36)}`, title: "New point", text: "", always: false }])} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-100">+ Add point</button><span className="text-xs text-zinc-500">{state}</span></div>
+    </div>
+  );
+}
+
+// Settings → Proposals: pictures of slides that never change. Each replaces the built-in version in every deck.
+export function FixedSlidesEditor() {
+  const [slides, setSlides] = useState(null);
+  const [state, setState] = useState({});
+  useEffect(() => {
+    Promise.all(FIXED_SLIDES.map(([k]) => fetch(`/api/settings?key=slide-${k}`).then((r) => r.json()).catch(() => ({}))))
+      .then((got) => setSlides(Object.fromEntries(FIXED_SLIDES.map(([k], n) => [k, got[n].value?.image || null]))));
+  }, []);
+  async function put(k, file) {
+    if (file && !file.type.startsWith("image/")) return;
+    setState((o) => ({ ...o, [k]: "Saving…" }));
+    let image = null;
+    // Big enough to look sharp on a full slide, small enough for the shared store.
+    if (file) for (const [w, q] of [[2400, 0.88], [2000, 0.82], [1700, 0.75]]) { image = await shrink(file, w, q); if (image.length < 850000) break; }
+    const r = await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: `slide-${k}`, value: image ? { image, at: new Date().toISOString() } : {} }) }).then((x) => x.json()).catch(() => ({}));
+    setSlides((o) => ({ ...o, [k]: image }));
+    setState((o) => ({ ...o, [k]: r.shared ? (image ? "Saved" : "Removed: the built-in slide is used") : r.error ? `Couldn't save: ${r.error}` : "No shared store, so it can't be saved" }));
+  }
+  if (!slides) return <p className="text-sm text-zinc-500">Loading…</p>;
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {FIXED_SLIDES.map(([k, name]) => (
+        <div key={k} className="space-y-1.5 rounded-lg border border-zinc-200 p-2">
+          <div className="flex items-center gap-2 text-sm font-semibold">{name}<span className="ml-auto text-[11px] font-normal text-zinc-500">{state[k] || (slides[k] ? "Your design" : "Built-in")}</span></div>
+          <label tabIndex={0} onPaste={(e) => put(k, [...e.clipboardData.files][0])} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); put(k, e.dataTransfer.files[0]); }} className="flex aspect-[1.555] cursor-pointer items-center justify-center overflow-hidden rounded-md border-2 border-dashed border-zinc-300 bg-zinc-50 text-center text-[11px] text-zinc-500 hover:border-zinc-400">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {slides[k] ? <img src={slides[k]} alt={name} className="h-full w-full object-cover" /> : <span className="px-3">Drop, paste or click to upload<br />a PNG or JPG of the finished slide</span>}
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => put(k, e.target.files[0])} />
+          </label>
+          {slides[k] && <button onClick={() => put(k, null)} className="text-xs text-red-700 hover:underline">Remove (use the built-in slide)</button>}
+        </div>
+      ))}
     </div>
   );
 }

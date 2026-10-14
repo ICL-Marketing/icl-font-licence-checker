@@ -8,7 +8,7 @@ import { normaliseClients } from "@/lib/clients";
 import { keysFor } from "@/app/launch";
 import { DEFAULT_SUBJECTS_SHARED, ICL_LINE, MAINTENANCE_DEFAULT, OPT_OUT_DEFAULT } from "@/lib/leadsShared";
 import { MAIL_KEY } from "@/app/mail";
-import { RetainerPointsEditor } from "@/app/proposal";
+import { RetainerPointsEditor, FixedSlidesEditor } from "@/app/proposal";
 
 export default function Settings() {
   const [team, setTeam] = useState([]);
@@ -133,13 +133,18 @@ export default function Settings() {
         </section>
       )}
       {section === "templates" && <TemplatesEditor />}
-      {section === "proposals" && (
+      {section === "proposals" && (<>
         <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
           <h2 className="font-semibold">Retainer selling points</h2>
           <p className="mb-3 text-sm text-zinc-500">The same points for every proposal deck. Tick the ones that fit each client in the deck&apos;s step 2, and Claude builds the retainer slide from them.</p>
           <RetainerPointsEditor />
         </section>
-      )}
+        <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+          <h2 className="font-semibold">Fixed slides</h2>
+          <p className="mb-3 text-sm text-zinc-500">For slides that never change. Design them in PowerPoint, then <b>File → Export → PNG</b> (just this slide) and upload here. Every proposal deck then uses your picture as that whole slide; remove it to go back to the built-in version. Slide size 19.44 × 12.5 in (the ICL template).</p>
+          <FixedSlidesEditor />
+        </section>
+      </>)}
       {section === "emails" && (
         <>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">

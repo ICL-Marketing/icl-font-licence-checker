@@ -23,7 +23,7 @@ const teamName = (k) => TEAMS.find(([x]) => x === k)?.[1] || k;
 const hrs = (a, b) => `${range(a, b)}\u00A0hr${a === b && a === 1 ? "" : "s"}`;
 const fileSafe = (s) => String(s).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "Client";
 
-export async function buildDeck({ client, website, lines, copy, images = {}, packages = [] }) {
+export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], fixed = {} }) {
   const { default: PptxGenJS } = await import("pptxgenjs");
   const pres = new PptxGenJS();
   pres.defineLayout({ name: "ICL", width: W, height: H });
@@ -39,6 +39,8 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   // Ideas priced by a set package (e.g. a video) don't count towards the hours.
   const hourLines = lines.filter((l) => !pkgOf(l));
   const t = totals(hourLines);
+  // An uploaded picture of a finished slide (Settings → Proposals) is used as the whole slide, exactly as designed.
+  const fixedSlide = (slot) => { if (!fixed[slot]) return false; pres.addSlide().addImage({ data: fixed[slot], x: 0, y: 0, w: W, h: H, sizing: { type: "cover", w: W, h: H } }); return true; };
   const byKey = Object.fromEntries((copy.ideas || []).map((i) => [i.key, i]));
   const dark = () => { const s = pres.addSlide(); s.background = { data: bg }; s.addImage({ data: logoW, x: 0.9, y: H - 1.15, w: 2.3, h: 2.3 * (183 / 786) }); return s; };
   const light = (title) => {
@@ -165,7 +167,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     blockGrid(s, copy.retainer);
   }
   // 8. Support packages: the template's page 11 (tier headings in their colours, open table with rules)
-  if (!hide.support) {
+  if (!hide.support && !fixedSlide("support")) {
     const s = light();
     s.addText("SUPPORT PACKAGES", { x: 0.64, y: 0.52, w: 15.25, h: 0.91, fontFace: FONT, fontSize: 44, bold: true, color: NAVY, valign: "middle", isTextBox: true, margin: 0 });
     s.addImage({ data: icon9, x: 17.16, y: 0.79, w: 0.66, h: 0.53 });
@@ -191,7 +193,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     s.addTable(rows, { x: 0.71, y: 2.48, w: 18.1, colW: [4.88, 4.37, 4.34, 4.51], rowH: [0.87, 2.04, 0.91, 0.87, 0.67, 0.71, 0.67, 0.87, 0.87], fontFace: FONT, fontSize: 20, valign: "middle", margin: [0.04, 0.1, 0.04, 0.04] });
   }
   // 9. Service retainer offering: the brand layout, staggered rows of service names (positions taken from the design, in px of a 1900px-wide slide)
-  if (!hide.services) {
+  if (!hide.services && !fixedSlide("services")) {
     const s = pres.addSlide(); s.background = { data: bg };
     const px = W / 1900;
     s.addText("OUR SERVICE RETAINER OFFERING", { x: 0.9, y: 0.75, w: W - 1.8, h: 1.1, fontFace: FONT, fontSize: 58, bold: true, color: TEAL, align: "center", valign: "middle", isTextBox: true, margin: 0 });
@@ -211,6 +213,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   }
   // 10. Packages: one slide per package group picked, otherwise the standard support packages
   if (!hide.packages) for (const g of picked.filter((x) => x.id !== "support")) {
+    if (fixedSlide(g.id)) continue;
     const s = light(g.title);
     s.addText(g.intro, { x: 0.9, y: 1.95, w: W - 1.8, h: 0.8, fontFace: FONT, fontSize: 20, color: GREY, isTextBox: true, margin: 0 });
     const n = g.tiers.length, gap = 0.35, cw = (W - 1.8 - gap * (n - 1)) / n;
@@ -233,7 +236,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     s.addText(g.footnote, { x: 0.9, y: 9.95, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 14, italic: true, color: GREY, isTextBox: true, margin: 0 });
   }
   // 11. Closing: the template's last slide (logo with strapline, web address, copyright, confidentiality)
-  {
+  if (!fixedSlide("closing")) {
     const s = pres.addSlide(); s.background = { data: bg };
     s.addImage({ data: logoC, x: 4.54, y: 3.85, w: 10.58, h: 10.58 * (749 / 2400) });
     s.addText("www.icldigital.com", { x: 0.9, y: 8.88, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 24, bold: true, color: WHITE, align: "center", valign: "middle", isTextBox: true, margin: 0 });
