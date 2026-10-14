@@ -54,7 +54,7 @@ function Hours({ line, onChange, picked = [] }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-2 text-xs text-zinc-500">
       {Object.entries(th).map(([k, h]) => <label key={k} className="inline-flex items-center gap-1"><span className="font-medium text-zinc-700">{TEAMS.find(([x]) => x === k)?.[2] || k}</span><input type="number" min={0.5} step={0.5} value={h} onChange={(e) => onChange(withHours(line, k, Number(e.target.value) || 0.5))} className={num} aria-label={`${TEAMS.find(([x]) => x === k)?.[1]} hours`} /></label>)}
-      <span>{Object.keys(th).length > 1 ? `= ${total} hrs` : "hrs"}</span>
+      <span>{Object.keys(th).length > 1 ? `= ${total} ${total === 1 ? "hr" : "hrs"}` : "hrs"}</span>
     </span>
   );
 }
