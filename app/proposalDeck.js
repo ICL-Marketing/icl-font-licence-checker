@@ -131,16 +131,15 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     }
     // Effort box
     const pkg = pkgOf(l);
-    const sp = split(l), parts = pkg ? (pkg.fixed ? "A set price for a set amount of work" : "Monthly package") : [hourTeams(l).length > 1 ? TEAMS.filter(([k]) => sp[k]).map(([k, name]) => `${name} ${hrs(...sp[k])}`).join("  ·  ") : "", ...packagesOf(l, picked).map((g) => `+ ${g.name} package`)].filter(Boolean).join("  ·  ");
+    // One line: ESTIMATE 14 HRS   TEAM: CONTENT (4 HOURS), DESIGN (8 HOURS), DEVELOPMENT (2 HOURS). Package work is named, not timed.
+    const sp = split(l), hoursOf = (h) => `${h} ${h === 1 ? "HOUR" : "HOURS"}`;
+    const teamBits = [...TEAMS.filter(([k]) => sp[k]).map(([k, name]) => `${name} (${hoursOf(sp[k][1])})`), ...packagesOf(l, picked).map((g) => `${g.name} (package)`)];
+    const teamText = teamBits.length > 1 ? teamBits.join(", ") : l.team.map(teamName).join(" + ");
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: W - 1.8, h: 1.25, rectRadius: 0.2, fill: { color: PALE }, line: { color: PALE } });
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: 0.18, h: 1.25, rectRadius: 0.05, fill: { color: TEAL }, line: { color: TEAL } });
-    s.addText([{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, fontSize: 20, bold: true } }, { text: (pkg ? priceOf(pkg) : hrs(l.min, l.max)).toUpperCase(), options: { color: NAVY, fontSize: 20, bold: true } }, { text: "      TEAM  ", options: { color: GREY, fontSize: 20, bold: true } }, { text: l.team.map(teamName).join(" + ").toUpperCase(), options: { color: NAVY, fontSize: 20, bold: true } }], { x: 1.4, y: 9.6, w: 10.5, h: 1.15, fontFace: FONT, valign: "middle", fit: "shrink", isTextBox: true, margin: 0 });
-    // The split always sits on one line: it gets the room the left side leaves, and a smaller size if it needs it.
-    if (parts) {
-      const leftW = Math.min(10.5, (`${pkg ? "PACKAGE" : "ESTIMATE"}  ${pkg ? priceOf(pkg) : hrs(l.min, l.max)}      TEAM  ${l.team.map(teamName).join(" + ")}`.length * 0.72 * 20) / 72);
-      const rw = W - 2.7 - leftW - 0.4, rfs = Math.max(10, Math.min(20, Math.floor((rw * 72) / (parts.length * 0.62))));
-      s.addText(parts.toUpperCase(), { x: W - 1.3 - rw, y: 9.6, w: rw, h: 1.15, fontFace: FONT, fontSize: rfs, color: GREY, align: "right", valign: "middle", wrap: false, isTextBox: true, margin: 0 });
-    }
+    const runs = [{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, bold: true } }, { text: (pkg ? priceOf(pkg) : hrs(l.min, l.max)).toUpperCase(), options: { color: NAVY, bold: true } }, { text: "      TEAM:  ", options: { color: GREY, bold: true } }, { text: teamText.toUpperCase(), options: { color: NAVY, bold: true } }];
+    const chars = runs.reduce((n, r) => n + r.text.length, 0), fs = Math.max(11, Math.min(20, Math.floor(((W - 2.9) * 72) / (chars * 0.7))));
+    s.addText(runs, { x: 1.4, y: 9.6, w: W - 2.9, h: 1.15, fontFace: FONT, fontSize: fs, valign: "middle", wrap: false, isTextBox: true, margin: 0 });
   }
   extrasAt("ideas");
   // 6. Estimated effort
@@ -168,7 +167,10 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       const covers = lines.filter((l) => packagesOf(l, picked).some((x) => x.id === g.id)).map((l) => byKey[l.key]?.title || l.title);
       rows.push([cell((t.name.toLowerCase().includes(g.name.toLowerCase()) ? t.name : `${g.name} ${t.name}`).toUpperCase(), { bold: true, color: NAVY }), cell(covers.length ? covers.join(", ") : t.best), cell(`${t.price} ${t.period}`, { bold: true, color: NAVY, align: "right" })]);
     }
-    s.addTable(rows, { x: 0.9, y: 2.3, w: W - 1.8, colW: [5.6, 7.04, 5], rowH: 0.95, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" } });
+    // Column widths follow the longest package name and cost, so each stays on one line.
+    const est = (t) => (t.length * 18 * 0.7) / 72 + 0.8;
+    const c1 = Math.min(9, Math.max(5.6, ...rows.slice(1).map((r) => est(r[0].text)))), c3 = Math.min(7.5, Math.max(4.4, ...rows.slice(1).map((r) => est(r[2].text))));
+    s.addTable(rows, { x: 0.9, y: 2.3, w: W - 1.8, colW: [c1, W - 1.8 - c1 - c3, c3], rowH: 0.95, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" } });
     s.addText(["All prices exclude VAT.", picked.some((g) => g.id === "ppc") && "PPC is our monthly management fee plus your Google ad spend, paid to Google.", picked.some((g) => g.fixed) && "Videography is a set price for a set amount of work."].filter(Boolean).join(" "), { x: 0.9, y: Math.min(9.9, 2.6 + rows.length * 0.95), w: W - 1.8, h: 0.6, fontFace: FONT, fontSize: 15, italic: true, color: GREY, isTextBox: true, margin: 0 });
   }
   extrasAt("costs");
