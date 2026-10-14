@@ -7,7 +7,7 @@ import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, 
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, withTitle } from "@/app/claudeInbox";
 import { ProposalModal } from "@/app/proposal";
 import { iclFooter, setEmailTemplates } from "@/lib/leadsShared";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, greetingFor, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, ideaType, supportEmail, PLANS, checkIdeasPrompt } from "@/lib/clientIdeas";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, ideaType, supportEmail, PLANS, checkIdeasPrompt } from "@/lib/clientIdeas";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
 // Each client site is checked for free (site health, licences, homepage gaps) plus one search
@@ -494,7 +494,6 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onRec, onBad }) {
   const full = ideaEmail(r, idea, to);
   const outlook = mailHref(to, idea.subject || "", full);
   async function copy() { try { await navigator.clipboard.writeText(`Subject: ${idea.subject || ""}\n\n${full}`); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {} }
-  const greet = greetingFor(r, to);
   const greeting = `${full.split("\n\n")[0]}\n\n${IDEA_GREETING}`;
   const site = r.website ? `https://${r.website}` : "";
   return (
@@ -550,12 +549,6 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onRec, onBad }) {
                 ? <select value={to} onChange={(e) => setTo(e.target.value)} className="mt-0.5 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm">{r.emails.map((e) => <option key={e}>{e}</option>)}</select>
                 : <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="No email for this client in Settings" className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" />}
             </label>
-            {greet.warn && (
-              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-                <span className="font-semibold">Check the name.</span><span>{greet.warn}</span>
-                <input value={r.greetName || ""} onChange={(e) => onRec({ greetName: e.target.value })} placeholder="Their first name" className="ml-auto w-36 rounded border border-amber-300 bg-white px-1.5 py-0.5" />
-              </div>
-            )}
             <label className="mt-2 block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Subject</div>
               <input value={idea.subject || ""} onChange={(e) => onIdea({ subject: e.target.value, edited: true })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
             <pre className="mt-2 whitespace-pre-wrap rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1.5 font-sans text-sm text-zinc-600" title="Written automatically on the day you send">{greeting}</pre>
