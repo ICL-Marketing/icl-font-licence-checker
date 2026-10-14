@@ -70,6 +70,8 @@ export function markSent(kind, ids) {
   for (const id of ids) s[kind][id] = now;
   try { localStorage.setItem(SENT_KEY, JSON.stringify(s)); } catch {}
 }
+// Forget that a lead was already sent, so "Check again" puts it back in the next prompt.
+export function unmarkSent(ids) { const s = loadSent(); for (const k of Object.keys(s)) for (const id of ids) delete s[k][id]; try { localStorage.setItem(SENT_KEY, JSON.stringify(s)); } catch {} }
 export function sentIds(kind) { const s = loadSent()[kind] || {}; const now = Date.now(); return new Set(Object.entries(s).filter(([, t]) => now - t < 2 * 86400000).map(([id]) => id)); }
 export const openInbox = () => openClaude({ tab: "paste" });
 // A title line at the top of every prompt, so Claude names the chat after the job ("ICL · Find websites · 33 leads · 12 Oct 14:05").

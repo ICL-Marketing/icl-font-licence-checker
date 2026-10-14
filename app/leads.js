@@ -7,7 +7,7 @@ import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon,
 import { LEAD_STATUSES, PROBLEMS, to100, businessLabel, subjectForText, draftBatchPrompt, parseDraftBatch, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 import { mergeDoc } from "@/lib/merge";
-import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, reportProgress, withTitle } from "@/app/claudeInbox";
+import { useClaudeHandler, useClaudeJob, openClaude, markSent, unmarkSent, sentIds, PasteHint, reportProgress, withTitle } from "@/app/claudeInbox";
 
 // Website leads: local businesses whose site is letting them down, found
 // through Companies House and worked through a pipeline board.
@@ -1264,7 +1264,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       <Board onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} hideCols={showParked || filtering ? ["vetting"] : ["vetting", "not-pursuing", "lost"]} leads={onBoard} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status, statusBy: "you" }); }} />}
 
-      {current && <LeadDrawer key={current.id} onNoSite={async (extra = {}) => { if (await tryObviousDomain(current.id)) return false; update(current.id, { websiteNeeded: false, noWebsiteConfirmed: true, problem: "No website", problemDetail: "Checked by hand: they have no website", ...extra }); return true; }} onFindSite={() => openClaude({ job: "find-sites", preset: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => openClaude({ job: "lead-check", preset: [current.id], column: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new" })} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, YOUR_EDITS.some((k) => k in f) ? { ...f, youEditedAt: new Date().toISOString() } : f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
+      {current && <LeadDrawer key={current.id} onNoSite={async (extra = {}) => { if (await tryObviousDomain(current.id)) return false; update(current.id, { websiteNeeded: false, noWebsiteConfirmed: true, problem: "No website", problemDetail: "Checked by hand: they have no website", ...extra }); return true; }} onFindSite={() => openClaude({ job: "find-sites", preset: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => { unmarkSent([current.id]); openClaude({ job: "lead-check", preset: [current.id], column: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new" }); }} l={current} followUp={followUp} hunterOn={!!cfg?.hunter} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, YOUR_EDITS.some((k) => k in f) ? { ...f, youEditedAt: new Date().toISOString() } : f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
   );
 }
@@ -1779,30 +1779,19 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             if (!["vetting", "new", "find-site", "to-draft", "no-contact", "maintenance"].includes(l.status || "new")) return null;
             if (!l.website && siteSearchable(l)) return <button onClick={onFindSite} className={`${btn} bg-amber-600 hover:bg-amber-700`}><SearchIcon className="h-4 w-4" /> Find their website with Claude</button>;
             if (!l.claude) return <button onClick={onClaude} className={`${btn} bg-orange-600 hover:bg-orange-700`}><SearchIcon className="h-4 w-4" /> Check with Claude</button>;
-            if (!l.review?.done) return <button onClick={() => setView("review")} className={`${btn} bg-zinc-900 hover:bg-zinc-700`}><PlayIcon className="h-4 w-4" /> {l.review?.step > 1 ? `Continue review (step ${l.review.step > 2 ? 2 : 1} of 2)` : "Review this lead"}</button>;
             return null;
           })()}
           {l.checking && <span className="inline-flex items-center gap-1 text-blue-700"><SpinnerIcon className="h-3.5 w-3.5" /> Working…</span>}
           {l.error && <span className="text-red-700">{l.error}</span>}
-          {!isFrozen(l) && l.status !== "not-pursuing" && <button onClick={() => { onChange({ status: "not-pursuing", statusBy: "you", likelihoodWhy: "Reviewed by hand: not worth it" }); onClose(); }} title="Moves it to Not pursuing and closes it" className="rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100">Not worth it</button>}
+          {!isFrozen(l) && l.status !== "not-pursuing" && <button onClick={() => { onChange({ status: "not-pursuing", statusBy: "you", likelihoodWhy: "Reviewed by hand: not worth it" }); onClose(); }} title="Moves it to Not pursuing and closes it (nothing in that list is ever contacted)" className="rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100">Not pursuing</button>}
           {/* Everything else, as plain links (no menu to open). */}
           <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-xs">
             {(() => { const link = "text-blue-700 underline-offset-2 hover:underline disabled:opacity-40"; return <>
               {l.claude && ["vetting", "new", "no-contact", "not-pursuing"].includes(l.status) && !isFrozen(l) && <button onClick={onClaude} className={link}>Check again with Claude</button>}
               
-              <button onClick={() => onRefresh()} disabled={l.checking} className={link}>Rescan this lead</button>
-              {l.website && <button onClick={() => onRecheck(false)} disabled={l.checking} className={link}>Re-check website only</button>}
               {l.problem && <button onClick={() => onRecheck(true)} disabled={l.checking} className={link}>Redraft email</button>}
             </>; })()}
             <span className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">
-              {!l.optedOut
-                ? optingOut
-                  ? <span className="inline-flex items-center gap-1"><span className="text-zinc-600">Never contact them?</span><button onClick={() => { setOptingOut(false); onChange({ optedOut: true, optedOutAt: new Date().toISOString(), status: "lost", notesLog: [...(l.notesLog || []), { at: new Date().toISOString(), text: "Asked not to be contacted" }] }); onClose(); }} className="rounded-md bg-red-600 px-2 py-0.5 font-medium text-white">Move to Lost</button><button onClick={() => setOptingOut(false)} className="rounded-md border border-zinc-300 px-2 py-0.5">Keep</button></span>
-                  : <button onClick={() => setOptingOut(true)} className="text-red-700 hover:underline" title="They asked not to hear from us: the lead moves to Lost and is never chased or emailed from here again">Do not contact</button>
-                : <button onClick={() => onChange({ optedOut: false })} className="text-zinc-600 hover:underline">Undo opt-out</button>}
-              {asking
-                ? <span className="inline-flex items-center gap-1"><button onClick={onRemove} className="rounded-md bg-red-600 px-2 py-0.5 font-medium text-white">Delete</button><button onClick={() => setAsking(false)} className="rounded-md border border-zinc-300 px-2 py-0.5">Keep</button></span>
-                : <button onClick={() => setAsking(true)} className="text-zinc-500 hover:text-red-700 hover:underline">Delete lead</button>}
               {l.checkedAt && <span className="text-[11px] text-zinc-400">Last checked {new Date(l.checkedAt).toLocaleDateString("en-GB")}</span>}
             </span>
           </div>
