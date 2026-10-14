@@ -2,7 +2,6 @@
 // dark gradient slides with the white logo, white slides with navy titles, teal accents, Obviously.
 import { TEAMS, range, split, totals } from "@/lib/proposal";
 import { pickedPackages, packageFor, packagesOf, hourTeams } from "@/lib/packages";
-import { drawVisual } from "@/lib/visuals";
 
 const W = 19.44, H = 12.5;
 const NAVY = "252560", INDIGO = "291F8E", TEAL = "1EDD9B", INK = "1B1B3A", GREY = "5B5B78", PALE = "F3F3FA", WHITE = "FFFFFF";
@@ -11,17 +10,6 @@ const FONT = "Obviously";
 const METAL = { bronze: "D69C3C", silver: "C9CBD1", gold: "F5D63D" };
 const METAL_DARK = { bronze: "A8712A", silver: "7C808C", gold: "B8960F" };
 
-const PACKAGES = [
-  ["", "BRONZE SUPPORT", "SILVER SUPPORT", "GOLD SUPPORT"],
-  ["Included:", "All maintenance tasks needed to keep your website safe and secure, plus reactive and proactive support as needed.", "Bronze plus: a weekly call with your dedicated service delivery manager and monthly strategy meetings.", "Silver plus: half a day a month on site and complimentary managed hosting."],
-  ["Support hours:", "9am – 5pm, Mon–Fri", "9am – 5pm, Mon–Fri", "9am – 5pm, Mon–Fri, plus emergency out of hours"],
-  ["Contractual SLA:", "8 hour resolution", "6 hour resolution", "4 hour resolution"],
-  ["Min time included (with flex):", "1 hour", "Half a day", "One day"],
-  ["Out of hours support:", "£80 per hour", "Included as needed", "Included as needed"],
-  ["On-going rate:", "£80 per hour", "£80 per hour", "£80 per hour"],
-  ["Discount on extra work:", "n/a", "10%", "15%"],
-  ["Monthly cost:", "£100.00 ex VAT", "£375.00 ex VAT", "£750.00 ex VAT"],
-];
 
 async function dataUrl(src) {
   if (!src || src.startsWith("data:")) return src || null;
@@ -44,7 +32,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   pres.title = `${client} ${copy.deckTitle || "Website proposal"}`;
   pres.theme = { headFontFace: FONT, bodyFontFace: FONT };
 
-  const [bg, logoW, logoN] = await Promise.all(["/proposal/bg-dark.jpg", "/proposal/logo-white.png", "/proposal/logo-navy.png"].map(dataUrl));
+  const [bg, logoW, logoN, logoC, icon8, icon9] = await Promise.all(["/proposal/bg-dark.jpg", "/proposal/logo-white.png", "/proposal/logo-navy.png", "/proposal/logo-closing.png", "/proposal/icon-8.png", "/proposal/icon-9.png"].map(dataUrl));
   const picked = pickedPackages(packages);
   const pkgOf = (l) => packageFor(l, picked);
   const priceOf = (g) => g.tiers.filter((x) => g.picked.includes(x.id)).map((x) => `${x.price} ${x.period}`).join(" or ");
@@ -60,10 +48,21 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     if (title) s.addText(title.toUpperCase(), { x: 0.9, y: 0.75, w: W - 1.8, h: 1.1, fontFace: FONT, fontSize: 44, bold: true, color: NAVY, isTextBox: true, margin: 0 });
     return s;
   };
-  const block = (s, x, y, w, h, n, title, text, onDark) => {
+  // A 2x2 grid of numbered blocks with a clear gap between rows: the text size drops until every block fits its cell.
+  const blockGrid = (s, items) => {
+    const top = 2.4, gap = 0.7, w = 8.4, ch = (H - 1.6 - top - gap) / 2, tw = w - 1.25;
+    const fits = (fs) => items.every((b) => {
+      const lines = (t, size, k) => Math.ceil((t.length * size * k) / 72 / tw);
+      const hgt = (lines(b.title, fs + 4, 0.72) * (fs + 4) + lines(b.text, fs, 0.52) * fs) * 1.2 / 72 + 0.15;
+      return hgt <= ch;
+    });
+    let fs = 24; while (fs > 15 && !fits(fs)) fs -= 1;
+    items.forEach((b, i) => block(s, 0.9 + (i % 2) * 9.1, top + Math.floor(i / 2) * (ch + gap), w, ch, i + 1, b.title, b.text, false, fs));
+  };
+  const block = (s, x, y, w, h, n, title, text, onDark, fs = 24) => {
     s.addShape(pres.shapes.OVAL, { x, y, w: 0.9, h: 0.9, fill: { color: TEAL } });
     s.addText(String(n), { x, y, w: 0.9, h: 0.9, fontFace: FONT, fontSize: 24, bold: true, color: NAVY, align: "center", valign: "middle", isTextBox: true, margin: 0 });
-    s.addText([{ text: title.toUpperCase(), options: { fontSize: 28, bold: true, color: onDark ? TEAL : NAVY, breakLine: true } }, { text, options: { fontSize: 24, color: onDark ? WHITE : INK } }], { x: x + 1.25, y: y + 0.05, w: w - 1.25, h, fontFace: FONT, valign: "top", paraSpaceAfter: 8, isTextBox: true, margin: 0 });
+    s.addText([{ text: title.toUpperCase(), options: { fontSize: fs + 4, bold: true, color: onDark ? TEAL : NAVY, breakLine: true } }, { text, options: { fontSize: fs, color: onDark ? WHITE : INK } }], { x: x + 1.25, y: y + 0.05, w: w - 1.25, h, fontFace: FONT, valign: "top", paraSpaceAfter: 8, isTextBox: true, margin: 0 });
   };
 
   // 1. Cover
@@ -88,7 +87,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   const hide = copy.hide || {}; // slides taken out in the review step
   if (copy.background?.length && !hide.background) {
     const s = light("The background");
-    copy.background.forEach((b, i) => block(s, 0.9 + (i % 2) * 9.1, 2.6 + Math.floor(i / 2) * 3.9, 8.4, 3.5, i + 1, b.title, b.text));
+    blockGrid(s, copy.background);
   }
   // 4. Where the biggest wins are
   if (copy.wins?.length && !hide.wins) {
@@ -107,26 +106,17 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const c = byKey[l.key] || {};
     const s = light();
     const img = images[l.key];
-    const textW = 8.7;
+    const textW = img ? 8.7 : W - 1.8; // no picture: the text uses the full width
     s.addText(`${n + 1}. ${(c.title || l.title).toUpperCase()}`, { x: 0.9, y: 0.75, w: W - 1.8, h: 1.1, fontFace: FONT, fontSize: 40, bold: true, color: NAVY, fit: "shrink", isTextBox: true, margin: 0 });
     const body = [];
     if (!c.intro && !l.why && !(c.bullets || []).length) body.push({ text: c.title || l.title, options: { fontSize: 23, color: INK, breakLine: true } });
     if (c.intro || l.why) body.push({ text: c.intro || l.why, options: { fontSize: 23, color: INK, breakLine: true, paraSpaceAfter: 16 } });
     (c.bullets || []).map((b) => b.trim()).filter(Boolean).forEach((b) => body.push({ text: b, options: { fontSize: 23, color: INK, bullet: { indent: 26 }, breakLine: true, paraSpaceAfter: 10 } }));
-    if (c.closing && img) body.push({ text: c.closing, options: { fontSize: 23, color: INDIGO, bold: true, paraSpaceBefore: 12 } });
+    if (c.closing) body.push({ text: c.closing, options: { fontSize: 23, color: INDIGO, bold: true, paraSpaceBefore: 12 } });
     if (body.length) { delete body[body.length - 1].options.breakLine; s.addText(body, { x: 0.9, y: 2.3, w: textW, h: 6.6, fontFace: FONT, valign: "top", fit: "shrink", isTextBox: true, margin: 0 }); }
     if (img) {
       const f = fit(await sizeOf(img), 8.6, 7.2);
       s.addImage({ data: img, x: W - 0.9 - f.w, y: 2.2 + (7.2 - f.h) / 2, w: f.w, h: f.h });
-    } else {
-      // No screenshot: a mock-up that shows the idea, or failing that a navy panel with the number and service.
-      if (c.visual) drawVisual(pres, s, c.visual, { x: 10.9, y: 2.2, w: W - 11.8, h: 7 }, { NAVY, INDIGO, TEAL, WHITE, INK, GREY, PALE, FONT });
-      else {
-      const px = 10.9, pw = W - 0.9 - px;
-      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: px, y: 2.2, w: pw, h: 7, rectRadius: 0.3, fill: { color: NAVY }, line: { color: NAVY } });
-      s.addText(String(n + 1).padStart(2, "0"), { x: px + 0.6, y: 2.6, w: pw - 1.2, h: 1.8, fontFace: FONT, fontSize: 96, bold: true, color: TEAL, isTextBox: true, margin: 0 });
-      s.addText([{ text: (l.service || "").toUpperCase(), options: { fontSize: 18, bold: true, color: TEAL, charSpacing: 2, breakLine: true } }, { text: " ", options: { fontSize: 10, breakLine: true } }, { text: c.closing || (c.intro && l.why) || "", options: { fontSize: 26, color: WHITE } }], { x: px + 0.6, y: 4.7, w: pw - 1.2, h: 4.1, fontFace: FONT, valign: "top", fit: "shrink", isTextBox: true, margin: 0 });
-      }
     }
     // Effort box
     const pkg = pkgOf(l);
@@ -151,20 +141,20 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const many = used.length > 4, fixedW = many ? [4.8, 3.2] : [5.8, 3.6], TW = W - 1.8, EW = 2.4;
     const pad = { margin: [0.08, 0.1, 0.08, 0.35] }; // breathing room on the left of the first column
     const rows = [[{ ...hd("Improvement", "left"), options: { ...hd("Improvement", "left").options, ...pad } }, hd("Team"), ...used.map(([, , short]) => hd(short)), hd("Estimate")]];
-    for (const l of hourLines) { const sp = split(l); rows.push([cell((byKey[l.key]?.title || l.title), { align: "left", bold: true, color: NAVY, ...pad }), cell(l.team.map(teamName).join(" + ")), ...used.map(([k]) => cell(sp[k] ? range(...sp[k]) : "–")), cell(hrs(l.min, l.max), { bold: true })]); }
-    rows.push([cell("Total hands-on work", { align: "left", bold: true, color: NAVY, fill: { color: PALE }, ...pad }), cell("", { fill: { color: PALE } }), ...used.map(([k]) => cell(t[k][1] ? range(t[k][0], t[k][1]) : "–", { bold: true, fill: { color: PALE } })), cell(`${range(t.min, t.max)} hrs`, { bold: true, color: NAVY, fill: { color: PALE } })]);
+    for (const l of hourLines) { const sp = split(l); rows.push([cell((byKey[l.key]?.title || l.title).toUpperCase(), { align: "left", bold: true, color: NAVY, ...pad }), cell(l.team.map(teamName).join(" + ")), ...used.map(([k]) => cell(sp[k] ? range(...sp[k]) : "–")), cell(hrs(l.min, l.max), { bold: true })]); }
+    rows.push([cell("TOTAL HANDS-ON WORK", { align: "left", bold: true, color: NAVY, fill: { color: PALE }, ...pad }), cell("", { fill: { color: PALE } }), ...used.map(([k]) => cell(t[k][1] ? range(t[k][0], t[k][1]) : "–", { bold: true, fill: { color: PALE } })), cell(`${range(t.min, t.max)} hrs`, { bold: true, color: NAVY, fill: { color: PALE } })]);
     const rh = Math.min(1, 7.6 / rows.length);
     s.addTable(rows, { x: 0.9, y: 2.3, w: TW, colW: [...fixedW, ...used.map(() => (TW - fixedW[0] - fixedW[1] - EW) / used.length), EW], rowH: rh, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" }, margin: 0.08 });
   }
   // 6b. Costs: package work (SEO, PPC, videography, support) kept apart from the hours
   if (!hide.costs && picked.length) {
     const s = light(picked.some((g) => g.fixed) ? (picked.some((g) => !g.fixed) ? "Monthly & one-off costs" : "One-off costs") : "Monthly costs");
-    const hd = (t, al = "left") => ({ text: t, options: { bold: true, color: WHITE, fill: { color: NAVY }, align: al, fontSize: 17, margin: [0.08, 0.1, 0.08, al === "left" ? 0.35 : 0.1] } });
-    const cell = (t, o = {}) => ({ text: t, options: { color: INK, fontSize: 18, margin: [0.1, 0.1, 0.1, 0.35], ...o } });
+    const hd = (t, al = "left") => ({ text: t, options: { bold: true, color: WHITE, fill: { color: NAVY }, align: al, fontSize: 17, margin: [0.08, 0.35, 0.08, 0.35] } });
+    const cell = (t, o = {}) => ({ text: t, options: { color: INK, fontSize: 18, margin: [0.1, 0.35, 0.1, 0.35], ...o } });
     const rows = [[hd("Package"), hd("Covers"), hd("Cost", "right")]];
     for (const g of [...picked.filter((x) => !x.fixed), ...picked.filter((x) => x.fixed)]) for (const t of g.tiers.filter((x) => g.picked.includes(x.id))) {
       const covers = lines.filter((l) => packagesOf(l, picked).some((x) => x.id === g.id)).map((l) => byKey[l.key]?.title || l.title);
-      rows.push([cell(`${g.name}: ${t.name}`, { bold: true, color: NAVY }), cell(covers.length ? covers.join(", ") : t.best), cell(`${t.price} ${t.period}`, { bold: true, color: NAVY, align: "right" })]);
+      rows.push([cell((t.name.toLowerCase().includes(g.name.toLowerCase()) ? t.name : `${g.name} ${t.name}`).toUpperCase(), { bold: true, color: NAVY }), cell(covers.length ? covers.join(", ") : t.best), cell(`${t.price} ${t.period}`, { bold: true, color: NAVY, align: "right" })]);
     }
     s.addTable(rows, { x: 0.9, y: 2.3, w: W - 1.8, colW: [5.6, 7.04, 5], rowH: 0.95, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" } });
     s.addText(["All prices exclude VAT.", picked.some((g) => g.id === "ppc") && "PPC is our monthly management fee plus your Google ad spend, paid to Google.", picked.some((g) => g.fixed) && "Videography is a set price for a set amount of work."].filter(Boolean).join(" "), { x: 0.9, y: Math.min(9.9, 2.6 + rows.length * 0.95), w: W - 1.8, h: 0.6, fontFace: FONT, fontSize: 15, italic: true, color: GREY, isTextBox: true, margin: 0 });
@@ -172,7 +162,33 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   // 7. Retainer
   if (copy.retainer?.length && !hide.retainer) {
     const s = light("Next: a monthly retainer");
-    copy.retainer.forEach((b, i) => block(s, 0.9 + (i % 2) * 9.1, 2.6 + Math.floor(i / 2) * 3.9, 8.4, 3.5, i + 1, b.title, b.text));
+    blockGrid(s, copy.retainer);
+  }
+  // 8. Support packages: the template's page 11 (tier headings in their colours, open table with rules)
+  if (!hide.support) {
+    const s = light();
+    s.addText("SUPPORT PACKAGES", { x: 0.64, y: 0.52, w: 15.25, h: 0.91, fontFace: FONT, fontSize: 44, bold: true, color: NAVY, valign: "middle", isTextBox: true, margin: 0 });
+    s.addImage({ data: icon9, x: 17.16, y: 0.79, w: 0.66, h: 0.53 });
+    s.addImage({ data: icon8, x: 18.04, y: 0.8, w: 0.53, h: 0.53 });
+    s.addText([{ text: "These packages are designed to be used " }, { text: "as a starting point only", options: { bold: true } }, { text: ". Depending on your project's needs, a custom package will be created." }], { x: 0.64, y: 1.61, w: 18.17, h: 0.77, fontFace: FONT, fontSize: 20, color: INK, valign: "top", isTextBox: true, margin: 0 });
+    const TIER = ["E4A315", "AFAFAF", "E3D42A"];
+    const lab = (t) => ({ text: t, options: { bold: true, color: INDIGO } });
+    const val = (t) => ({ text: t, options: { color: INK } });
+    const rich = (b, t) => ({ text: [{ text: b, options: { bold: true } }, { text: t }], options: { color: INK } });
+    const rows = [
+      [{ text: "", options: {} }, ...["BRONZE SUPPORT", "SILVER SUPPORT", "GOLD SUPPORT"].map((t, i) => ({ text: t, options: { bold: true, fontSize: 24, color: TIER[i], border: [null, null, { type: "solid", pt: 1, color: INDIGO }, null] } }))],
+      [lab("Included:"), val("All maintenance tasks needed to ensure your app or website is safe and secure. Plus reactive and proactive support as needed."), rich("Bronze plus:", " Weekly conference call with dedicated service delivery manager and monthly strategic meetings."), rich("Silver plus:", " half a day per month on-site visit and complimentary managed hosting.")],
+      [lab("Support hours:"), val("9am – 5pm, Mon-Fri"), val("9am – 5pm, Mon-Fri"), val("9am – 5pm, Mon-Fri, plus emergency out of hours.")],
+      [lab("Contractual SLA:"), val("8 Hour Resolution"), val("6 Hour Resolution"), val("4 Hour Resolution")],
+      [lab("Min time included (with flex):"), val("1 Hour"), val("Half a day"), val("One day")],
+      [lab("Out of Hours Support Available:"), val("Additional Cost £80 per hour"), val("Included as needed."), val("Included as needed.")],
+      [lab("On-Going Rate:"), val("£80 per hour"), val("£80 per hour"), val("£80 per hour")],
+      [lab(""), val("n/a"), val("Yes 10%"), val("Yes 15%")],
+      [lab("Monthly Cost"), ...["£100.00 ex vat", "£375.00 ex vat", "£750.00 ex vat"].map((t) => ({ text: t, options: { bold: true, color: INK } }))],
+    ];
+    // Rules under the headings and above the monthly cost, as in the template; no other borders.
+    rows.forEach((r, i) => r.forEach((c) => { c.options.border = i === 0 ? [null, null, { type: "solid", pt: 1, color: INDIGO }, null] : i === rows.length - 1 ? [{ type: "solid", pt: 1, color: INDIGO }, null, null, null] : [null, null, null, null]; }));
+    s.addTable(rows, { x: 0.71, y: 2.48, w: 18.1, colW: [4.88, 4.37, 4.34, 4.51], rowH: [0.87, 2.04, 0.91, 0.87, 0.67, 0.71, 0.67, 0.87, 0.87], fontFace: FONT, fontSize: 20, valign: "middle", margin: [0.04, 0.1, 0.04, 0.04] });
   }
   // 9. Service retainer offering: the brand layout, staggered rows of service names (positions taken from the design, in px of a 1900px-wide slide)
   if (!hide.services) {
@@ -194,7 +210,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     s.addText([{ text: "* ", options: { color: TEAL, bold: true } }, { text: "The services we provide will be limited to the days included in your package, and any extra days can be added at our standard day rate.", options: { color: WHITE } }], { x: 3, y: 11.05, w: W - 6, h: 0.85, fontFace: FONT, fontSize: 19, align: "center", valign: "middle", isTextBox: true, margin: 0 });
   }
   // 10. Packages: one slide per package group picked, otherwise the standard support packages
-  if (!hide.packages && picked.length) for (const g of picked) {
+  if (!hide.packages) for (const g of picked.filter((x) => x.id !== "support")) {
     const s = light(g.title);
     s.addText(g.intro, { x: 0.9, y: 1.95, w: W - 1.8, h: 0.8, fontFace: FONT, fontSize: 20, color: GREY, isTextBox: true, margin: 0 });
     const n = g.tiers.length, gap = 0.35, cw = (W - 1.8 - gap * (n - 1)) / n;
@@ -208,7 +224,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       const sz = n > 3 ? 1 : 1.12;
       s.addText([
         { text: x.name.toUpperCase(), options: { fontSize: 19 * sz, bold: true, color: on ? metal : METAL[x.id] ? METAL_DARK[x.id] : NAVY, breakLine: true } },
-        { text: x.price, options: { fontSize: 44 * sz, bold: true, color: fg, breakLine: true } },
+        { text: x.price.toUpperCase(), options: { fontSize: 44 * sz, bold: true, color: fg, breakLine: true } },
         { text: x.period, options: { fontSize: 15 * sz, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 10 } },
         { text: x.best, options: { fontSize: 16 * sz, italic: true, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 12 } },
         ...x.items.map((it, k) => ({ text: it, options: { fontSize: 16 * sz, color: fg, bullet: { indent: 18 }, paraSpaceAfter: 8, ...(k < x.items.length - 1 ? { breakLine: true } : {}) } })),
@@ -216,18 +232,12 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     });
     s.addText(g.footnote, { x: 0.9, y: 9.95, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 14, italic: true, color: GREY, isTextBox: true, margin: 0 });
   }
-  if (!hide.packages && !picked.length) {
-    const s = light("Support packages");
-    const rows = PACKAGES.map((r, i) => r.map((t, j) => ({ text: t, options: i === 0 ? { bold: true, color: NAVY, fill: { color: j ? [0, METAL.bronze, METAL.silver, METAL.gold][j] : WHITE }, align: "center", fontSize: 17 } : { color: j ? INK : NAVY, bold: !j || i === PACKAGES.length - 1, fontSize: 14, align: j ? "center" : "left", fill: { color: i % 2 ? PALE : WHITE } } })));
-    s.addTable(rows, { x: 0.9, y: 2.2, w: W - 1.8, colW: [3.84, 4.4, 4.4, 5], rowH: [0.8, 1.35, 0.75, 0.65, 0.65, 0.65, 0.65, 0.65, 0.8], fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" }, margin: 0.1 });
-    s.addText("These packages are a starting point only. Depending on your needs, we'll put together a custom package.", { x: 0.9, y: 9.9, w: W - 1.8, h: 0.6, fontFace: FONT, fontSize: 15, italic: true, color: GREY, isTextBox: true, margin: 0 });
-  }
-  // 11. Closing
+  // 11. Closing: the template's last slide (logo with strapline, web address, copyright, confidentiality)
   {
     const s = pres.addSlide(); s.background = { data: bg };
-    s.addImage({ data: logoW, x: (W - 7) / 2, y: 3.2, w: 7, h: 7 * (183 / 786) });
-    s.addText([{ text: "www.icldigital.com", options: { fontSize: 26, bold: true, color: TEAL, breakLine: true } }, { text: "© ICL Digital – All rights reserved.", options: { fontSize: 16, color: WHITE } }], { x: 1, y: 6.2, w: W - 2, h: 1.5, fontFace: FONT, align: "center", isTextBox: true, margin: 0 });
-    s.addText("Commercial-in-confidence. This document in its entirety has been specifically prepared for the client and its agents directly involved with this project. As such, it is considered confidential and proprietary and must not be disclosed to or used by any third party without written consent from ICL Group Limited.", { x: 2.5, y: H - 2.4, w: W - 5, h: 1.3, fontFace: FONT, fontSize: 12, color: "BDBDE0", align: "center", isTextBox: true, margin: 0 });
+    s.addImage({ data: logoC, x: 4.54, y: 3.85, w: 10.58, h: 10.58 * (749 / 2400) });
+    s.addText("www.icldigital.com", { x: 0.9, y: 8.88, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 24, bold: true, color: WHITE, align: "center", valign: "middle", isTextBox: true, margin: 0 });
+    s.addText([{ text: "© ICL Digital – All rights reserved.", options: { fontSize: 14, bold: true, breakLine: true } }, { text: " ", options: { fontSize: 8, breakLine: true } }, { text: "Commercial-in-confidence. This document in its entirety has been specifically prepared for the client and its agents directly involved with this project. As such, it is considered confidential and proprietary and must not be disclosed to or used by any third party without written consent from ICL Group Limited.", options: { fontSize: 12, bold: true } }], { x: 1.74, y: 10.5, w: 15.97, h: 1.3, fontFace: FONT, color: WHITE, align: "center", valign: "top", isTextBox: true, margin: 0 });
   }
   const fileName = `${fileSafe(client)}-Proposal.pptx`;
   await pres.writeFile({ fileName });

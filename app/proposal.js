@@ -8,7 +8,6 @@ import { TEAMS, lineFromIdea, ownLine, range, totals, daysFor, proposalPrompt, p
 import Link from "next/link";
 import { PACKAGE_GROUPS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER } from "@/lib/packages";
 import { ideaType } from "@/lib/clientIdeas";
-import { VISUALS, isListField } from "@/lib/visuals";
 
 function Grow({ value, className = "", ...rest }) {
   const ref = useRef(null);
@@ -65,12 +64,12 @@ function Summary({ lines: all, picked = [] }) {
     </div>
   );
 }
-function ImageDrop({ value, onChange, label }) {
+function ImageDrop({ value, onChange, label, status, onShot }) {
   const ref = useRef(null);
   const take = async (f) => { if (f && f.type.startsWith("image/")) onChange(await shrink(f)); };
   return (
     <div tabIndex={0} onPaste={(e) => take([...e.clipboardData.files][0])} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); take(e.dataTransfer.files[0]); }} className="relative flex h-32 w-48 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 text-center text-[11px] text-zinc-500 outline-none hover:border-zinc-400 focus:border-blue-500" onClick={() => ref.current?.click()} title="Click to choose, drop a file, or click then Ctrl+V to paste a screenshot">
-      {value ? <img src={value} alt="" className="h-full w-full object-contain" /> : <span className="px-2">{label}<br />click, drop or paste</span>}
+      {value ? <img src={value} alt="" className="h-full w-full object-contain" /> : status === "loading" ? <span className="flex items-center gap-1.5 px-2"><SpinnerIcon className="h-3.5 w-3.5 animate-spin" /> Taking a screenshot…</span> : <span className="px-2">{status === "failed" ? "Screenshot didn't load. " : ""}{label}<br />click, drop or paste{onShot && <><br /><button type="button" onClick={(e) => { e.stopPropagation(); onShot(); }} className="mt-1 font-semibold text-blue-700 hover:underline">Use the page screenshot</button></>}</span>}
       {value && <button onClick={(e) => { e.stopPropagation(); onChange(null); }} aria-label="Remove image" className="absolute right-1 top-1 rounded bg-white/90 p-0.5 text-zinc-500 hover:text-red-700"><TrashIcon className="h-3.5 w-3.5" /></button>}
       <input ref={ref} type="file" accept="image/*" className="hidden" onChange={(e) => take(e.target.files[0])} />
     </div>
@@ -106,24 +105,6 @@ function SlideToggle({ hidden, onToggle }) {
     ? <button type="button" onClick={onToggle} className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] font-medium normal-case tracking-normal text-blue-700 hover:bg-blue-50">Put slide back</button>
     : <button type="button" onClick={onToggle} title="Leave this slide out of the deck" className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium normal-case tracking-normal text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-3.5 w-3.5" /> Remove slide</button>;
 }
-// The mock-up drawn on the idea slide when there's no screenshot: pick the kind, edit the words.
-function VisualEditor({ value, onChange }) {
-  const kind = value?.kind || "";
-  const spec = VISUALS[kind];
-  return (
-    <div className="w-48 shrink-0 space-y-1 text-xs">
-      <select value={kind} onChange={(e) => onChange(e.target.value ? { kind: e.target.value, caption: "" } : null)} className="w-full rounded-md border border-zinc-300 bg-white px-1.5 py-1 text-xs" title="Drawn on the slide when there's no screenshot">
-        <option value="">No mock-up</option>{Object.entries(VISUALS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-      </select>
-      {spec && <>
-        <input value={value.caption || ""} onChange={(e) => onChange({ ...value, caption: e.target.value })} placeholder={spec.caption || "Caption"} className="w-full rounded border border-zinc-200 px-1.5 py-0.5" />
-        {Object.entries(spec.fields).map(([k, label]) => isListField(k)
-          ? <textarea key={k} value={(value[k] || []).join("\n")} onChange={(e) => onChange({ ...value, [k]: e.target.value.split("\n") })} rows={2} placeholder={label} title={label} className="w-full rounded border border-zinc-200 px-1.5 py-0.5" />
-          : <input key={k} value={value[k] || ""} onChange={(e) => onChange({ ...value, [k]: e.target.value })} placeholder={label} title={label} className="w-full rounded border border-zinc-200 px-1.5 py-0.5" />)}
-      </>}
-    </div>
-  );
-}
 function BlockList({ label, items, onChange, hidden, onToggle }) {
   if (!items?.length) return null;
   return (
@@ -146,6 +127,16 @@ export function ProposalModal({ group, onClose }) {
   const pool = group.queue.filter((i) => !["declined", "done"].includes(i.status) && !i.internal);
   const [doc, setDoc] = useState(null); // { step, picked: {key: line}, own: [line], notes, copy }
   const [images, setImages] = useState({});
+  // Screenshots of the client's pages (the ones Claude picked), taken for you in the review step. Kept in this browser only.
+  const [shotState, setShotState] = useState({}); // key -> "loading" | "failed"
+  const asked = useRef(new Set());
+  function getShot(key, url) {
+    asked.current.add(key);
+    setShotState((o) => ({ ...o, [key]: "loading" }));
+    fetch(`/api/shot?url=${encodeURIComponent(url)}`).then((r) => (r.ok ? r.blob() : Promise.reject())).then(shrink)
+      .then((data) => { setImages((o) => ({ ...o, [key]: data })); setShotState((o) => ({ ...o, [key]: "" })); })
+      .catch(() => setShotState((o) => ({ ...o, [key]: "failed" })));
+  }
   const [copied, setCopied] = useState(false);
   const [reply, setReply] = useState("");
   const [err, setErr] = useState("");
@@ -205,6 +196,14 @@ export function ProposalModal({ group, onClose }) {
     return `Proposal copy for ${group.name}: ${copy.ideas.length} idea slides`;
   }
   useClaudeHandler("proposal", applyReply);
+  useEffect(() => {
+    if (doc?.step !== 3 || !doc.copy) return;
+    const t = setTimeout(() => {
+      if (website && !doc.copy.noCover && !images.cover && !asked.current.has("cover")) getShot("cover", `https://${website}`);
+      for (const c of doc.copy.ideas || []) if (c.shot && !c.noImage && !images[c.key] && !asked.current.has(c.key)) getShot(c.key, c.shot);
+    }, 0);
+    return () => clearTimeout(t);
+  });
   async function copyPrompt(open) {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
     if (open) window.open("https://claude.ai/new", "_blank", "noopener");
@@ -299,7 +298,7 @@ export function ProposalModal({ group, onClose }) {
             {step === 3 && doc.copy && (
               <div className="space-y-4">
                 <div className="flex flex-wrap items-start gap-3">
-                  <ImageDrop value={images.cover} onChange={(v) => setImages((o) => ({ ...o, cover: v }))} label="Cover image (e.g. their homepage today)" />
+                  <ImageDrop value={images.cover} status={shotState.cover} onShot={website ? () => { setCopy({ noCover: false }); getShot("cover", `https://${website}`); } : null} onChange={(v) => { setImages((o) => ({ ...o, cover: v })); if (!v) setCopy({ noCover: true }); }} label="Cover image (their homepage is added for you)" />
                   <label className="min-w-[14rem] flex-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Deck title<input value={doc.copy.deckTitle} onChange={(e) => setCopy({ deckTitle: e.target.value.toUpperCase() })} className={`${input} mt-0.5`} /><span className="mt-1 block font-normal normal-case tracking-normal text-zinc-500">Images stay in this browser only (not saved), so add them just before you download.</span></label>
                 </div>
                 <BlockList label="Background" items={doc.copy.background} onChange={(background) => setCopy({ background })} {...toggle("background")} />
@@ -317,13 +316,12 @@ export function ProposalModal({ group, onClose }) {
                         <div className="flex flex-wrap items-center gap-2 pt-1"><Hours picked={picked} line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, { team })} />
                           {c?.max && c.max !== l.max && <button onClick={() => setLine(l.key, { min: c.max, max: c.max })} title={c.hoursNote} className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-200">Claude suggests {c.max} hrs{c.hoursNote ? `: ${c.hoursNote}` : ""} · use</button>}</div>
                       </div>
-                      <ImageDrop value={images[l.key]} onChange={(v) => setImages((o) => ({ ...o, [l.key]: v }))} label="Screenshot or mock-up" />
-                      {c && !images[l.key] && <VisualEditor value={c.visual} onChange={(visual) => setIdeaCopy(l.key, { visual })} />}
+                      <ImageDrop value={images[l.key]} status={shotState[l.key]} onShot={c?.shot ? () => { setIdeaCopy(l.key, { noImage: false }); getShot(l.key, c.shot); } : null} onChange={(v) => { setImages((o) => ({ ...o, [l.key]: v })); if (!v && c) setIdeaCopy(l.key, { noImage: true }); }} label={c?.shot ? "No picture on this slide" : "Screenshot (optional)"} />
                     </div>); })}
                 </div>
                 <BlockList label="Retainer pitch" items={doc.copy.retainer} onChange={(retainer) => setCopy({ retainer })} {...toggle("retainer")} />
                 <div><div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Standard slides</div>
-                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["effort", "Estimated effort table"], ["costs", "Monthly / one-off costs table"], ["services", "Our service retainer offering"], ["packages", picked.length ? `Package slides (${picked.map((g) => g.name).join(", ")})` : "Support packages (Bronze, Silver, Gold)"]].map(([k, name]) => (
+                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["effort", "Estimated effort table"], ["costs", "Monthly / one-off costs table"], ["services", "Our service retainer offering"], ["support", "Support packages (Bronze, Silver, Gold)"], ["packages", "SEO / PPC / Videography package slides"]].map(([k, name]) => (
                     <li key={k} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className={hidden[k] ? "text-zinc-400 line-through" : ""}>{name}</span><span className="ml-auto"><SlideToggle {...toggle(k)} /></span></li>))}
                   </ul>
                 </div>
