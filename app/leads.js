@@ -834,7 +834,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       if (!it.website_is_theirs && site) {
         f.rejectedSites = [...new Set([...(l.rejectedSites || []), site])];
         if (it.correct_website && it.correct_website !== site) { f.website = it.correct_website; f.websiteConfirmed = true; f.websiteVerified = "checked by Claude"; f.websiteEvidence = it.website_evidence; rescan.push(l.id); }
-        else { f.website = ""; f.websiteConfirmed = false; f.websiteVerified = ""; f.problem = "No website"; f.problemDetail = `${site} belongs to a different business; Claude couldn't find their real site`; f.websiteNeeded = true; }
+        else { f.website = ""; f.websiteConfirmed = false; f.websiteVerified = ""; f.problem = "No website"; f.problemDetail = `${site} belongs to a different business; Claude couldn't find their real site`; f.websiteNeeded = false; f.noWebsiteConfirmed = true; } // Claude looked and found nothing: parked as Can't find them online
         if (l.emailAddress && site && l.emailAddress.endsWith("@" + site)) { f.emailAddress = ""; f.contactName = ""; }
       } else if (!l.website && it.correct_website) { if (l.problem === "No website") { f.problem = ""; f.problemDetail = ""; } f.website = it.correct_website; f.websiteConfirmed = true; f.websiteVerified = "checked by Claude"; f.websiteEvidence = it.website_evidence; rescan.push(l.id); }
       else if (l.website && !websiteIsVerified(l)) { f.websiteVerified = "checked by Claude"; f.websiteEvidence = it.website_evidence; f.websiteDoubt = ""; }
@@ -983,7 +983,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         wrongSite++;
         const g = { rejectedSites: [...new Set([...(l.rejectedSites || []), site])], websiteDoubt: "", seo: null, ...(l.emailAddress && l.emailAddress.endsWith("@" + site) ? { emailAddress: "", contactName: "" } : {}) };
         if (it.correct_website) Object.assign(g, { website: it.correct_website, websiteConfirmed: true, websiteVerified: "checked by Claude", websiteEvidence: it.website_evidence || "found by Claude", ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}) });
-        else Object.assign(g, { website: "", websiteConfirmed: false, websiteVerified: "", problem: "No website", problemDetail: `${site} belongs to a different business${it.website_evidence ? ` (${it.website_evidence})` : ""}`, websiteNeeded: true });
+        else Object.assign(g, { website: "", websiteConfirmed: false, websiteVerified: "", problem: "No website", problemDetail: `${site} belongs to a different business${it.website_evidence ? ` (${it.website_evidence})` : ""}`, websiteNeeded: false, noWebsiteConfirmed: true }); // Claude looked and found nothing: parked as Can't find them online
         if (["new", "no-contact", "maintenance", "ready", "to-draft"].includes(l.status)) g.status = "vetting";
         update(l.id, g);
         l = leadsRef.current[l.id];
