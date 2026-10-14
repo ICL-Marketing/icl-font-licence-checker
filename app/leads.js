@@ -481,6 +481,31 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   }, [leads, followUp]); // eslint-disable-line react-hooks/exhaustive-deps
   // Stop aborts the request in flight as well, so it does not wait for the current company to finish.
   const abortRef = useRef(null);
+  // A queue of searches to run one after another: each remembers its own source, business type and area.
+  const [queue, setQueue] = useState([]);
+  const queueRef = useRef([]);
+  const [queueAt, setQueueAt] = useState(null); // { n, total, label } while the queue runs
+  const queueLabel = (q) => `${(LEAD_SOURCES.find((x) => x[0] === q.mode) || [])[1] || q.mode}${q.mode === "maps" && q.what ? `: ${q.what}` : ""} · ${q.centres.join(", ")} (${q.miles} mi)`;
+  function queueSearch() {
+    if (leadSource === "claude" || !areaRef.current) return;
+    if (leadSource === "maps" && !MAPS_TYPES.some(([, t]) => t.includes(mapsWhat))) return;
+    const q = { id: Date.now().toString(36), mode: leadSource, what: mapsWhat, area: areaRef.current, centres: [...areaCentres], miles: areaMiles };
+    if (queueRef.current.some((x) => queueLabel(x) === queueLabel(q))) return;
+    queueRef.current = [...queueRef.current, q]; setQueue(queueRef.current);
+  }
+  const unqueue = (id) => { queueRef.current = queueRef.current.filter((x) => x.id !== id); setQueue(queueRef.current); };
+  async function runQueue() {
+    const total = queueRef.current.length; let n = 0;
+    while (queueRef.current.length) {
+      const q = queueRef.current[0];
+      queueRef.current = queueRef.current.slice(1); setQueue(queueRef.current);
+      setQueueAt({ n: ++n, total, label: queueLabel(q) });
+      const keep = areaRef.current; areaRef.current = q.area;
+      try { await findLeads(null, q); } finally { areaRef.current = keep; }
+      if (stopRef.current) break;
+    }
+    setQueueAt(null);
+  }
   function stopNow() { stopRef.current = true; try { abortRef.current?.abort(); } catch {} setRun((r) => (r ? { ...r, phase: "Stopping…" } : r)); }
   async function post(body) {
     const ctrl = new AbortController(); abortRef.current = ctrl;
@@ -491,10 +516,10 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   }
 
   // Find new leads: every town around Richmond, every trade, then enrich each new candidate.
-  async function findLeads(resume = null) {
-    const mode = resume?.mode || leadSource;
+  async function findLeads(resume = null, pick = null) {
+    const mode = resume?.mode || pick?.mode || leadSource;
     if (!resume && mode === "claude") { openClaude({ job: "find-leads" }); return; }
-    if (!resume && ["jobs", "maps"].includes(mode)) return findOutside(mode);
+    if (!resume && ["jobs", "maps"].includes(mode)) return findOutside(mode, null, pick);
     stopRef.current = false;
     onRunning?.(true);
     setPending(null);
@@ -602,7 +627,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   }
 
   // Businesses found outside the Companies House sweep: Google Maps, job ads, Claude.
-  async function findOutside(mode, items = null) {
+  async function findOutside(mode, items = null, pick = null) {
+    const mapsWhatNow = pick?.what || mapsWhat, centres = pick?.centres || areaCentres, miles = pick?.miles || areaMiles;
     stopRef.current = false;
     onRunning?.(true);
     setPending(null);
@@ -619,17 +645,17 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     try {
       let list = items || [];
       if (mode === "maps") {
-        const what = MAPS_TYPES.some(([, t]) => t.includes(mapsWhat)) ? mapsWhat : "";
+        const what = MAPS_TYPES.some(([, t]) => t.includes(mapsWhatNow)) ? mapsWhatNow : "";
         if (!what) throw new Error("Pick a business type first.");
         const seen = new Set();
         let spent = 0;
         // One search per location covers the whole radius. More pages only while they keep turning up new businesses.
-        for (const centre of areaCentres) {
+        for (const centre of centres) {
           let token = "";
           for (let page = 0; page < 3; page++) {
             if (stopRef.current) break;
             st.phase = `Searching Google Maps for ${what.toLowerCase()} around ${centre}… ${list.length} found`; setRun({ ...st });
-            const j = await post({ step: "places", query: what, centre, miles: areaMiles, page, pageToken: token });
+            const j = await post({ step: "places", query: what, centre, miles, page, pageToken: token });
             if (!j.cached) spent++;
             if (j.usage) setCfg((c) => (c ? { ...c, placesUsage: j.usage } : c));
             let fresh = 0;
@@ -645,9 +671,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         }
         st.spent = spent;
       } else if (mode === "jobs") {
-        const km = Math.round((areaMiles || 10) * 1.609);
+        const km = Math.round((miles || 10) * 1.609);
         const by = new Map();
-        for (const pl of areaCentres) {
+        for (const pl of centres) {
           for (let page = 1; page <= 3; page++) {
             if (stopRef.current) break;
             st.phase = `Searching job ads near ${pl}… ${by.size} firms hiring`; setRun({ ...st });
@@ -1202,10 +1228,17 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
             )}
             {running
               ? <button onClick={stopNow} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
-              : <button onClick={() => findLeads()} disabled={cfg?.configured === false} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> {leadSource === "claude" ? "Ask Claude" : "Find leads"}</button>}
+              : <>{queue.length > 0 && <button onClick={runQueue} disabled={cfg?.configured === false} title="Run every queued search, one after another" className="inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><PlayIcon className="h-4 w-4" /> Run queue ({queue.length})</button>}<button onClick={queueSearch} disabled={cfg?.configured === false || leadSource === "claude" || !areaState.outcodes || (leadSource === "maps" && !MAPS_TYPES.some(([, t]) => t.includes(mapsWhat)))} title="Add this search (source, type and area) to the queue, then change the controls and add another" className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40">+ Queue</button><button onClick={() => findLeads()} disabled={cfg?.configured === false} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> {leadSource === "claude" ? "Ask Claude" : "Find leads"}</button></>}
             <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
           </div>
         </div>
+        {(queue.length > 0 || queueAt) && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+            {queueAt && <span className="rounded-full bg-blue-600 px-2 py-0.5 font-medium text-white">Running {queueAt.n} of {queueAt.total}: {queueAt.label}</span>}
+            {queue.map((q) => <span key={q.id} className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700">{queueLabel(q)}<button onClick={() => unqueue(q.id)} aria-label="Remove from queue" className="text-zinc-400 hover:text-zinc-700">✕</button></span>)}
+            {!queueAt && <span className="text-zinc-500">Queued: they run one after another when you click Run queue.</span>}
+          </div>
+        )}
         {leadSource === "maps" && cfg?.places && <p className="mt-2 text-xs text-zinc-500">Google Maps searches this month: <span className="font-semibold">{cfg.placesUsage?.used || 0}</span> of {cfg.placesUsage?.cap || 900} free. Each run uses 1 to 3 per location; repeating a search within 30 days is free.</p>}
         {leadSource === "jobs" && <p className="mt-2 text-xs text-zinc-500"><a href="https://www.adzuna.co.uk" target="_blank" rel="noreferrer" className="underline">Jobs by Adzuna</a>. Recruitment agencies are left out.</p>}
         {cfg?.hunter && cfg.hunterUsage?.cap > 0 && (
