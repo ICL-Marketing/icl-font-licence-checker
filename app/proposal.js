@@ -188,6 +188,8 @@ export function ProposalModal({ group, onClose }) {
     return next;
   });
   const lines = (doc ? [...pool.filter((i) => doc.picked[i.key]).map((i) => doc.picked[i.key]), ...Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key) && !l.custom), ...doc.own] : []).map((l) => (l.min === l.max ? l : { ...l, min: l.max })); // one set figure (older drafts had a range)
+  // Take an idea out of this proposal (yours are deleted; Client Ideas ones are just unticked).
+  const removeLine = (key) => change((d) => { const picked = { ...d.picked }; delete picked[key]; return { ...d, picked, own: d.own.filter((x) => x.key !== key) }; });
   const setLine = (key, fields) => change((d) => (d.own.some((l) => l.key === key) ? { ...d, own: d.own.map((l) => (l.key === key ? { ...l, ...fields, max: Math.max(fields.max ?? l.max, fields.min ?? l.min) } : l)) } : { ...d, picked: { ...d.picked, [key]: { ...d.picked[key], ...fields, max: Math.max(fields.max ?? d.picked[key].max, fields.min ?? d.picked[key].min) } } }));
   const chosenIds = doc?.points || points.filter((x) => x.always).map((x) => x.id);
   const chosen = points.filter((x) => chosenIds.includes(x.id));
@@ -252,6 +254,13 @@ export function ProposalModal({ group, onClose }) {
                       <span className="min-w-[16rem] flex-1 leading-snug" title={i.why}>{i.title}</span>
                       {l && <><Hours picked={picked} line={l} onChange={(f) => setLine(i.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(i.key, withTeam(l, team))} /></>}
                     </li>); })}
+                  {Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key)).map((l) => (
+                    <li key={l.key} className="flex flex-wrap items-center gap-2 bg-amber-50/60 px-3 py-2 text-sm">
+                      <input type="checkbox" checked onChange={() => removeLine(l.key)} className="h-4 w-4" title="Untick to take it out of this proposal" />
+                      <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800" title="Still in this proposal, but no longer on the Client Ideas list (done, declined or removed)">Not in Client Ideas now</span>
+                      <span className="min-w-[16rem] flex-1 leading-snug" title={l.why}>{l.title}</span>
+                      <Hours picked={picked} line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, withTeam(l, team))} />
+                    </li>))}
                 </ul>
                 <div className="flex justify-end"><button onClick={() => change((d) => ({ ...d, step: 1 }))} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white">Next: add your own</button></div>
               </div>
@@ -312,7 +321,8 @@ export function ProposalModal({ group, onClose }) {
                 <BlockList label="Where the biggest wins are" items={doc.copy.wins} onChange={(wins) => setCopy({ wins })} {...toggle("wins")} />
                 <div className="space-y-2"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Idea slides</div>
                   {lines.map((l, n) => { const c = doc.copy.ideas.find((x) => x.key === l.key); return (
-                    <div key={l.key} className="flex flex-wrap gap-3 rounded-lg border border-zinc-200 p-3">
+                    <div key={l.key} className="relative flex flex-wrap gap-3 rounded-lg border border-zinc-200 p-3 pr-10">
+                      <button onClick={() => { if (window.confirm(`Take “${c?.title || l.title}” out of this proposal?`)) removeLine(l.key); }} aria-label="Remove from deck" title="Remove this idea from the deck" className="absolute right-2 top-2 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button>
                       <div className="min-w-[16rem] flex-1 space-y-1">
                         {!c ? <p className="text-sm text-amber-700">{n + 1}. {l.title}: Claude didn&apos;t write this one, so the slide uses your title and notes.</p> : <>
                           <input value={c.title} onChange={(e) => setIdeaCopy(l.key, { title: e.target.value })} className={`${input} font-semibold`} aria-label="Slide title" />
