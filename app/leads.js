@@ -145,7 +145,7 @@ function routeVetting(l) {
   const was = l.status || "new";
   if (isFrozen(l) || l.optedOut || !PRE_BOARD.includes(was)) return false;
   const merged = ["find-site", "no-contact", "qualified"].includes(was); // old columns, now part of Vetting
-  if (!merged && was !== "vetting" && handledByYou(l)) return false; // leads you've started on stay where they are
+  if (!merged && was !== "vetting" && handledByYou(l) && l.website) return false; // leads you've started on stay where they are, unless there's no website to work on yet
   const to = !vetted(l) ? "vetting" : was === "vetting" || merged ? boardColumn(l) : was;
   if (to === was) return false;
   if (to === "maintenance") toMaintenance(l);
