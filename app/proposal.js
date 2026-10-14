@@ -14,7 +14,7 @@ function Grow({ value, className = "", ...rest }) {
   useLayoutEffect(() => { const el = ref.current; if (el) { el.style.height = "auto"; el.style.height = `${el.scrollHeight + 2}px`; } }, [value]);
   return <textarea ref={ref} value={value} rows={1} className={`resize-none overflow-hidden ${className}`} {...rest} />;
 }
-const STEPS = ["Assess ideas", "Add your own", "Claude writes it", "Review & download"];
+const STEPS = ["Ideas", "Packages & retainer", "Claude writes it", "Review & download"];
 const input = "w-full rounded-md border border-zinc-300 px-2 py-1 text-sm";
 const num = "w-14 rounded-md border border-zinc-300 px-1.5 py-0.5 text-right text-sm";
 
@@ -245,7 +245,7 @@ export function ProposalModal({ group, onClose }) {
               <div className="space-y-2">
                 <p className="text-xs text-zinc-600">Tick the ideas to pitch. Starred ideas and the top ones that fit in about 3 days are ticked for you. Adjust the hours (for a person doing it by hand, not AI) and who does it. Aim for about <b>3 days</b>: it&apos;s an easy yes, and the retainer slide pitches the rest.</p>
                 <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
-                  {pool.length === 0 && <li className="p-3 text-sm text-zinc-500">No ideas for this client yet. Add your own in step 2.</li>}
+                  {pool.length === 0 && <li className="p-3 text-sm text-zinc-500">No ideas for this client yet. Add your own below.</li>}
                   {pool.map((i) => { const l = doc.picked[i.key]; return (
                     <li key={i.key} className={`flex flex-wrap items-center gap-2 px-3 py-2 text-sm ${l ? "bg-emerald-50/50" : ""}`}>
                       <input type="checkbox" checked={!!l} onChange={() => change((d) => { const p = { ...d.picked }; if (p[i.key]) delete p[i.key]; else p[i.key] = lineFromIdea(i); return { ...d, picked: p }; })} className="h-4 w-4" />
@@ -262,12 +262,6 @@ export function ProposalModal({ group, onClose }) {
                       <Hours picked={picked} line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, withTeam(l, team))} />
                     </li>))}
                 </ul>
-                <div className="flex justify-end"><button onClick={() => change((d) => ({ ...d, step: 1 }))} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white">Next: add your own</button></div>
-              </div>
-            )}
-
-            {step === 1 && (
-              <div className="space-y-3">
                 {doc.own.length > 0 && <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{doc.own.map((l) => (
                   <li key={l.key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"><span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">Yours</span><span className="min-w-[16rem] flex-1 leading-snug" title={l.why}>{l.title}</span><Hours picked={picked} line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, withTeam(l, team))} /><button onClick={() => change((d) => ({ ...d, own: d.own.filter((x) => x.key !== l.key) }))} aria-label="Remove" className="rounded p-1 text-zinc-400 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button></li>))}
                 </ul>}
@@ -278,6 +272,12 @@ export function ProposalModal({ group, onClose }) {
                   <div className="flex flex-wrap items-center gap-3"><Hours picked={picked} line={draft} onChange={(f) => setDraft((o) => ({ ...o, ...f }))} /><TeamPicker team={draft.team} onChange={(team) => setDraft((o) => ({ ...o, ...withTeam(o, team) }))} />
                     <button onClick={() => { if (!draft.title.trim()) return; change((d) => ({ ...d, own: [...d.own, ownLine(draft)] })); setDraft({ title: "", why: "", min: 2, max: 2, team: ["dev"] }); }} disabled={!draft.title.trim()} className="ml-auto rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm hover:bg-zinc-100 disabled:opacity-40">+ Add</button></div>
                 </div>
+                <div className="flex justify-end"><button onClick={() => change((d) => ({ ...d, step: 1 }))} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white">Next: packages & retainer</button></div>
+              </div>
+            )}
+
+            {step === 1 && (
+              <div className="space-y-3">
                 <div className="rounded-lg border border-zinc-200 p-3">
                   <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Packages to offer (optional)</div>
                   <div className="space-y-1.5">{PACKAGE_GROUPS.map((g) => (
