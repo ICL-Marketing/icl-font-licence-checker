@@ -1986,6 +1986,17 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
     <div className="space-y-3">
       {!maint && <div className="rounded-lg border border-zinc-200 p-3">
         {head(1, "Check their site and pick what to raise", siteOk && !!lead && step > 2)}
+        {step > 2 && lead && (() => {
+          // Quick look at what step 1 settled on, without opening it: the main issue, then the ones also mentioned.
+          const extra = cands.filter((c) => c.key !== mainKey && (c.from === "You" || (r.also || []).includes(c.key)));
+          return (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-7 text-xs">
+              <span className="rounded-full bg-zinc-900 px-2 py-0.5 font-medium text-white" title="The main issue">{lead.label}</span>
+              {extra.map((c) => <span key={c.key} className="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700" title="Also mentioned">{c.label}</span>)}
+              {r.notes && <span className="text-zinc-500">· {String(r.notes).trim()}</span>}
+            </div>
+          );
+        })()}
         {step <= 2 && (
           <div className="mt-3 space-y-3 text-sm">
             <div className="flex flex-wrap gap-2">
