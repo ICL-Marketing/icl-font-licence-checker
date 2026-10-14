@@ -134,7 +134,12 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: W - 1.8, h: 1.25, rectRadius: 0.2, fill: { color: PALE }, line: { color: PALE } });
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: 0.18, h: 1.25, rectRadius: 0.05, fill: { color: TEAL }, line: { color: TEAL } });
     s.addText([{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, fontSize: 20, bold: true } }, { text: (pkg ? priceOf(pkg) : hrs(l.min, l.max)).toUpperCase(), options: { color: NAVY, fontSize: 20, bold: true } }, { text: "      TEAM  ", options: { color: GREY, fontSize: 20, bold: true } }, { text: l.team.map(teamName).join(" + ").toUpperCase(), options: { color: NAVY, fontSize: 20, bold: true } }], { x: 1.4, y: 9.6, w: 10.5, h: 1.15, fontFace: FONT, valign: "middle", fit: "shrink", isTextBox: true, margin: 0 });
-    if (parts) s.addText(parts.toUpperCase(), { x: 11.9, y: 9.6, w: W - 13.2, h: 1.15, fontFace: FONT, fontSize: 20, color: GREY, align: "right", valign: "middle", fit: "shrink", isTextBox: true, margin: 0 });
+    // The split always sits on one line: it gets the room the left side leaves, and a smaller size if it needs it.
+    if (parts) {
+      const leftW = Math.min(10.5, (`${pkg ? "PACKAGE" : "ESTIMATE"}  ${pkg ? priceOf(pkg) : hrs(l.min, l.max)}      TEAM  ${l.team.map(teamName).join(" + ")}`.length * 0.72 * 20) / 72);
+      const rw = W - 2.7 - leftW - 0.4, rfs = Math.max(10, Math.min(20, Math.floor((rw * 72) / (parts.length * 0.62))));
+      s.addText(parts.toUpperCase(), { x: W - 1.3 - rw, y: 9.6, w: rw, h: 1.15, fontFace: FONT, fontSize: rfs, color: GREY, align: "right", valign: "middle", wrap: false, isTextBox: true, margin: 0 });
+    }
   }
   // 6. Estimated effort
   if (!hide.effort && hourLines.length) {
