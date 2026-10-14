@@ -3,6 +3,7 @@
 import { mailHref } from "@/app/mail";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
 import { LEAD_STATUSES, PROBLEMS, to100, businessLabel, subjectForText, draftBatchPrompt, parseDraftBatch, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
@@ -1540,6 +1541,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
   const [optingOut, setOptingOut] = useState(false);
+  const [footerEl, setFooterEl] = useState(null); // the review steps put their buttons here, so they stay in view
   const reviewable = ["new", "find-site", "to-draft", "no-contact", "maintenance"].includes(l.status) && !isFrozen(l);
   // Opening a lead always lands on the Review tab (where it has one).
   const [view, setView] = useState(() => (reviewable || l.review ? "review" : "details"));
@@ -1644,7 +1646,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
               {[["review", l.review?.done ? "Review ✓" : "Review steps"], ["details", "All details"]].map(([k, label]) => <button key={k} onClick={() => setView(k)} className={`flex-1 rounded-md px-2 py-1 font-medium ${view === k ? "bg-white shadow-sm" : "text-zinc-500 hover:text-zinc-900"}`}>{label}</button>)}
             </div>
           )}
-          {view === "review" && <ReviewSteps onHunter={onHunter} l={l} onNoSite={onNoSite} onChange={onChange} issues={issues} person={person} subjects={subjects} commitWebsite={commitWebsite} rejectWebsite={rejectWebsite} onNext={onNext ? (done) => onNext(l.status, done) : null} onRecheck={onRecheck} />}
+          {view === "review" && <ReviewSteps onHunter={onHunter} l={l} onNoSite={onNoSite} onChange={onChange} issues={issues} person={person} subjects={subjects} commitWebsite={commitWebsite} rejectWebsite={rejectWebsite} onNext={onNext ? (done) => onNext(l.status, done) : null} onRecheck={onRecheck} footerEl={view === "review" ? footerEl : null} />}
           {view === "details" && <>
           {(l.whatTheyDo || l.siteDescription || l.background || l.sics?.length) && (
             <p className="text-sm text-zinc-700">
@@ -1783,7 +1785,8 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
           })()}
           {l.checking && <span className="inline-flex items-center gap-1 text-blue-700"><SpinnerIcon className="h-3.5 w-3.5" /> Working…</span>}
           {l.error && <span className="text-red-700">{l.error}</span>}
-          {!isFrozen(l) && l.status !== "not-pursuing" && <button onClick={() => { onChange({ status: "not-pursuing", statusBy: "you", likelihoodWhy: "Reviewed by hand: not worth it" }); onClose(); }} title="Moves it to Not pursuing and closes it (nothing in that list is ever contacted)" className="rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100">Not pursuing</button>}
+          {!isFrozen(l) && l.status !== "not-pursuing" && !(view === "review" && l.review?.step === 3 && !l.review?.done) && <button onClick={() => { onChange({ status: "not-pursuing", statusBy: "you", likelihoodWhy: "Reviewed by hand: not worth it" }); onClose(); }} title="Moves it to Not pursuing and closes it (nothing in that list is ever contacted)" className="rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100">Not pursuing</button>}
+          <div ref={setFooterEl} className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2" />
           {/* Everything else, as plain links (no menu to open). */}
           <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-xs">
             {(() => { const link = "text-blue-700 underline-offset-2 hover:underline disabled:opacity-40"; return <>
@@ -1908,7 +1911,8 @@ function FindLeadsModal({ area, miles, exclude, onClose }) {
 }
 
 // Step by step: 1 look at the site yourself, 2 pick what to raise and how, 3 Claude drafts it from our templates.
-function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects, commitWebsite, rejectWebsite, onNext, onRecheck }) {
+function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects, commitWebsite, rejectWebsite, onNext, onRecheck, footerEl = null }) {
+  const inFooter = (node) => (footerEl ? createPortal(node, footerEl) : node);
   const r = l.review || {};
   const step = l.status === "maintenance" ? 3 : r.step || 1; // maintenance: straight to the email, even before it's saved
   const setR = (patch, extra = {}) => onChange({ review: { ...r, ...patch }, ...extra });
@@ -1993,7 +1997,6 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-7 text-xs">
               <span className="rounded-full bg-zinc-900 px-2 py-0.5 font-medium text-white" title="The main issue">{lead.label}</span>
               {extra.map((c) => <span key={c.key} className="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700" title="Also mentioned">{c.label}</span>)}
-              {r.notes && <span className="text-zinc-500">· {String(r.notes).trim()}</span>}
             </div>
           );
         })()}
@@ -2088,7 +2091,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
                 ))}
               </div>
             </div>
-            <div className="flex justify-end"><button onClick={() => setR({ step: 3, path, lead: mainKey, siteChecked: true, ...(lead?.key === "chk:maintenance" && !r.drafted ? { drafted: new Date().toISOString() } : {}) }, { ...(r.subjectTyped ? {} : { subject: subjectOf(lead) }), ...(toDraftNow ? { status: "to-draft", draftBrief: brief } : {}), ...(lead?.key === "chk:maintenance" && !r.drafted ? { email: emailTemplates().maintenance.body, emailEdited: false, issueId: "maintenance" } : {}) })} disabled={!lead || !siteOk} title={siteOk ? "" : "Confirm the website first"} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: draft the email →</button></div>
+            {inFooter(<button onClick={() => setR({ step: 3, path, lead: mainKey, siteChecked: true, ...(lead?.key === "chk:maintenance" && !r.drafted ? { drafted: new Date().toISOString() } : {}) }, { ...(r.subjectTyped ? {} : { subject: subjectOf(lead) }), ...(toDraftNow ? { status: "to-draft", draftBrief: brief } : {}), ...(lead?.key === "chk:maintenance" && !r.drafted ? { email: emailTemplates().maintenance.body, emailEdited: false, issueId: "maintenance" } : {}) })} disabled={!lead || !siteOk} title={siteOk ? "" : "Confirm the website first"} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: draft the email →</button>)}
           </div>
         )}
       </div>}
@@ -2139,15 +2142,15 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
               <AutoTextarea value={draftText} placeholder="Paste Claude’s email here" onChange={(e) => onChange({ email: e.target.value, emailEdited: true, review: { ...r, drafted: r.drafted || new Date().toISOString() } })} onPaste={(e) => { const t = e.clipboardData.getData("text"); if (!t || draftText.trim()) return; e.preventDefault(); const c = cleanPastedEmail(t); onChange({ email: c.body, emailEdited: true, ...(c.subject && !r.subjectTyped ? { subject: c.subject } : {}), review: { ...r, drafted: new Date().toISOString() } }); }} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
               <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{addedBelow(l.email)}</pre>
             </div>
-            {/* Stays in view at the bottom of the window while the email is checked. */}
-            <div className="sticky bottom-0 -mx-5 -mb-4 flex flex-wrap items-center gap-2 border-t border-zinc-200 bg-white px-5 py-3">
+            {/* The buttons live in the window's footer, so they stay in view while the email is checked. */}
+            {inFooter(<>
               <button onClick={() => setR({ step: 2 })} className="text-xs text-zinc-500 hover:text-zinc-900">← Back</button>
               <span className="ml-auto" />
               {l.problem && onRecheck && <button onClick={() => onRecheck(true)} disabled={l.checking} title="Rewrite the email from our template for this issue" className="rounded-md bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 disabled:opacity-40">Redraft email</button>}
               <button onClick={() => { setR({ done: true, doneAt: new Date().toISOString() }, { status: "not-pursuing", likelihoodWhy: "Reviewed by hand: not worth it" }); onNext?.(true); }} className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Not pursuing</button>
               {onNext && <button onClick={() => onNext(false)} className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Skip for now →</button>}
               <button onClick={() => finishReady()} disabled={!l.emailAddress || !draftText.trim()} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Ready to send ✓{onNext ? " · next" : ""}</button>
-            </div>
+            </>)}
           </div>
         )}
       </div>
