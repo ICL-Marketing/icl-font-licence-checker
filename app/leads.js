@@ -1962,7 +1962,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   const path = r.path || suggestPath(lead?.issue?.id || lead?.label || "", l);
   const first = greetNames(l.contactName);
   // What the email should say: used for this lead's own prompt, and saved on the lead for the batch prompt.
-  const brief = lead ? { leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => (r.also || []).includes(c.key) && c.key !== mainKey).map((c) => c.label), notes: r.notes || "", path, template: lead.issue?.body || "" } : null;
+  const brief = lead ? { leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => c.key !== mainKey && (c.from === "You" || (r.also || []).includes(c.key))).map((c) => c.label), // what you noticed is always mentioned notes: r.notes || "", path, template: lead.issue?.body || "" } : null;
   const prompt = lead ? withTitle("Email draft", l.business, draftPrompt({ l, first, ...brief })) : "";
   // Issue and approach picked, no email yet: the lead waits in Email to draft (Claude can write it there or in a batch).
   const toDraftNow = !!lead && lead.key !== "chk:maintenance" && !r.drafted && ["new", "no-contact", "vetting", "find-site", "maintenance"].includes(l.status || "new");
@@ -2051,7 +2051,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
       {!maint && step <= 2 && <div className="-mt-3 rounded-b-lg border border-t-0 border-zinc-200 p-3 pt-0">
         {(
           <div className="space-y-3 text-sm">
-            <div className="border-t border-zinc-100 pt-3 text-xs font-semibold text-zinc-700">What to raise <span className="font-normal text-zinc-500">· Claude’s pick is selected; tap another to make it the main one, tick “also” to mention it too</span></div>
+            <div className="border-t border-zinc-100 pt-3 text-xs font-semibold text-zinc-700">What to raise <span className="font-normal text-zinc-500">· Claude’s pick is selected; tap another to make it the main one, tick a box to mention it too; what you noticed is always included</span></div>
             {!cands.length && <p className="text-xs text-zinc-500">Nothing found yet. Add what you noticed in step 1, or type your own below.</p>}
             <div className="space-y-1">
               {cands.map((c) => (
@@ -2062,7 +2062,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
                   </button>
                   {(() => { const q = searchIn(c.label); return q && <a href={googleUk(q)} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} title={`Check “${q}” on Google yourself (UK, not personalised)`} className="shrink-0 text-blue-700 hover:text-blue-900"><ExternalIcon /></a>; })()}
                   <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${FROM[c.from]}`}>{c.from}</span>
-                  {mainKey !== c.key && <label className="flex shrink-0 items-center gap-1 text-[11px] text-zinc-500" title="Mention this briefly as well"><input type="checkbox" checked={(r.also || []).includes(c.key)} onChange={(e) => setR({ also: e.target.checked ? [...(r.also || []), c.key] : (r.also || []).filter((x) => x !== c.key) })} className="h-3 w-3" /> also</label>}
+                  {mainKey !== c.key && (c.from === "You" ? <span className="shrink-0 text-[11px] text-zinc-400" title="What you noticed is always mentioned in the email">included</span> : <input type="checkbox" checked={(r.also || []).includes(c.key)} onChange={(e) => setR({ also: e.target.checked ? [...(r.also || []), c.key] : (r.also || []).filter((x) => x !== c.key) })} title="Tick to mention this briefly as well" aria-label="Mention this as well" className="h-3.5 w-3.5 shrink-0" />)}
                 </div>
               ))}
             </div>
