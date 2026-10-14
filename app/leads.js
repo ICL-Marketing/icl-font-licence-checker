@@ -1954,7 +1954,8 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   const brief = lead ? { leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => c.key !== mainKey && (c.from === "You" || (r.also || []).includes(c.key))).map((c) => c.label), /* what you noticed is always mentioned */ notes: r.notes || "", path, template: lead.issue?.body || "" } : null;
   const prompt = lead ? withTitle("Email draft", l.business, draftPrompt({ l, first, ...brief })) : "";
   // Issue and approach picked, no email yet: the lead waits in Email to draft (Claude can write it there or in a batch).
-  const toDraftNow = !!lead && lead.key !== "chk:maintenance" && !r.drafted && ["new", "no-contact", "vetting", "find-site", "maintenance"].includes(l.status || "new");
+  // Once the issue is picked (step 3), a lead still on a pre-board column moves to Email to draft, whether or not an email exists yet.
+  const toDraftNow = !!lead && lead.key !== "chk:maintenance" && ["new", "no-contact", "vetting", "find-site", "maintenance"].includes(l.status || "new");
   useEffect(() => {
     if (r.step !== 3 || !toDraftNow) return;
     const t = setTimeout(() => onChange({ status: "to-draft", draftBrief: brief }), 0);
