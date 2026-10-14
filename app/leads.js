@@ -963,7 +963,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     let done = 0;
     for (const it of items) {
       const l = leadsRef.current[it.lead_id]; if (!l || isFrozen(l)) continue;
-      update(l.id, { email: it.body, emailEdited: true, claudeDraft: true, emailPrevious: l.email && l.email !== it.body ? l.email : l.emailPrevious, review: { ...(l.review || {}), step: 3, drafted: new Date().toISOString() } });
+      update(l.id, { email: it.body, emailEdited: true, claudeDraft: true, emailPrevious: l.email && l.email !== it.body ? l.email : l.emailPrevious, ...(it.subject ? { subject: it.subject } : {}), review: { ...(l.review || {}), step: 3, drafted: new Date().toISOString(), ...(it.subject ? { subjectTyped: true } : {}) } });
       done++;
     }
     return `${done} email${done === 1 ? "" : "s"} added. Check each one in Email to draft, then Ready to send.`;
@@ -1065,7 +1065,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     let id = ""; try { const m = String(text).match(/"lead_id"\s*:\s*"([^"]+)"/); id = m ? m[1] : ""; } catch {}
     const l = leadsRef.current[id] || (open ? leadsRef.current[open] : null);
     if (!l) throw new Error("Couldn't tell which lead this draft is for. Open the lead, then paste again.");
-    update(l.id, { subject: d.subject || l.subject, email: d.body, emailEdited: true, emailPrevious: l.email && l.email !== d.body ? l.email : l.emailPrevious, review: { ...(l.review || {}), step: 3, drafted: new Date().toISOString() } });
+    update(l.id, { subject: d.subject || l.subject, email: d.body, emailEdited: true, emailPrevious: l.email && l.email !== d.body ? l.email : l.emailPrevious, review: { ...(l.review || {}), step: 3, drafted: new Date().toISOString(), ...(d.subject ? { subjectTyped: true } : {}) } }); // Claude's subject shows in the box like one you typed
     return `Draft added to ${l.business}.`;
   });
   async function checkLicence(l) {
@@ -1644,7 +1644,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
               {[["review", l.review?.done ? "Review ✓" : "Review steps"], ["details", "All details"]].map(([k, label]) => <button key={k} onClick={() => setView(k)} className={`flex-1 rounded-md px-2 py-1 font-medium ${view === k ? "bg-white shadow-sm" : "text-zinc-500 hover:text-zinc-900"}`}>{label}</button>)}
             </div>
           )}
-          {view === "review" && <ReviewSteps onHunter={onHunter} l={l} onNoSite={onNoSite} onChange={onChange} issues={issues} person={person} subjects={subjects} commitWebsite={commitWebsite} rejectWebsite={rejectWebsite} onNext={onNext ? (done) => onNext(l.status, done) : null} />}
+          {view === "review" && <ReviewSteps onHunter={onHunter} l={l} onNoSite={onNoSite} onChange={onChange} issues={issues} person={person} subjects={subjects} commitWebsite={commitWebsite} rejectWebsite={rejectWebsite} onNext={onNext ? (done) => onNext(l.status, done) : null} onRecheck={onRecheck} />}
           {view === "details" && <>
           {(l.whatTheyDo || l.siteDescription || l.background || l.sics?.length) && (
             <p className="text-sm text-zinc-700">
@@ -1789,7 +1789,6 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             {(() => { const link = "text-blue-700 underline-offset-2 hover:underline disabled:opacity-40"; return <>
               {l.claude && ["vetting", "new", "no-contact", "not-pursuing"].includes(l.status) && !isFrozen(l) && <button onClick={onClaude} className={link}>Check again with Claude</button>}
               
-              {l.problem && <button onClick={() => onRecheck(true)} disabled={l.checking} className={link}>Redraft email</button>}
             </>; })()}
             <span className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">
               {l.checkedAt && <span className="text-[11px] text-zinc-400">Last checked {new Date(l.checkedAt).toLocaleDateString("en-GB")}</span>}
@@ -1909,7 +1908,7 @@ function FindLeadsModal({ area, miles, exclude, onClose }) {
 }
 
 // Step by step: 1 look at the site yourself, 2 pick what to raise and how, 3 Claude drafts it from our templates.
-function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects, commitWebsite, rejectWebsite, onNext }) {
+function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects, commitWebsite, rejectWebsite, onNext, onRecheck }) {
   const r = l.review || {};
   const step = l.status === "maintenance" ? 3 : r.step || 1; // maintenance: straight to the email, even before it's saved
   const setR = (patch, extra = {}) => onChange({ review: { ...r, ...patch }, ...extra });
@@ -1953,7 +1952,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   const first = greetNames(l.contactName);
   // What the email should say: used for this lead's own prompt, and saved on the lead for the batch prompt.
   const brief = lead ? { leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => c.key !== mainKey && (c.from === "You" || (r.also || []).includes(c.key))).map((c) => c.label), /* what you noticed is always mentioned */ notes: r.notes || "", path, template: lead.issue?.body || "" } : null;
-  const prompt = lead ? withTitle("Email draft", l.business, draftPrompt({ l, first, ...brief })) : "";
+  const prompt = lead ? withTitle("Email draft", l.business, draftPrompt({ l, first, ...brief, subject: subjectOf(lead) })) : "";
   // Issue and approach picked, no email yet: the lead waits in Email to draft (Claude can write it there or in a batch).
   // Once the issue is picked (step 3), a lead still on a pre-board column moves to Email to draft, whether or not an email exists yet.
   const toDraftNow = !!lead && lead.key !== "chk:maintenance" && ["new", "no-contact", "vetting", "find-site", "maintenance"].includes(l.status || "new");
@@ -2129,10 +2128,12 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
               <AutoTextarea value={draftText} placeholder="Paste Claude’s email here" onChange={(e) => onChange({ email: e.target.value, emailEdited: true, review: { ...r, drafted: r.drafted || new Date().toISOString() } })} onPaste={(e) => { const t = e.clipboardData.getData("text"); if (!t || draftText.trim()) return; e.preventDefault(); const c = cleanPastedEmail(t); onChange({ email: c.body, emailEdited: true, ...(c.subject && !r.subjectTyped ? { subject: c.subject } : {}), review: { ...r, drafted: new Date().toISOString() } }); }} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
               <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{addedBelow(l.email)}</pre>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            {/* Stays in view at the bottom of the window while the email is checked. */}
+            <div className="sticky bottom-0 -mx-5 -mb-4 flex flex-wrap items-center gap-2 border-t border-zinc-200 bg-white px-5 py-3">
               <button onClick={() => setR({ step: 2 })} className="text-xs text-zinc-500 hover:text-zinc-900">← Back</button>
               <span className="ml-auto" />
-              <button onClick={() => { setR({ done: true, doneAt: new Date().toISOString() }, { status: "not-pursuing", likelihoodWhy: "Reviewed by hand: not worth it" }); onNext?.(true); }} className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Not worth it</button>
+              {l.problem && onRecheck && <button onClick={() => onRecheck(true)} disabled={l.checking} title="Rewrite the email from our template for this issue" className="rounded-md bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 disabled:opacity-40">Redraft email</button>}
+              <button onClick={() => { setR({ done: true, doneAt: new Date().toISOString() }, { status: "not-pursuing", likelihoodWhy: "Reviewed by hand: not worth it" }); onNext?.(true); }} className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Not pursuing</button>
               {onNext && <button onClick={() => onNext(false)} className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Skip for now →</button>}
               <button onClick={() => finishReady()} disabled={!l.emailAddress || !draftText.trim()} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Ready to send ✓{onNext ? " · next" : ""}</button>
             </div>
@@ -2262,7 +2263,7 @@ function allPrompt(p) {
   const parts = [];
   if (p.vet.length) parts.push(["vet", "Vet these leads", leadCheckPrompt(p.vet.map(vetItem), { vet: true })]);
   if (p.check.length) parts.push(["check", "Check these leads for the issue to raise", leadCheckPrompt(p.check.map(vetItem))]);
-  if (p.draft.length) parts.push(["emails", "Write these emails", draftBatchPrompt(p.draft.map((l) => ({ l, first: greetNames(l.contactName), ...briefOf(l) })))]);
+  if (p.draft.length) parts.push(["emails", "Write these emails", draftBatchPrompt(p.draft.map((l) => ({ l, first: greetNames(l.contactName), ...briefOf(l), subject: l.subject || "" })))]);
   if (p.rank.length) parts.push(["rankings", "Check these Google rankings", rankCheckPrompt(p.rank.map((l) => ({ id: l.id, business: l.business, companyNumber: l.companyNumber, address: l.address || l.area || "", website: l.website, what: l.tradeOverride || l.whatTheyDo || l.trade || "", town: l.searchTown || (l.tradesElsewhere ? "" : l.tradingTown) || "" })))]);
   if (!parts.length) return "";
   return `There are ${parts.length} separate tasks below for ICL Digital. Do every one of them, in full, for every lead listed.
@@ -2355,7 +2356,7 @@ function DraftBatchModal({ leads, preset, onClose }) {
   const waitingFor = (done = []) => { const w = sentIds("draft-batch"); return pool.filter((l) => !l.review?.drafted && !done.includes(l.id) && !w.has(l.id)); };
   const [picked, setPicked] = useState(() => (preset.length ? preset : waitingFor().map((l) => l.id)));
   const [copied, setCopied] = useState(false);
-  const items = picked.map((id) => leads.find((l) => l.id === id)).filter(Boolean).map((l) => ({ l, first: greetNames(l.contactName), ...briefOf(l) }));
+  const items = picked.map((id) => leads.find((l) => l.id === id)).filter(Boolean).map((l) => ({ l, first: greetNames(l.contactName), ...briefOf(l), subject: l.subject || "" }));
   const prompt = items.length ? withTitle("Email drafts", `${items.length} lead${items.length === 1 ? "" : "s"}`, draftBatchPrompt(items)) : "";
   const nextBatch = (n, done = []) => { setSize(n); setPicked(waitingFor(done).slice(0, n === "all" ? undefined : n).map((l) => l.id)); };
   async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("draft-batch", picked); if (size !== "all") nextBatch(size, picked); }
