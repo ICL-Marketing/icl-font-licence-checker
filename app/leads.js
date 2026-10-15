@@ -365,6 +365,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const [id, l] of Object.entries(j.results || {})) { const m = mergeDoc(next[id], l); if (next[id] && JSON.stringify(m) !== JSON.stringify(l)) pushBack.push(id); next[id] = m; }
         setTimeout(() => { for (const id of pushBack) if (leadsRef.current[id]) push(id, leadsRef.current[id]); }, 500);
         for (const l of Object.values(next)) if (handledByYou(l)) yoursShared[l.id] = l.status;
+        // "Contact not verified" outlived the problem it described: an address has since been
+        // found for these, by you or by a finder, and nothing was clearing the flag.
+        for (const l of Object.values(next)) if (l.contactUnverified && l.emailAddress) { l.contactUnverified = false; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         // The Web maintenance column is gone: those leads are ordinary leads with a tag.
         for (const l of Object.values(next)) if (l.status === "maintenance") { l.maintenance = true; l.status = "new"; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
         // Three findings per site is a different question from the one these leads were checked
@@ -1478,7 +1481,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                   {l.review?.step > 2 && !l.review?.done && ["new", "no-contact"].includes(c.id) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="Review in progress">Step 2/2</span>}
                   {l.maintenance && <span className="rounded-full bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-800" title="Nothing wrong with their site: the pitch is looking after it for less than they pay now">Maintenance</span>}
                   {cantFind(l) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="No website anywhere, so nothing to pitch">Can’t find them</span>}
-                  {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
+                  {l.contactUnverified && !l.emailAddress && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
                   {l.noWebsiteConfirmed && !l.website && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title={l.problemDetail}>No site ✓</span>}
                   {l.websiteNeeded && !l.website && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="Claude couldn't find their real website. Open the lead to paste it in, or confirm they have none.">Find website</span>}
                   {l.claude && !l.websiteNeeded && !l.claude.worth_contacting && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800" title={l.claude.reason}>Not worth it</span>}
@@ -1834,7 +1837,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
               <span className="font-semibold">{l.likelihood} likelihood</span>{l.likelihoodWhy ? <span>: {l.likelihoodWhy}</span> : null}
             </div>
           )}
-          {l.contactUnverified && l.status !== "not-pursuing" && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"><span className="font-semibold">Contact not verified.</span> No email address was found on their site or at Companies House. Add a verified address below, or pick a person with one, and it moves back to To assess.</div>}
+          {l.contactUnverified && !l.emailAddress && l.status !== "not-pursuing" && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"><span className="font-semibold">Contact not verified.</span> No email address was found on their site or at Companies House. Add a verified address below, or pick a person with one, and it moves back to To assess.</div>}
           <div className="grid grid-cols-3 gap-3">
             <Field label={`Company worth${l.accountsDate ? ` · year to ${accountsYear(l.accountsDate)}` : ""}`} title="Net assets in the latest accounts: what the company owns minus what it owes">{money(l.netAssets)}{accountsNote(l)}</Field>
             <Field label="Profit kept last year" title="Change in retained earnings: the profit the company kept after paying any dividends">{signed(l.reChange)}</Field>
