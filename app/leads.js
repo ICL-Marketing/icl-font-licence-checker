@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, to100, businessLabel, subjectForText, draftBatchPrompt, parseDraftBatch, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck, footerOnly } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, to100, businessLabel, subjectForText, draftBatchPrompt, parseDraftBatch, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, sortFindings, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck, footerOnly } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 import { mergeDoc } from "@/lib/merge";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, unmarkSent, sentIds, PasteHint, reportProgress, withTitle } from "@/app/claudeInbox";
@@ -136,6 +136,9 @@ const addedBelow = (body) => { const b = String(body || "").trimEnd(); return wi
 // Vetting: before a lead reaches the board its website is verified (or confirmed missing), a contact is found and its Google ranking is checked.
 // Bumped to have Claude write every maintenance email again from scratch.
 const MAINT_RESET = 1;
+// Bumped to have Claude check every unsent lead again and find three things on the site.
+// Ready to send is never touched: those have been checked by hand and are good to go.
+const FINDINGS_RESET = 1;
 const MAINT_PITCH = "Website maintenance: look at their site first, then offer to look after it from £49 a month, likely cheaper than they pay now. There is nothing wrong with the site, so do not invent a fault: say what is good about it and offer to keep it that way.";
 const PRE_BOARD = ["new", "qualified", "no-contact", "find-site", "maintenance", "vetting", "to-draft"];
 const vetChecks = (l) => ({
@@ -195,7 +198,7 @@ function rankFields(l, query, v) {
   const position = { top: 1, top3: 2, page1: 5, none: null }[v];
   const poor = position === null || position > 3;
   const f = { seo: { manual: true, engine: "Checked by you on Google", checkedAt: new Date().toISOString(), searches: [{ kind: "trade", query, position, manual: true }] } };
-  if (poor && !l.problem) { f.problem = "Low search visibility"; f.problemDetail = `${position ? `#${position}` : "Not on page 1"} for “${query}”`; }
+  if (poor && !l.problem) { f.problem = "Low search visibility"; f.problemDetail = `Not near the top for “${query}”`; }
   else if (!poor && l.problem === "Low search visibility") { f.problem = ""; f.problemDetail = ""; }
   return f;
 }
@@ -363,6 +366,16 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const l of Object.values(next)) if (handledByYou(l)) yoursShared[l.id] = l.status;
         // The Web maintenance column is gone: those leads are ordinary leads with a tag.
         for (const l of Object.values(next)) if (l.status === "maintenance") { l.maintenance = true; l.status = l.emailAddress ? "to-draft" : "no-contact"; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        // Three findings per site is a different question from the one these leads were checked
+        // with, so everything still waiting goes back for a fresh look. The old email is kept
+        // on the lead as emailPrevious in case something written by hand needs recovering.
+        for (const l of Object.values(next)) if (["new", "to-draft"].includes(l.status) && l.findingsReset !== FINDINGS_RESET && !isFrozen(l) && !l.optedOut) {
+          l.findingsReset = FINDINGS_RESET;
+          if (l.email) l.emailPrevious = l.email;
+          l.claude = null; l.claudeFields = []; l.findings = null; l.email = ""; l.pitch = ""; l.emailEdited = false; l.draftBrief = null; l.issueId = "";
+          l.review = { ...(l.review || {}), step: 1, lead: "", also: [], dropped: [], drafted: "", done: false };
+          l.status = "new"; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l);
+        }
         // Their emails were the app's old template, pasted in without anyone looking at the site.
         // Clear them once so Claude looks again and writes the support pitch properly.
         for (const l of Object.values(next)) if (l.maintenance && !l.emailEdited && l.maintReset !== MAINT_RESET && !isFrozen(l) && !["won", "lost", "contacted", "replied", "meeting", "ready"].includes(l.status)) {
@@ -941,6 +954,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       if (it.business_type) f.businessType = it.business_type;
       if (it.what_they_do) { f.whatTheyDo = it.what_they_do; filled.push("whatTheyDo"); if (!l.tradeOverride) f.tradeOverride = it.what_they_do.toLowerCase().replace(/[^a-z0-9 &'-]/g, "").trim().split(/\s+/).slice(0, 4).join(" "); }
       if (it.location && !/^(national|online|uk|nationwide)$/i.test(it.location.trim())) { f.tradingTown = it.location; f.tradesElsewhere = false; filled.push("tradingTown"); }
+      if (Array.isArray(it.findings) && it.findings.length) { f.findings = it.findings; filled.push("findings"); }
       if (it.issue_note && l.problem) { f.problemDetail = it.issue_note; filled.push("problemDetail"); }
       if (it.likelihood) { f.likelihood = it.likelihood; filled.push("likelihood"); }
       if (it.likelihood_reason || it.reason) { f.likelihoodWhy = it.likelihood_reason || it.reason; filled.push("likelihoodWhy"); }
@@ -956,11 +970,14 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         else if (l.status === "vetting") { /* the vetting checks decide when it reaches the board */ }
         else if (email) {
           f.status = "new"; f.contactUnverified = false; if (l.status !== "new") moved.back++;
-          // A real issue found and nothing picked by you yet: straight to Email to draft with Claude's issue as the main one.
-          const issue = it.issue_label || it.angle;
-          if ((l.status || "new") === "new" && issue && l.website && !l.review?.lead && it.issue_confirmed !== false) {
+          // Claude found things on the site and you have picked nothing yet: straight to Email to
+          // draft, leading with the best one. High is a quick "did you know", Low is a bigger
+          // recommendation, so the highest grade is the friendliest way in.
+          const found = sortFindings(it.findings);
+          const issue = found[0] ? found[0].label : it.issue_label || it.angle;
+          if ((l.status || "new") === "new" && issue && l.website && !l.review?.lead && (found.length || it.issue_confirmed !== false)) {
             f.status = "to-draft"; moved.draft = (moved.draft || 0) + 1;
-            f.draftBrief = { leadWith: issue, also: [], notes: it.issue_note || "", path: suggestPath(issue, l), template: "" };
+            f.draftBrief = { leadWith: found[0] ? `${found[0].label}: ${found[0].note}` : issue, also: found.slice(1).map((x) => `${x.label}: ${x.note}`), notes: found.length ? "" : it.issue_note || "", path: suggestPath(issue, l), template: "" };
             f.review = { ...(l.review || {}), lead: "claude", step: 3, siteChecked: true, ...(f.email ? { drafted: new Date().toISOString() } : {}) };
             if (it.issue_subject) f.subject = it.issue_subject;
           }
@@ -1081,7 +1098,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       const w = it.weakest;
       const f = { ...(it.business_type && !l.businessType ? { businessType: it.business_type } : {}), seo: { manual: false, engine: "Checked by Claude", checkedAt: at, claudeAt: at, local: it.local, services: it.services, searches: [{ kind: "trade", query: w.query, position: w.position }, ...it.searches.filter((x) => x.query !== w.query).map((x) => ({ kind: "extra", ...x }))] } };
       const poor = w.position === null || w.position > 3;
-      if (poor) { weak++; if (!l.problem || l.problem === "Low search visibility") { f.problem = "Low search visibility"; f.problemDetail = `${w.position ? `#${w.position}` : "Not on page 1"} for “${w.query}”`; if (l.status === "maintenance" && !handledByYou(l)) f.status = l.emailAddress ? "new" : "no-contact"; } }
+      if (poor) { weak++; if (!l.problem || l.problem === "Low search visibility") { f.problem = "Low search visibility"; f.problemDetail = `Not near the top for “${w.query}”`; if (l.maintenance && !handledByYou(l)) f.status = l.emailAddress ? "new" : "no-contact"; } }
       else { strong++; if (l.problem === "Low search visibility") { f.problem = ""; f.problemDetail = ""; } }
       update(l.id, f); done++;
     }
@@ -2079,10 +2096,13 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   // Sentence case, so a checklist line and something you typed read the same way.
   const sentence = (t) => { const x = String(t || "").trim(); return x ? x[0].toUpperCase() + x.slice(1) : x; };
   // Ticked means it goes in the email. The starred one leads, so it is always in.
-  const included = (c, main) => c.key === main || (c.key.startsWith("you:") ? (r.seen || []).includes(c.key.slice(4)) : c.key.startsWith("own:") || c.key === "note" ? true : (r.also || []).includes(c.key));
+  const included = (c, main) => c.key === main || (c.key.startsWith("you:") ? (r.seen || []).includes(c.key.slice(4)) : c.key.startsWith("own:") || c.key === "note" || c.key.startsWith("find:") ? !(r.also || []).includes(`-${c.key}`) : (r.also || []).includes(c.key));
   const cands = [
     ...issues.map((i) => ({ key: `chk:${i.id}`, label: i.label, from: "Checker", issue: i })),
-    ...(l.claude && (l.claude.angle || l.claude.issue_note) ? [{ key: "claude", label: oneLine(l.claude.angle || l.claude.issue_note), from: "Claude" }] : []),
+    // Claude's three findings, best first. High is a quick fix worth flagging, Low is a bigger
+    // recommendation, so the list reads in the order the email should make its case.
+    ...sortFindings(l.claude?.findings).map((x, i) => ({ key: `find:${i}`, label: `${x.label}: ${x.note}`, grade: x.grade, from: "Claude" })),
+    ...(!(l.claude?.findings || []).length && l.claude && (l.claude.angle || l.claude.issue_note) ? [{ key: "claude", label: oneLine(l.claude.angle || l.claude.issue_note), from: "Claude" }] : []),
     // What you wrote in step 1 is an issue you can lead with too.
     ...(String(r.notes || "").trim() ? [{ key: "note", label: String(r.notes).trim().replace(/\s+/g, " "), from: "You" }] : []),
     ...(l.website ? SEEN_ON_SITE : []).map((x) => ({ key: `you:${x}`, label: x, from: "You", standard: true })),
@@ -2179,7 +2199,9 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
               // The searches Claude ran for this lead (worst first), each opening in Google UK so you can see it yourself.
               const searches = (l.seo?.searches || []).filter((x) => x.query);
               const g = (q) => `https://www.google.co.uk/search?q=${encodeURIComponent(q)}&gl=uk&pws=0`;
-              const pos = (x) => (x.position === 1 ? "came top" : x.position && x.position <= 3 ? `#${x.position}, top 3` : x.position ? `#${x.position}` : "not on page 1");
+              // What you see on the lead. The email only ever says "near the top" or not,
+              // because an exact place is the part that turns out to be wrong.
+              const pos = (x) => (x.top || x.position === 1 ? "near the top" : x.position && x.position <= 3 ? "near the top" : "not near the top");
               if (!searches.length) return <p className="rounded-md bg-zinc-50 px-2 py-1.5 text-xs text-zinc-500">No Google check yet: Claude runs it when the lead is vetted (or Claude → Search rankings).</p>;
               return (
                 <div className="rounded-md bg-zinc-50 px-2 py-1.5 text-xs text-zinc-600">
@@ -2227,6 +2249,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
                     <span className="min-w-0 flex-1">{sentence(c.label)}{mainKey === c.key && <span className="ml-2 rounded-full bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">Leads with this</span>}</span>
                   </button>
                   {(() => { const q = searchIn(c.label); return q && <a href={googleUk(q)} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} title={`Check “${q}” on Google yourself (UK, not personalised)`} className="shrink-0 text-blue-700 hover:text-blue-900"><ExternalIcon /></a>; })()}
+                  {c.grade && <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${c.grade === "High" ? "bg-emerald-100 text-emerald-800" : c.grade === "Medium" ? "bg-amber-100 text-amber-800" : "bg-zinc-200 text-zinc-700"}`} title={c.grade === "High" ? "A quick fix: the kind of thing you'd want someone to tell you about" : c.grade === "Medium" ? "Worth checking, it could cost them" : "A bigger recommendation, a piece of work rather than a fix"}>{c.grade}</span>}
                   <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${FROM[c.from]}`}>{c.from}</span>
                   {/* A checker or Claude point that is not actually true, or something of your
                       own you have thought better of. The standard checklist lines are just
@@ -2245,6 +2268,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
                   <input type="checkbox" checked={included(c, mainKey)} disabled={mainKey === c.key} onChange={(e) => {
                     const on = e.target.checked;
                     if (c.key.startsWith("you:")) { const x = c.key.slice(4); setR({ seen: on ? [...new Set([...(r.seen || []), x])] : (r.seen || []).filter((y) => y !== x) }); return; }
+                    if (c.key.startsWith("find:")) { setR({ also: on ? (r.also || []).filter((x) => x !== `-${c.key}`) : [...new Set([...(r.also || []), `-${c.key}`])] }); return; }
                     if (c.key === "note" || c.key.startsWith("own:")) { if (!on) { const own = c.key.startsWith("own:") ? (r.own || []).filter((x) => `own:${x}` !== c.key) : r.own; setR({ own, ...(c.key === "note" ? { notes: "" } : {}) }); } return; }
                     setR({ also: on ? [...new Set([...(r.also || []), c.key])] : (r.also || []).filter((x) => x !== c.key) });
                   }} title={mainKey === c.key ? "The one it leads with is always in" : "Tick to have the email mention this"} aria-label="Include this in the email" className="h-3.5 w-3.5 shrink-0" />
