@@ -33,7 +33,7 @@ export async function POST(request) {
       const l = b.lead || {};
       if (!l.companyNumber && !l.website) return Response.json({ error: "Needs a company number or a website." }, { status: 400 });
       if (l.companyNumber && !leadsConfigured()) return Response.json({ error: "Companies House is not set up (Settings → Connections), so only the website can be searched." }, { status: 400 });
-      const ct = await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business, employees: l.employees, websiteVerified: websiteIsVerified(l) || !!l.websiteConfirmed, useFinders: !!(b.useFinders ?? b.useHunter), forceFinders: !!(b.forceFinders ?? b.forceHunter), rejectedSites: l.rejectedSites || [] });
+      const ct = await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business, employees: l.employees, websiteVerified: websiteIsVerified(l) || !!l.websiteConfirmed, useFinders: !!(b.useFinders ?? b.useHunter), forceFinders: !!(b.forceFinders ?? b.forceHunter), wantMobile: b.wantMobile !== false, rejectedSites: l.rejectedSites || [] });
       const patch = { postcode: l.postcode, area: l.area, caveats: l.caveats || "" };
       applyTradingAddress(patch, ct.tradingAddress, null);
       return Response.json({ ...ct, tradingPostcode: patch.tradingPostcode || "", tradingAddressText: patch.tradingAddress || "", tradesElsewhere: !!patch.tradesElsewhere, caveats: patch.caveats });
@@ -105,6 +105,8 @@ export async function POST(request) {
       const lead = { ...b.lead };
       if (!lead.problem) return Response.json({ error: "Nothing to pitch: the site is marked as current." }, { status: 400 });
       const d = draftOutreach({ ...lead, links }, b.person || null);
+      // The pick has no template: the email stays as it is and Claude writes the new one.
+      if (d.needsClaude) return Response.json({ needsClaude: true, lead: { ...lead, draftVersion: d.draftVersion } });
       return Response.json({ lead: { ...lead, subject: d.subject, pitch: d.pitch, email: d.email, issueId: d.issueId, draftVersion: d.draftVersion } });
     }
     if (b.step === "verify-site") {

@@ -350,6 +350,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const [id, l] of Object.entries(j.results || {})) { const m = mergeDoc(next[id], l); if (next[id] && JSON.stringify(m) !== JSON.stringify(l)) pushBack.push(id); next[id] = m; }
         setTimeout(() => { for (const id of pushBack) if (leadsRef.current[id]) push(id, leadsRef.current[id]); }, 500);
         for (const l of Object.values(next)) if (handledByYou(l)) yoursShared[l.id] = l.status;
+        // "Looking…" is passing state, not something to keep: a run cut short by a reload or a
+        // closed tab would otherwise leave the buttons disabled for good.
+        for (const l of Object.values(next)) if (l.checking) l.checking = false;
         for (const l of Object.values(next)) if (l.email && !l.email.includes("\n\n")) l.email = l.email.trim().replace(/\n+/g, "\n\n");
         for (const l of Object.values(next)) if (/dormant/i.test(l.caveats || "") && (l.likelihood !== "Low" || !/dormant/i.test(l.likelihoodWhy || ""))) { l.likelihood = "Low"; l.likelihoodWhy = "Filed as dormant at Companies House, so not trading through this company; nothing to sell to"; if (["new", "qualified", "no-contact"].includes(l.status)) l.status = "not-pursuing"; l.updatedAt = new Date().toISOString(); push(l.id, l); }
         // Nothing to pitch on the site (or parked as "site is current" earlier): a maintenance pitch instead of parking.
@@ -724,19 +727,27 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   }
 
   // Explicit: spend finder credits on this lead now, whatever the free routes found.
-  async function hunterLookup(l) {
+  async function hunterLookup(l, opts) {
+    const wantMobile = opts?.mobile !== false;
     update(l.id, { checking: true, error: "" });
     try {
-      const r = await post({ step: "contacts", lead: l, useFinders: true, forceFinders: true });
+      const r = await post({ step: "contacts", lead: l, useFinders: true, forceFinders: true, wantMobile });
       const best = r.people.find((p) => p.email) || null;
-      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), ...(r.hunterOnFile !== undefined && r.hunterOnFile !== null ? { hunterOnFile: r.hunterOnFile } : {}), contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: !!r.hunterUsed, ...(r.hunterUsed ? {} : { hunterOnFile: 0 }), checking: false, ...(r.mobile ? { mobile: r.mobile } : {}), error: r.hunterNote || (best || r.mobile || r.hunterDomain ? "" : l.website ? "No finder had anything for this domain." : "No finder recognised the company name.") };
+      const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), ...(r.hunterOnFile !== undefined && r.hunterOnFile !== null ? { hunterOnFile: r.hunterOnFile } : {}), contactsTried: true, contactsStamp: contactsStamp(cfg), hunterTried: !!r.hunterUsed, ...(r.hunterUsed ? {} : { hunterOnFile: 0 }), checking: false, ...(r.mobile ? { mobile: r.mobile } : {}) };
       if (r.hunterUsed) f.hunterDomain = r.hunterDomain || String(l.website || "").replace(/^https?:\/\//i, "").replace(/^www\./, "").replace(/\/.*$/, "");
       if (!l.website && r.hunterDomain) { f.website = r.hunterDomain; f.websiteConfirmed = false; f.websiteVerified = ""; f.websiteEvidence = "a contact finder's company lookup"; f.caveats = [l.caveats, `Website ${r.hunterDomain} came from a contact finder's company lookup; double-check it is theirs`].filter(Boolean).join("; "); }
       if (!best && !r.mobile && !l.emailAddress && !r.hunterDomain && !handledByYou(l) && ["no-contact", "new", "qualified"].includes(l.status)) { f.status = "not-pursuing"; f.contactUnverified = true; }
       // Say what happened on the card: a mobile is the prize, then a named person.
       const generic = r.channels.find((c) => c.kind === "email");
       const withMobile = r.people.find((p) => p.mobile) || null;
-      f.hunterNote = withMobile ? `Mobile for ${withMobile.name}${withMobile.mobileFrom ? ` from ${withMobile.mobileFrom}` : ""}` : best ? `Found ${best.name}${best.role ? `, ${best.role}` : ""}` : generic ? `No named person; used the general inbox` : r.hunterNote || "No finder had anything for this company";
+      // Where it was found is worth a line. Where it was not found is noise: the finders are
+      // asked one at a time and the first with an answer wins, so the rest were only ever
+      // asked because the ones before had nothing. The full trail stays on hover.
+      const lastSource = (p) => String(p?.source || "").split(" + ").pop();
+      f.finderFound = !!(withMobile || best || generic || r.mobile);
+      f.finderTrail = r.finderTrail || [];
+      f.hunterNote = withMobile && wantMobile ? `Mobile for ${withMobile.name} found with ${withMobile.mobileFrom || lastSource(withMobile)}` : best ? `${best.name}’s address found with ${lastSource(best)}` : generic ? "No named person, so their general inbox" : "";
+      f.error = f.finderFound ? "" : wantMobile ? "No finder had a number for this one." : "No finder had an address for this one.";
       if (!best && generic && !l.emailAddress) { f.emailAddress = generic.value; f.emailFrom = generic.label || "General inbox from their site"; f.contactUnverified = false; }
       if (best && !l.emailAddress) { f.emailAddress = best.email; f.contactName = l.contactName || best.name.replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s/, "").split(" ")[0]; if (["no-contact", "not-pursuing"].includes(l.status) && l.contactUnverified) { f.status = "new"; f.contactUnverified = false; } }
       update(l.id, f);
@@ -1134,7 +1145,13 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   async function recheck(l, redraft = false) {
     update(l.id, { checking: true, error: "" });
     const person = redraft ? ((l.contacts || []).find((p) => p.email && p.email === l.emailAddress) || null) : null;
-    try { const { lead } = await post({ step: redraft ? "redraft" : "recheck", lead: { ...l, emailEdited: false }, person }); update(l.id, { ...lead, emailEdited: false, emailPrevious: l.email && l.email !== lead.email ? l.email : l.emailPrevious, checking: false, error: "" }); }
+    try {
+      const j = await post({ step: redraft ? "redraft" : "recheck", lead: { ...l, emailEdited: false }, person });
+      const lead = j.lead;
+      // Your pick is one only Claude can word: back into Email to draft rather than a template.
+      if (j.needsClaude) { update(l.id, { ...lead, status: "to-draft", review: { ...(l.review || {}), drafted: "" }, checking: false, error: "" }); return; }
+      update(l.id, { ...lead, emailEdited: false, emailPrevious: l.email && l.email !== lead.email ? l.email : l.emailPrevious, checking: false, error: "" });
+    }
     catch (e) { update(l.id, { checking: false, error: e.message }); }
   }
 
@@ -1337,7 +1354,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       <Board onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} hideCols={showParked || filtering ? ["vetting"] : ["vetting", "not-pursuing", "lost"]} leads={onBoard} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status, statusBy: "you" }); }} />}
 
-      {current && <LeadDrawer key={current.id} onNoSite={async (extra = {}) => { if (await tryObviousDomain(current.id)) return false; update(current.id, { websiteNeeded: false, noWebsiteConfirmed: true, problem: "No website", problemDetail: "Checked by hand: they have no website", ...extra }); return true; }} onFindSite={() => openClaude({ job: "find-sites", preset: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => { unmarkSent([current.id]); openClaude({ job: "lead-check", preset: [current.id], column: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new" }); }} l={current} followUp={followUp} hunterOn={!!cfg?.finders?.connected} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, YOUR_EDITS.some((k) => k in f) ? { ...f, youEditedAt: new Date().toISOString() } : f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={() => hunterLookup(current)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
+      {current && <LeadDrawer key={current.id} onNoSite={async (extra = {}) => { if (await tryObviousDomain(current.id)) return false; update(current.id, { websiteNeeded: false, noWebsiteConfirmed: true, problem: "No website", problemDetail: "Checked by hand: they have no website", ...extra }); return true; }} onFindSite={() => openClaude({ job: "find-sites", preset: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => { unmarkSent([current.id]); openClaude({ job: "lead-check", preset: [current.id], column: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new" }); }} l={current} followUp={followUp} hunterOn={!!cfg?.finders?.connected} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, YOUR_EDITS.some((k) => k in f) ? { ...f, youEditedAt: new Date().toISOString() } : f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={(opts) => hunterLookup(current, opts)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
   );
 }
@@ -1433,7 +1450,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
                   {l.noWebsiteConfirmed && !l.website && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title={l.problemDetail}>No site ✓</span>}
                   {l.websiteNeeded && !l.website && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="Claude couldn't find their real website. Open the lead to paste it in, or confirm they have none.">Find website</span>}
-                  {l.claude && !l.websiteNeeded && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${l.claude.worth_contacting ? "bg-orange-100 text-orange-800" : "bg-red-100 text-red-800"}`} title={l.claude.reason}>{l.claude.worth_contacting ? "AI checked ✓" : "Not worth it"}</span>}
+                  {l.claude && !l.websiteNeeded && !l.claude.worth_contacting && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800" title={l.claude.reason}>Not worth it</span>}
                   {l.optedOut && <span className="rounded-full bg-red-600 px-1.5 py-0.5 font-semibold text-white" title={`Asked not to be contacted${l.optedOutAt ? ` on ${new Date(l.optedOutAt).toLocaleDateString("en-GB")}` : ""}`}>Opted out</span>}
                   {l.tradesElsewhere && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800" title={`Website address: ${l.tradingAddress}`}>Trades elsewhere</span>}
                   {siteDoubt(l) && websiteIsVerified(l) && !isFrozen(l) && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800" title={l.websiteDoubt}>Check website</span>}
@@ -1888,7 +1905,8 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             return null;
           })()}
           {l.checking && <span className="inline-flex items-center gap-1 text-blue-700"><SpinnerIcon className="h-3.5 w-3.5" /> Working…</span>}
-          {l.error && <span className="text-red-700">{l.error}</span>}
+          {!l.checking && l.finderFound && l.hunterNote && <span className="font-medium text-green-700" title={(l.finderTrail || []).join(" · ")}>✓ {l.hunterNote}</span>}
+          {l.error && <span className="text-red-700" title={(l.finderTrail || []).join(" · ")}>{l.error}</span>}
           {!isFrozen(l) && l.status !== "not-pursuing" && !(view === "review" && l.review?.step === 3 && !l.review?.done) && <button onClick={() => { onChange({ status: "not-pursuing", statusBy: "you", likelihoodWhy: "Reviewed by hand: not worth it" }); onClose(); }} title="Moves it to Not pursuing and closes it (nothing in that list is ever contacted)" className="rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100">Not pursuing</button>}
           <div ref={setFooterEl} className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2" />
           {/* Everything else, as plain links (no menu to open). */}
@@ -2036,17 +2054,24 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   // A site you pasted or confirmed (or Claude confirmed) is theirs: no need to ask again.
   const siteOk = !!r.siteChecked || (!!l.website && humanConfirmed(l)) || (!l.website && !!l.noWebsiteConfirmed);
   const google = `https://www.google.com/search?q=${encodeURIComponent(`${String(l.business || "").replace(/\s+(ltd|limited)\.?$/i, "")} ${l.tradingTown || l.area || ""}`)}`;
+  const dropped = r.dropped || [];
+  // Sentence case, so a checklist line and something you typed read the same way.
+  const sentence = (t) => { const x = String(t || "").trim(); return x ? x[0].toUpperCase() + x.slice(1) : x; };
   const cands = [
     ...issues.map((i) => ({ key: `chk:${i.id}`, label: i.label, from: "Checker", issue: i })),
     ...(l.claude && (l.claude.angle || l.claude.issue_note) ? [{ key: "claude", label: oneLine(l.claude.angle || l.claude.issue_note), from: "Claude" }] : []),
     // What you wrote in step 1 is an issue you can lead with too.
     ...(String(r.notes || "").trim() ? [{ key: "note", label: String(r.notes).trim().replace(/\s+/g, " "), from: "You" }] : []),
-    ...(r.seen || []).map((x) => ({ key: `you:${x}`, label: x, from: "You" })),
+    ...(l.website ? SEEN_ON_SITE : []).map((x) => ({ key: `you:${x}`, label: x, from: "You", standard: true })),
     ...(r.own || []).map((x) => ({ key: `own:${x}`, label: x, from: "You" })),
-  ];
+  ].filter((c) => !dropped.includes(c.key));
+  // In the email first, the rest of the checklist below it.
+  cands.sort((a, b) => (included(b, r.lead) ? 1 : 0) - (included(a, r.lead) ? 1 : 0));
+  // Ticked means it goes in the email. The starred one leads, so it is always in.
+  const included = (c, main) => c.key === main || (c.key.startsWith("you:") ? (r.seen || []).includes(c.key.slice(4)) : c.key.startsWith("own:") || c.key === "note" ? true : (r.also || []).includes(c.key));
   // Claude's issue is preselected as the main one; tap another to change it.
   // A lead that was once in Web maintenance keeps that pick in its review; once it is back on the board the real issues take over.
-  const mainKey = r.lead && (maint || r.lead !== "chk:maintenance") && cands.some((c) => c.key === r.lead) ? r.lead : (cands.find((c) => c.key === "claude") || cands[0])?.key;
+  const mainKey = r.lead && (maint || r.lead !== "chk:maintenance") && cands.some((c) => c.key === r.lead) ? r.lead : (cands.find((c) => c.key === "claude") || cands.find((c) => !c.standard))?.key;
   const lead = cands.find((c) => c.key === mainKey) || (maint ? cands.find((c) => c.key === "chk:maintenance") || { key: "chk:maintenance", label: "Website maintenance", from: "Checker" } : null);
   // The main issue decides the subject line (Settings → Emails holds the wording for each issue).
   const subjectOf = (c) => {
@@ -2059,7 +2084,9 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   const path = (r.path && (maint || r.path !== "maintenance") ? r.path : "") || suggestPath(lead?.issue?.id || lead?.label || "", l);
   const first = greetNames(l.contactName);
   // What the email should say: used for this lead's own prompt, and saved on the lead for the batch prompt.
-  const brief = lead ? { leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => c.key !== mainKey && (c.from === "You" || (r.also || []).includes(c.key))).map((c) => c.label), /* what you noticed is always mentioned */ notes: r.notes || "", path, template: lead.issue?.body || "" } : null;
+  const staleYear = l.year && l.year <= new Date().getFullYear() - 3 ? l.year : 0;
+  const droppedLabels = dropped.map((k) => (issues.find((i) => `chk:${i.id}` === k) || {}).label || (k === "claude" ? oneLine(l.claude?.angle || l.claude?.issue_note || "Claude's point") : k.replace(/^(you|own|chk):/, ""))).filter(Boolean);
+  const brief = lead ? { dropped: droppedLabels, footerYear: staleYear, leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => c.key !== mainKey && included(c, mainKey)).map((c) => sentence(c.label)), /* what you noticed is always mentioned */ notes: r.notes || "", path, template: lead.issue?.body || "" } : null;
   const prompt = lead ? withTitle("Email draft", l.business, draftPrompt({ l, first, ...brief, subject: subjectOf(lead) })) : "";
   // Changing the main issue or the approach rewrites the email. A draft that argues a point you
   // have just dropped is worse than no draft at all. An email you have edited by hand is never
@@ -2112,7 +2139,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
         {head(1, "Check their site and pick what to raise", siteOk && !!lead && step > 2)}
         {step > 2 && lead && (() => {
           // Quick look at what step 1 settled on, without opening it: the main issue, then the ones also mentioned.
-          const extra = cands.filter((c) => c.key !== mainKey && (c.from === "You" || (r.also || []).includes(c.key)));
+          const extra = cands.filter((c) => c.key !== mainKey && included(c, mainKey));
           return (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-7 text-xs">
               <span className="rounded-full bg-zinc-900 px-2 py-0.5 font-medium text-white" title="The main issue">{lead.label}</span>
@@ -2159,14 +2186,6 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
                 <button onClick={async () => { if (await onNoSite({ review: { ...r, siteChecked: true } })) return; }} className={`rounded-md border px-2.5 py-1 text-xs font-medium ${r.siteChecked ? "border-emerald-600 bg-emerald-600 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{r.siteChecked ? "✓ They have no website" : "They have no website"}</button>
               </div>
             )}
-            {l.website && (
-              <div>
-                <div className="text-xs text-zinc-500">What did you notice? (tap all that apply)</div>
-                <div className="mt-1 flex flex-wrap gap-1.5">
-                  {SEEN_ON_SITE.map((x) => { const on = (r.seen || []).includes(x); return <button key={x} onClick={() => setR({ seen: on ? r.seen.filter((y) => y !== x) : [...(r.seen || []), x] })} className={`rounded-full border px-2 py-0.5 text-xs ${on ? "border-blue-500 bg-blue-100 text-blue-900" : "border-zinc-300 hover:bg-zinc-100"}`}>{x}</button>; })}
-                </div>
-              </div>
-            )}
             <textarea value={r.notes || ""} onChange={(e) => setR({ notes: e.target.value })} rows={2} placeholder="Notes for Claude: what you noticed, or something to check first, e.g. “based in Woking, check how they rank for electrician Woking” (optional)" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" />
           </div>
         )}
@@ -2175,18 +2194,39 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
       {!maint && step <= 2 && <div className="-mt-3 rounded-b-lg border border-t-0 border-zinc-200 p-3 pt-0">
         {(
           <div className="space-y-3 text-sm">
-            <div className="border-t border-zinc-100 pt-3 text-xs font-semibold text-zinc-700">What to raise <span className="font-normal text-zinc-500">· Claude’s pick is selected; tap another to make it the main one, tick a box to mention it too; what you noticed is always included</span></div>
+            <div className="border-t border-zinc-100 pt-3 text-xs font-semibold text-zinc-700">What to raise <span className="font-normal text-zinc-500">· tick everything the email should mention, and star the one it leads with</span></div>
             {!cands.length && <p className="text-xs text-zinc-500">Nothing found yet. Add what you noticed in step 1, or type your own below.</p>}
+            {dropped.length > 0 && <p className="text-[11px] text-zinc-500">{dropped.length} dropped as not true, so {dropped.length === 1 ? "it is" : "they are"} left out of the email. <button onClick={() => setR({ dropped: [] })} className="underline">put {dropped.length === 1 ? "it" : "them"} back</button></p>}
             <div className="space-y-1">
               {cands.map((c) => (
                 <div key={c.key} className={`flex items-center gap-2 rounded-md border px-2 py-1.5 ${mainKey === c.key ? "border-zinc-900 bg-zinc-50" : "border-zinc-200"}`}>
-                  <button onClick={() => { const np = r.pathSet ? r.path : suggestPath(c.issue?.id || c.label, l); setR({ lead: c.key, subjectTyped: false, path: np, ...(l.email && !l.emailEdited && !cands.find((x) => x.key === c.key)?.issue ? { drafted: "" } : {}) }, { subject: subjectOf(c), ...(redraftFor(c.key, np) || {}) }); }} title="Make this the main issue: the email leads with it, it sets the subject, and the email is rewritten to match" className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                    <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${mainKey === c.key ? "border-zinc-900 bg-zinc-900" : "border-zinc-400"}`}>{mainKey === c.key && <span className="h-1.5 w-1.5 rounded-full bg-white" />}</span>
-                    <span className="min-w-0 flex-1">{c.label}{mainKey === c.key && <span className="ml-2 rounded-full bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">Main</span>}</span>
+<button onClick={() => { const np = r.pathSet ? r.path : suggestPath(c.issue?.id || c.label, l); setR({ lead: c.key, subjectTyped: false, path: np, ...(c.key.startsWith("you:") && !(r.seen || []).includes(c.key.slice(4)) ? { seen: [...(r.seen || []), c.key.slice(4)] } : {}), ...(l.email && !l.emailEdited && !cands.find((x) => x.key === c.key)?.issue ? { drafted: "" } : {}) }, { subject: subjectOf(c), ...(redraftFor(c.key, np) || {}) }); }} title="Star it: this is what the email leads with, and it sets the subject"
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                    <span className={`shrink-0 text-base leading-none ${mainKey === c.key ? "text-amber-500" : "text-zinc-300"}`} aria-hidden>★</span>
+                    <span className="min-w-0 flex-1">{sentence(c.label)}{mainKey === c.key && <span className="ml-2 rounded-full bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">Leads with this</span>}</span>
                   </button>
                   {(() => { const q = searchIn(c.label); return q && <a href={googleUk(q)} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} title={`Check “${q}” on Google yourself (UK, not personalised)`} className="shrink-0 text-blue-700 hover:text-blue-900"><ExternalIcon /></a>; })()}
                   <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${FROM[c.from]}`}>{c.from}</span>
-                  {mainKey !== c.key && (c.from === "You" ? <span className="shrink-0 text-[11px] text-zinc-400" title="What you noticed is always mentioned in the email">included</span> : <input type="checkbox" checked={(r.also || []).includes(c.key)} onChange={(e) => setR({ also: e.target.checked ? [...(r.also || []), c.key] : (r.also || []).filter((x) => x !== c.key) })} title="Tick to mention this briefly as well" aria-label="Mention this as well" className="h-3.5 w-3.5 shrink-0" />)}
+                  {/* A checker or Claude point that is not actually true, or something of your
+                      own you have thought better of. The standard checklist lines are just
+                      unticked instead. */}
+                  {!c.standard && <button onClick={(e) => {
+                    e.stopPropagation();
+                    const own = c.key.startsWith("own:") ? (r.own || []).filter((x) => `own:${x}` !== c.key) : r.own;
+                    const seen = c.key.startsWith("you:") ? (r.seen || []).filter((x) => `you:${x}` !== c.key) : r.seen;
+                    const mine = c.from === "You";
+                    setR({
+                      ...(mine ? { own, seen, ...(c.key === "note" ? { notes: "" } : {}) } : { dropped: [...dropped, c.key] }),
+                      also: (r.also || []).filter((x) => x !== c.key),
+                      ...(mainKey === c.key ? { lead: "" } : {}),
+                    }, { ...(c.key === "chk:seo" ? { seo: { ...(l.seo || {}), weak: false, wrong: true } } : {}) });
+                  }} title={c.from === "Claude" ? "Remove it: Claude gets things wrong sometimes, and it will not be written about" : c.from === "You" ? "Remove this one" : "Not true: remove it, and it will not be written about"} aria-label="Remove this issue" className="shrink-0 text-zinc-400 hover:text-red-700">✕</button>}
+                  <input type="checkbox" checked={included(c, mainKey)} disabled={mainKey === c.key} onChange={(e) => {
+                    const on = e.target.checked;
+                    if (c.key.startsWith("you:")) { const x = c.key.slice(4); setR({ seen: on ? [...new Set([...(r.seen || []), x])] : (r.seen || []).filter((y) => y !== x) }); return; }
+                    if (c.key === "note" || c.key.startsWith("own:")) { if (!on) { const own = c.key.startsWith("own:") ? (r.own || []).filter((x) => `own:${x}` !== c.key) : r.own; setR({ own, ...(c.key === "note" ? { notes: "" } : {}) }); } return; }
+                    setR({ also: on ? [...new Set([...(r.also || []), c.key])] : (r.also || []).filter((x) => x !== c.key) });
+                  }} title={mainKey === c.key ? "The one it leads with is always in" : "Tick to have the email mention this"} aria-label="Include this in the email" className="h-3.5 w-3.5 shrink-0" />
                 </div>
               ))}
             </div>
@@ -2242,7 +2282,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
                   ); })()}
                   {!l.emailAddress && <div className="flex flex-wrap items-center gap-2 text-xs sm:col-span-2">
                     {l.website && <a href={`https://${String(l.website).replace(/^https?:\/\//, "")}`} target="_blank" rel="noopener" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 hover:bg-zinc-100"><ExternalIcon /> Search website</a>}
-                    {onHunter && <button onClick={onHunter} disabled={l.checking} title="Ask the contact finders for a mobile number and a named person's address. Numbers are only ever looked up here, never by the background pass." className="rounded-md border border-zinc-300 bg-white px-2 py-1 hover:bg-zinc-100 disabled:opacity-40">{l.checking ? "Looking…" : "Find the mobile"}</button>}
+                    {onHunter && <button onClick={() => onHunter({ mobile: false })} disabled={l.checking} title="Ask the contact finders for an email address for a named person here. No mobile credits are spent: use Find the mobile on the contacts panel for that." className="rounded-md border border-zinc-300 bg-white px-2 py-1 hover:bg-zinc-100 disabled:opacity-40">{l.checking ? "Looking…" : "Find the email"}</button>}
                     {l.hunterTried && !l.checking && <span className="text-zinc-500">Finders already tried{l.hunterOnFile === 0 ? ": nothing on file" : ""}</span>}
                   </div>}
                 </div>
@@ -2263,8 +2303,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
             {inFooter(<>
               <button onClick={() => setR({ step: 2 })} className="text-xs text-zinc-500 hover:text-zinc-900">← Back</button>
               <span className="ml-auto" />
-              {l.problem && onRecheck && <button onClick={() => onRecheck(true)} disabled={l.checking} title="Rewrite the email from our template for this issue" className="rounded-md bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 disabled:opacity-40">Redraft email</button>}
-              <button onClick={() => { setR({ done: true, doneAt: new Date().toISOString() }, { status: "not-pursuing", likelihoodWhy: "Reviewed by hand: not worth it" }); onNext?.(true); }} className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Not pursuing</button>
+                <button onClick={() => { setR({ done: true, doneAt: new Date().toISOString() }, { status: "not-pursuing", likelihoodWhy: "Reviewed by hand: not worth it" }); onNext?.(true); }} className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Not pursuing</button>
               {onNext && <button onClick={() => onNext(false)} className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Skip for now →</button>}
               <button onClick={() => finishReady()} disabled={!l.emailAddress || !draftText.trim()} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Ready to send ✓{onNext ? " · next" : ""}</button>
             </>)}
@@ -2338,7 +2377,7 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
     const c = vetChecks(l);
     if (!l.website) return <span className="flex items-center gap-1"><input key={`s${l.id}`} placeholder="Paste their website" className={input} onKeyDown={(e) => { if (e.key === "Enter" && e.currentTarget.value.trim()) onSite(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (e.target.value.trim()) onSite(l, e.target.value.trim()); }} /><a href={`https://www.google.co.uk/search?q=${encodeURIComponent(`"${l.business}"`)}`} target="_blank" rel="noopener" className="text-xs text-blue-700 hover:underline">Google</a><button onClick={() => onNoSite(l)} className="text-xs text-zinc-500 hover:underline">no website</button></span>;
     if (!c.site) return <span className="flex items-center gap-1 text-xs"><a href={`https://${l.website}`} target="_blank" rel="noopener" className="text-blue-700 hover:underline">Open {l.website}</a><button onClick={() => onOpen(l.id)} className="rounded border border-zinc-300 px-1.5 py-0.5 hover:bg-zinc-100">Confirm it’s theirs</button></span>;
-    if (!c.contact) return <span className="flex flex-wrap items-center gap-1"><input key={`e${l.id}`} type="email" placeholder="Paste an email address" className={input} onKeyDown={(e) => { if (e.key === "Enter" && /@/.test(e.currentTarget.value)) onEmail(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (/@/.test(e.target.value)) onEmail(l, e.target.value.trim()); }} />{l.website && <a href={`https://${l.website}`} target="_blank" rel="noopener" className="ml-1 text-xs text-blue-700 hover:underline">Search website</a>}{l.website && <button onClick={() => onHunter(l)} disabled={l.checking} title="Looks for a mobile number as well as an address, and spends mobile credits" className="ml-3 text-xs text-blue-700 hover:underline disabled:opacity-40">{l.checking ? "Looking…" : "Find the mobile"}</button>}{!l.checking && (l.error || l.hunterNote) && <span className={`basis-full text-[11px] ${l.error ? "text-red-700" : "text-zinc-500"}`}>{l.error || l.hunterNote}</span>}</span>;
+    if (!c.contact) return <span className="flex flex-wrap items-center gap-1"><input key={`e${l.id}`} type="email" placeholder="Paste an email address" className={input} onKeyDown={(e) => { if (e.key === "Enter" && /@/.test(e.currentTarget.value)) onEmail(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (/@/.test(e.target.value)) onEmail(l, e.target.value.trim()); }} />{l.website && <a href={`https://${l.website}`} target="_blank" rel="noopener" className="ml-1 text-xs text-blue-700 hover:underline">Search website</a>}{l.website && <button onClick={() => onHunter(l)} disabled={l.checking} title="Looks for a mobile number as well as an address, and spends mobile credits" className="ml-3 text-xs text-blue-700 hover:underline disabled:opacity-40">{l.checking ? "Looking…" : "Find the mobile"}</button>}{!l.checking && (l.finderFound ? <span className="basis-full text-[11px] font-medium text-green-700" title={(l.finderTrail || []).join(" · ")}>✓ {l.hunterNote}</span> : l.error ? <span className="basis-full text-[11px] text-red-700" title={(l.finderTrail || []).join(" · ")}>{l.error}</span> : null)}</span>;
     return null;
   };
   // Each lead waits in the first step it's stuck on: website, then contact, then Google.
