@@ -1,7 +1,7 @@
 "use client";
 
 import { mailHref } from "@/app/mail";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
@@ -1668,33 +1668,66 @@ const emailChecked = (l) => { const v = l.emailVerified; return !!v && String(v.
 function VerifyEmail({ l, onChange }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [help, setHelp] = useState(false);
   const v = l.emailVerified;
   const email = String(l.emailAddress || "").trim().toLowerCase();
   const current = v && String(v.email || "").toLowerCase() === email ? v : null;
-  async function check() {
+  // Where the address came from decides whether it needs paying for: one they published on
+  // their own site, on a domain that takes mail, is already as checked as it is going to get.
+  const published = /website|site|their own|contact page/i.test(`${l.emailFrom || ""} ${emailSource(l)?.text || ""}`);
+  const check = useCallback(async () => {
     setBusy(true); setErr("");
     try {
-      const r = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ step: "verify-email", email }) });
+      const r = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ step: "verify-email", email, published }) });
       const j = await r.json();
       if (j.error) setErr(j.error);
-      else onChange({ emailVerified: { email: j.email, status: j.status, by: j.by, at: j.at } });
+      else onChange({ emailVerified: { email: j.email, status: j.status, by: j.by, detail: j.detail || "", free: !!j.free, at: j.at } });
     } catch (e) { setErr(String(e?.message || e)); }
     setBusy(false);
-  }
+  }, [email, published]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Checked on sight. The free checks settle most of them, so this usually costs nothing.
+  const asked = useRef("");
+  useEffect(() => {
+    if (!email || current || busy || err || asked.current === email) return;
+    asked.current = email;
+    const t = setTimeout(check, 400);
+    return () => clearTimeout(t);
+  }, [email, current, busy, err]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!email) return null;
+  const what = (
+    <span className="relative">
+      <button onClick={() => setHelp((x) => !x)} aria-label="What do these mean?" title="What do these mean?" className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-zinc-300 text-[10px] font-semibold text-zinc-500 hover:bg-zinc-100">?</button>
+      {help && (
+        <span className="absolute left-0 top-5 z-10 w-72 rounded-md border border-zinc-200 bg-white p-2 text-[11px] font-normal text-zinc-600 shadow-lg">
+          <b className="text-zinc-900">What the checks mean</b>
+          <span className="mt-1 block"><b>Valid</b>: the mailbox exists and accepts mail. Safe to send.</span>
+          <span className="block"><b>Catch-all</b>: the domain accepts anything, so nobody can tell if this mailbox is real. Usually fine, but a bounce is possible.</span>
+          <span className="block"><b>Unknown</b>: their server would not answer. Judge it on where the address came from.</span>
+          <span className="block"><b>Invalid</b>: the mailbox does not exist. It will bounce, so find another address.</span>
+          <span className="block"><b>Do not mail</b>: a role or blocklisted address the verifier says not to send to. Find a person instead.</span>
+          <span className="block"><b>Spam trap</b> or <b>abuse</b>: sending here damages your domain. Never send.</span>
+          <span className="mt-1 block text-zinc-500">Free checks (the address itself, their domain, or one they published) cost nothing. Anything else uses one verification credit.</span>
+        </span>
+      )}
+    </span>
+  );
   if (current) {
     const ok = VERIFY_OK.test(current.status);
     const soft = /catch|unknown/i.test(current.status);
     return (
-      <span className={`inline-flex items-center gap-1 font-medium ${ok ? (soft ? "text-amber-800" : "text-green-700") : "text-red-700"}`} title={`${current.by} said "${current.status}" on ${new Date(current.at).toLocaleDateString("en-GB")}`}>
-        {ok ? "✓" : "✕"} {soft ? `${current.by}: ${current.status.replace(/[-_]/g, " ")}` : ok ? `Verified with ${current.by}` : `${current.by} says it is ${current.status.replace(/[-_]/g, " ")}`}
+      <span className={`inline-flex flex-wrap items-center gap-1 font-medium ${ok ? (soft ? "text-amber-800" : "text-green-700") : "text-red-700"}`}>
+        <span title={`${current.by} said "${current.status}"${current.detail ? `: ${current.detail}` : ""} on ${new Date(current.at).toLocaleDateString("en-GB")}`}>
+          {ok ? "✓" : "✕"} {soft ? `${current.by}: ${current.status.replace(/[-_]/g, " ")}` : ok ? `Verified with ${current.by}` : `${current.by} says it is ${current.status.replace(/[-_]/g, " ")}`}
+        </span>
+        {what}
         <button onClick={check} disabled={busy} className="font-normal text-blue-700 underline disabled:opacity-40">{busy ? "checking…" : "check again"}</button>
       </span>
     );
   }
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
-      <button onClick={check} disabled={busy} title="Checks the address really accepts mail, using one verification credit" className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] hover:bg-zinc-100 disabled:opacity-40">{busy ? "Checking…" : "Check it is real"}</button>
+      <button onClick={check} disabled={busy} title="Checks the address really accepts mail. Free where the domain or the source settles it, otherwise one credit." className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] hover:bg-zinc-100 disabled:opacity-40">{busy ? "Checking…" : "Check it is real"}</button>
+      {what}
       {err && <span className="text-red-700">{err}</span>}
     </span>
   );
@@ -2185,9 +2218,10 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
           // Quick look at what step 1 settled on, without opening it: the main issue, then the ones also mentioned.
           const extra = cands.filter((c) => c.key !== mainKey && included(c, mainKey));
           return (
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-7 text-xs">
-              <span className="rounded-full bg-zinc-900 px-2 py-0.5 font-medium text-white" title="The main issue">{lead.label}</span>
-              {extra.map((c) => <span key={c.key} className="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700" title="Also mentioned">{c.label}</span>)}
+            // A finding is a sentence, not a tag: as pills they wrapped into blobs, so they read as lines.
+            <div className="mt-1.5 space-y-0.5 pl-7 text-xs">
+              <div><span className="font-semibold text-zinc-900">Leading with</span> <span className="text-zinc-700">{lead.label}</span></div>
+              {extra.map((c) => <div key={c.key} className="text-zinc-500">Also: {c.label}</div>)}
             </div>
           );
         })()}
@@ -2305,7 +2339,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
         {step === 3 && lead && (
           <div className="mt-3 space-y-3 text-sm">
             {maint ? <p className="text-xs text-zinc-500">Web maintenance email, ready to go: check it, add the address and name, then Ready to send. Change the wording for everyone in <a href="/settings?section=templates" className="text-blue-700 underline">Settings → Email templates</a>.</p> : <>
-            <p className="text-xs text-zinc-500">Leading with <b className="text-zinc-800">{lead.label}</b> · {(REVIEW_PATHS.find((p) => p.id === path) || {}).label}</p>
+            <p className="text-xs text-zinc-500">Approach: <b className="text-zinc-800">{(REVIEW_PATHS.find((p) => p.id === path) || {}).label}</b>. What it leads with is in step 1 above.</p>
             <div className="flex flex-wrap gap-2">
               <button onClick={() => copy(true)} className="inline-flex items-center gap-1.5 rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium text-white"><ExternalIcon className="h-3.5 w-3.5" /> Copy prompt and open Claude</button>
               <button onClick={() => copy(false)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100">{copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />} Copy prompt</button>

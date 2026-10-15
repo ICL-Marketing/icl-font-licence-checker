@@ -40,12 +40,16 @@ export async function POST(request) {
     }
     // Is this address real? One verification credit, from whichever account has the most left.
     if (b.step === "verify-email") {
-      const { verifyEmail } = await import("@/lib/enrich");
+      const { verifyEmail, freeEmailCheck } = await import("@/lib/enrich");
       const email = String(b.email || "").trim().toLowerCase();
       if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(email)) return Response.json({ error: "That does not look like an email address." }, { status: 400 });
+      // Free first: the shape of the address, the domain's mail records, and whether they
+      // published it themselves. Only what that cannot settle costs a credit.
+      const free = await freeEmailCheck(email, { published: !!b.published });
+      if (free.status) return Response.json({ email, status: free.status, by: free.by, detail: free.detail, free: true, at: new Date().toISOString() });
       const v = await verifyEmail(email);
       if (!v.status) return Response.json({ error: v.trail.join(" · ") || "No verifier could check it (no key set, or all of them are out of credits this month)." }, { status: 503 });
-      return Response.json({ email, status: v.status, by: v.from, at: new Date().toISOString() });
+      return Response.json({ email, status: v.status, by: v.from, free: false, at: new Date().toISOString() });
     }
     if (b.step === "refresh") {
       if (!b.lead?.business) return Response.json({ error: "lead required" }, { status: 400 });
