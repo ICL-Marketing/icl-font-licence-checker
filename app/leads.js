@@ -134,11 +134,9 @@ const googleUk = (q) => `https://www.google.co.uk/search?q=${encodeURIComponent(
 // What the app adds under the email when it's sent: the paragraph about us (unless the email already covers it) and the opt-out line.
 const addedBelow = (body) => { const b = String(body || "").trimEnd(); return withIclLine(b || "x", { optOut: true }).slice((b || "x").length).trim(); };
 // Vetting: before a lead reaches the board its website is verified (or confirmed missing), a contact is found and its Google ranking is checked.
-// Bumped to have Claude write every maintenance email again from scratch.
-const MAINT_RESET = 1;
 // Bumped to have Claude check every unsent lead again and find three things on the site.
 // Ready to send is never touched: those have been checked by hand and are good to go.
-const FINDINGS_RESET = 1;
+const FINDINGS_RESET = 2;
 const MAINT_PITCH = "Website maintenance: look at their site first, then offer to look after it from £49 a month, likely cheaper than they pay now. There is nothing wrong with the site, so do not invent a fault: say what is good about it and offer to keep it that way.";
 const PRE_BOARD = ["new", "qualified", "no-contact", "find-site", "maintenance", "vetting", "to-draft"];
 const vetChecks = (l) => ({
@@ -191,7 +189,10 @@ function routeNoSite(l) {
   l.statusAt = l.updatedAt = new Date().toISOString();
   return true;
 }
-const maintenanceReady = (l) => !!l.website && !l.problem && !l.optedOut && !l.review?.done && l.statusBy !== "you" && !isFrozen(l);
+// Nothing wrong with the site is a conclusion, not a starting point: it only counts once
+// Claude has looked and come back with no findings. Otherwise a lead that is simply waiting
+// to be checked gets called a maintenance lead and never gets checked.
+const maintenanceReady = (l) => !!l.website && !l.problem && !!l.claude && !(l.findings || []).length && !l.optedOut && !l.review?.done && l.statusBy !== "you" && !isFrozen(l);
 // Where they came in a Google search you ran by hand: saved on the lead, and a poor showing becomes the search issue.
 function rankFields(l, query, v) {
   if (!v) return { seo: null };
@@ -365,25 +366,19 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         setTimeout(() => { for (const id of pushBack) if (leadsRef.current[id]) push(id, leadsRef.current[id]); }, 500);
         for (const l of Object.values(next)) if (handledByYou(l)) yoursShared[l.id] = l.status;
         // The Web maintenance column is gone: those leads are ordinary leads with a tag.
-        for (const l of Object.values(next)) if (l.status === "maintenance") { l.maintenance = true; l.status = l.emailAddress ? "to-draft" : "no-contact"; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        for (const l of Object.values(next)) if (l.status === "maintenance") { l.maintenance = true; l.status = "new"; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
         // Three findings per site is a different question from the one these leads were checked
         // with, so everything still waiting goes back for a fresh look. The old email is kept
         // on the lead as emailPrevious in case something written by hand needs recovering.
         for (const l of Object.values(next)) if (["new", "to-draft"].includes(l.status) && l.findingsReset !== FINDINGS_RESET && !isFrozen(l) && !l.optedOut) {
           l.findingsReset = FINDINGS_RESET;
           if (l.email) l.emailPrevious = l.email;
+          // The maintenance verdict is up for review too: Claude may well find three things on
+          // a site that was called fine before anyone was looking for them.
+          l.maintenance = false;
           l.claude = null; l.claudeFields = []; l.findings = null; l.email = ""; l.pitch = ""; l.emailEdited = false; l.draftBrief = null; l.issueId = "";
           l.review = { ...(l.review || {}), step: 1, lead: "", also: [], dropped: [], drafted: "", done: false };
           l.status = "new"; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l);
-        }
-        // Their emails were the app's old template, pasted in without anyone looking at the site.
-        // Clear them once so Claude looks again and writes the support pitch properly.
-        for (const l of Object.values(next)) if (l.maintenance && !l.emailEdited && l.maintReset !== MAINT_RESET && !isFrozen(l) && !["won", "lost", "contacted", "replied", "meeting", "ready"].includes(l.status)) {
-          l.maintReset = MAINT_RESET; l.email = ""; l.pitch = ""; l.issueId = "maintenance";
-          l.review = { ...(l.review || {}), drafted: "", done: false };
-          l.status = l.emailAddress ? "to-draft" : l.status;
-          l.draftBrief = { leadWith: MAINT_PITCH, also: [], notes: "", path: "maintenance", template: emailTemplates().maintenance.body };
-          l.updatedAt = new Date().toISOString(); push(l.id, l);
         }
         // "Looking…" is passing state, not something to keep: a run cut short by a reload or a
         // closed tab would otherwise leave the buttons disabled for good.
