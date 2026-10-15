@@ -2057,6 +2057,8 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   const dropped = r.dropped || [];
   // Sentence case, so a checklist line and something you typed read the same way.
   const sentence = (t) => { const x = String(t || "").trim(); return x ? x[0].toUpperCase() + x.slice(1) : x; };
+  // Ticked means it goes in the email. The starred one leads, so it is always in.
+  const included = (c, main) => c.key === main || (c.key.startsWith("you:") ? (r.seen || []).includes(c.key.slice(4)) : c.key.startsWith("own:") || c.key === "note" ? true : (r.also || []).includes(c.key));
   const cands = [
     ...issues.map((i) => ({ key: `chk:${i.id}`, label: i.label, from: "Checker", issue: i })),
     ...(l.claude && (l.claude.angle || l.claude.issue_note) ? [{ key: "claude", label: oneLine(l.claude.angle || l.claude.issue_note), from: "Claude" }] : []),
@@ -2067,8 +2069,6 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   ].filter((c) => !dropped.includes(c.key));
   // In the email first, the rest of the checklist below it.
   cands.sort((a, b) => (included(b, r.lead) ? 1 : 0) - (included(a, r.lead) ? 1 : 0));
-  // Ticked means it goes in the email. The starred one leads, so it is always in.
-  const included = (c, main) => c.key === main || (c.key.startsWith("you:") ? (r.seen || []).includes(c.key.slice(4)) : c.key.startsWith("own:") || c.key === "note" ? true : (r.also || []).includes(c.key));
   // Claude's issue is preselected as the main one; tap another to change it.
   // A lead that was once in Web maintenance keeps that pick in its review; once it is back on the board the real issues take over.
   const mainKey = r.lead && (maint || r.lead !== "chk:maintenance") && cands.some((c) => c.key === r.lead) ? r.lead : (cands.find((c) => c.key === "claude") || cands.find((c) => !c.standard))?.key;
