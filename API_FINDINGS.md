@@ -139,7 +139,7 @@ person    : prospeo, lusha, dropcontact, apollo, tomba, hunter, getprospect  (st
 domain    : tomba, hunter, snov, getprospect, apollo             (stops at first provider that lists people)
 byName    : hunter                                               (no website on file; can turn up the domain)
 company   : apollo                                               (main phone, last resort)
-verify    : zerobounce, bouncer, abstract, mailboxlayer, hunter, tomba
+verify    : zerobounce, bouncer, mailboxlayer, hunter, tomba
             (sorted by credits left, fullest account first)
 ```
 
@@ -200,10 +200,10 @@ Added after the first eight, same pattern, same `sourced`/`memory` caveats. None
 |---|---|---|---|---|
 | GetProspect | person, domain | `GET https://api.getprospect.com/public/v1/email/find` and `/email/search` | `apiKey` query parameter | memory, verify |
 | Bouncer | verify | `GET https://api.usebouncer.com/v1.1/email/verify`, credits at `/v1.1/credits` | header `x-api-key` | memory, verify |
-| Abstract API | verify | `GET https://emailvalidation.abstractapi.com/v1/` | `api_key` query parameter | sourced |
 | MailboxLayer | verify | `GET https://apilayer.net/api/check` | `access_key` query parameter | sourced |
 
-Skrapp.io was written and then removed at Chris's request before the first commit.
+Skrapp.io was written and removed before the first commit. Abstract API was removed after it
+turned out to want card details at signup: the others give their free tier without one.
 
 **Caps, so nothing can ever bill.** Every provider has `free` (what the plan gives a month) and
 `cap` (where this app stops), and `cap` is deliberately a few credits short of `free`. Three
