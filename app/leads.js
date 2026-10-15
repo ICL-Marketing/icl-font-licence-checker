@@ -134,6 +134,9 @@ const googleUk = (q) => `https://www.google.co.uk/search?q=${encodeURIComponent(
 // What the app adds under the email when it's sent: the paragraph about us (unless the email already covers it) and the opt-out line.
 const addedBelow = (body) => { const b = String(body || "").trimEnd(); return withIclLine(b || "x", { optOut: true }).slice((b || "x").length).trim(); };
 // Vetting: before a lead reaches the board its website is verified (or confirmed missing), a contact is found and its Google ranking is checked.
+// Bumped to have Claude write every maintenance email again from scratch.
+const MAINT_RESET = 1;
+const MAINT_PITCH = "Website maintenance: look at their site first, then offer to look after it from £49 a month, likely cheaper than they pay now. There is nothing wrong with the site, so do not invent a fault: say what is good about it and offer to keep it that way.";
 const PRE_BOARD = ["new", "qualified", "no-contact", "find-site", "maintenance", "vetting", "to-draft"];
 const vetChecks = (l) => ({
   site: l.website ? (websiteIsVerified(l) || humanConfirmed(l)) && !siteDoubt(l) : !!l.noWebsiteConfirmed,
@@ -147,11 +150,15 @@ const vetted = (l) => { const c = vetChecks(l); return c.site && c.contact; }; /
 // Where a vetted lead goes on the board: a problem to raise, nothing wrong (maintenance pitch), or no website.
 // Only the footer year to go on is not an issue to raise: that is a maintenance conversation.
 const boardColumn = (l) => (!l.website ? "not-pursuing" : l.problem && !footerOnly(l) ? "new" : "maintenance"); // "maintenance" here means the support pitch, not a column
+// Site confirmed, every contact route tried, still no address: there is nothing left for
+// anyone to do by hand, so it goes to Not pursuing rather than sitting in a queue.
+const contactDeadEnd = (l) => { const c = vetChecks(l); return c.site && !c.contact && !l.optedOut && (l.contactsTried || l.finderEmailTried || contactExhausted(l)); };
 function routeVetting(l) {
   const was = l.status || "new";
   if (isFrozen(l) || l.optedOut || !PRE_BOARD.includes(was)) return false;
   const merged = ["find-site", "no-contact", "qualified"].includes(was); // old columns, now part of Vetting
   if (!merged && was !== "vetting" && handledByYou(l) && l.website) return false; // leads you've started on stay where they are, unless there's no website to work on yet
+  if (contactDeadEnd(l)) { if (was === "not-pursuing") return false; l.status = "not-pursuing"; l.contactUnverified = true; l.statusAt = l.updatedAt = new Date().toISOString(); return true; }
   const to = !vetted(l) ? "vetting" : was === "vetting" || merged ? boardColumn(l) : was;
   if (to === was) return false;
   if (to === "maintenance") toMaintenance(l);
@@ -356,6 +363,15 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const l of Object.values(next)) if (handledByYou(l)) yoursShared[l.id] = l.status;
         // The Web maintenance column is gone: those leads are ordinary leads with a tag.
         for (const l of Object.values(next)) if (l.status === "maintenance") { l.maintenance = true; l.status = l.emailAddress ? "to-draft" : "no-contact"; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
+        // Their emails were the app's old template, pasted in without anyone looking at the site.
+        // Clear them once so Claude looks again and writes the support pitch properly.
+        for (const l of Object.values(next)) if (l.maintenance && !l.emailEdited && l.maintReset !== MAINT_RESET && !isFrozen(l) && !["won", "lost", "contacted", "replied", "meeting", "ready"].includes(l.status)) {
+          l.maintReset = MAINT_RESET; l.email = ""; l.pitch = ""; l.issueId = "maintenance";
+          l.review = { ...(l.review || {}), drafted: "", done: false };
+          l.status = l.emailAddress ? "to-draft" : l.status;
+          l.draftBrief = { leadWith: MAINT_PITCH, also: [], notes: "", path: "maintenance", template: emailTemplates().maintenance.body };
+          l.updatedAt = new Date().toISOString(); push(l.id, l);
+        }
         // "Looking…" is passing state, not something to keep: a run cut short by a reload or a
         // closed tab would otherwise leave the buttons disabled for good.
         for (const l of Object.values(next)) if (l.checking) l.checking = false;
@@ -2049,7 +2065,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
     if (!maint || (r.step === 3 && r.lead === "chk:maintenance")) return;
     // Nothing to raise on a good site, so the review skips straight to the email. Claude
     // writes it: the pitch is looking after the site for less than they pay now.
-    const timer = setTimeout(() => onChange({ review: { ...r, step: 3, lead: "chk:maintenance", path: "maintenance", siteChecked: true }, issueId: "maintenance", ...(l.email || l.emailEdited ? {} : { status: "to-draft", draftBrief: { leadWith: "Website maintenance: nothing is wrong with their site, so offer to look after it from £49 a month, likely cheaper than they pay now", also: [], notes: "", path: "maintenance", template: emailTemplates().maintenance.body } }) }), 0);
+    const timer = setTimeout(() => onChange({ review: { ...r, step: 3, lead: "chk:maintenance", path: "maintenance", siteChecked: true }, issueId: "maintenance", ...(l.email || l.emailEdited ? {} : { status: "to-draft", draftBrief: { leadWith: MAINT_PITCH, also: [], notes: "", path: "maintenance", template: emailTemplates().maintenance.body } }) }), 0);
     return () => clearTimeout(timer);
   }, [l.id, maint]); // eslint-disable-line react-hooks/exhaustive-deps
   const [own, setOwn] = useState("");
@@ -2385,13 +2401,11 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
     if (!c.contact) return <span className="flex flex-wrap items-center gap-1"><input key={`e${l.id}`} type="email" placeholder="Paste an email address" className={input} onKeyDown={(e) => { if (e.key === "Enter" && /@/.test(e.currentTarget.value)) onEmail(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (/@/.test(e.target.value)) onEmail(l, e.target.value.trim()); }} />{l.website && <a href={`https://${l.website}`} target="_blank" rel="noopener" className="ml-1 text-xs text-blue-700 hover:underline">Search website</a>}{l.website && <button onClick={() => onHunter(l)} disabled={l.checking} title="Looks for a mobile number as well as an address, and spends mobile credits" className="ml-3 text-xs text-blue-700 hover:underline disabled:opacity-40">{l.checking ? "Looking…" : "Find the mobile"}</button>}{!l.checking && (l.finderFound ? <span className="basis-full text-[11px] font-medium text-green-700" title={(l.finderTrail || []).join(" · ")}>✓ {l.hunterNote}</span> : l.error ? <span className="basis-full text-[11px] text-red-700" title={(l.finderTrail || []).join(" · ")}>{l.error}</span> : null)}</span>;
     return null;
   };
-  // Each lead waits in the first step it's stuck on: website, then contact, then Google.
-  // Google and Contact only ever hold leads with a website: no site means step 1, whatever else is known.
-  const stepOf = (l) => { const c = vetChecks(l); return !l.website || !c.site ? "site" : "contact"; };
+  // Only one thing is ever left for you here: a website nothing could find or confirm. A lead
+  // whose site is confirmed but has no contact after every check goes to Not pursuing instead.
   const cols = [
     ["claude", "Waiting for Claude", "Not vetted yet: Claude does all three steps in order.", waiting],
-    ["site", "1. Website, by hand", "Claude couldn’t find or confirm a site for these. Run Claude again below, paste the address, or mark them as having none.", needsYou.filter((l) => stepOf(l) === "site")],
-    ["contact", "2. Contact, by hand", "The site, Companies House and the contact finders all came back with nothing. These are the only ones that need you.", needsYou.filter((l) => stepOf(l) === "contact")],
+    ["site", "Website, by hand", "Claude couldn’t find or confirm a site for these. Run Claude again below, paste the address, or mark them as having none.", needsYou.filter((l) => { const c = vetChecks(l); return !l.website || !c.site; })],
   ];
   const card = (l, col) => {
     const w = (l.seo?.searches || [])[0];
@@ -2405,12 +2419,12 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
           {l.website && <a href={`https://${l.website}`} target="_blank" rel="noopener" className="text-blue-700 hover:underline">{l.website}</a>}
           {l.emailAddress && <span className="text-zinc-600">{l.emailAddress}</span>}
         </div>
-        {col === "site" || col === "contact" ? <div className="mt-1.5">{nextStep(l)}</div> : null}
+        {col === "site" ? <div className="mt-1.5">{nextStep(l)}</div> : null}
       </div>
     );
   };
   return (
-    <div className="mt-3 grid gap-3 md:grid-cols-3">
+    <div className="mt-3 grid gap-3 md:grid-cols-2">
       {cols.map(([id, label, hint, items]) => (
         <div key={id} className={`flex flex-col rounded-xl border p-2 ${id === "claude" ? "border-orange-200 bg-orange-50/40" : "border-zinc-200 bg-zinc-50"}`}>
           <div className="flex items-center gap-1.5 px-1 text-xs font-semibold text-zinc-700"><span>{label}</span><span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{items.length}</span></div>
