@@ -64,27 +64,6 @@ function emailSource(l) {
   const warn = PERSONAL_MAIL.test(e) ? "Personal address (not their company domain): check it really belongs to this business." : site && !e.endsWith(`@${site}`) && !PERSONAL_MAIL.test(e) ? `Different domain from their website (${site}).` : "";
   return { text: parts.join(" · "), known, warn, google: `https://www.google.com/search?q=${encodeURIComponent(`"${e}"`)}` };
 }
-// Each name in "Hi …," and where it came from: the person found (Companies House, the site, Hunter, Claude), else as saved.
-function nameSources(l) {
-  const names = String(l.contactName || "").split(/\s*(?:,|&|\band\b)\s*/i).map((x) => x.trim()).filter(Boolean);
-  const same = (full, n) => firstNameOf(full || "").toLowerCase() === n.toLowerCase();
-  return names.map((n) => {
-    const p = (l.contacts || []).find((x) => same(x.name, n));
-    // Same person as the Send to address: its "Found" line already says where they came from.
-    if (p && String(p.email || "").toLowerCase() === String(l.emailAddress || "").toLowerCase() && p.email) return null;
-    if (p) return `${n}: ${p.name}${p.role ? `, ${p.role}` : ""}${p.source ? ` (${p.source}${p.why && !/^Found by/.test(p.why) ? `: ${p.why}` : ""})` : ""}`;
-    const c = l.claude?.contact;
-    if (c?.name && same(c.name, n)) return `${n}: ${c.name}${c.role ? `, ${c.role}` : ""} (Claude${c.email_source ? `: ${c.email_source}` : ""})`;
-    return `${n}: ${l.nameFrom || "source not saved (added before sources were kept)"}`;
-  }).filter(Boolean);
-}
-// The source of each greeting name, with a quick way to check an unexplained one.
-function NameSources({ l }) {
-  return nameSources(l).map((t) => {
-    const n = t.split(":")[0];
-    return <span key={t} className="mt-0.5 block text-[11px] text-zinc-600">Found: {t}{/source not saved/.test(t) && <> · <a href={`https://www.google.com/search?q=${encodeURIComponent(`"${n}" "${l.business}"`)}`} target="_blank" rel="noreferrer" className="text-blue-700 underline">check on Google</a></>}</span>;
-  });
-}
 // Looks for the address on their site (home and contact pages) and saves the page it's on.
 function EmailWhere({ l, onChange }) {
   const [state, setState] = useState("");
@@ -1675,11 +1654,13 @@ function VerifyEmail({ l, onChange }) {
   // Where the address came from decides whether it needs paying for: one they published on
   // their own site, on a domain that takes mail, is already as checked as it is going to get.
   const published = /website|site|their own|contact page/i.test(`${l.emailFrom || ""} ${emailSource(l)?.text || ""}`);
-  const check = useCallback(async () => {
+  const [left, setLeft] = useState(null);
+  const check = useCallback(async (force = false) => {
     setBusy(true); setErr("");
     try {
-      const r = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ step: "verify-email", email, published }) });
+      const r = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ step: "verify-email", email, published, force: force === true }) });
       const j = await r.json();
+      if (typeof j.left === "number") setLeft(j.left);
       if (j.error) setErr(j.error);
       else onChange({ emailVerified: { email: j.email, status: j.status, by: j.by, detail: j.detail || "", free: !!j.free, at: j.at } });
     } catch (e) { setErr(String(e?.message || e)); }
@@ -1690,7 +1671,7 @@ function VerifyEmail({ l, onChange }) {
   useEffect(() => {
     if (!email || current || busy || err || asked.current === email) return;
     asked.current = email;
-    const t = setTimeout(check, 400);
+    const t = setTimeout(() => check(false), 400);
     return () => clearTimeout(t);
   }, [email, current, busy, err]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!email) return null;
@@ -1720,13 +1701,14 @@ function VerifyEmail({ l, onChange }) {
           {ok ? "✓" : "✕"} {soft ? `${current.by}: ${current.status.replace(/[-_]/g, " ")}` : ok ? `Verified with ${current.by}` : `${current.by} says it is ${current.status.replace(/[-_]/g, " ")}`}
         </span>
         {what}
-        <button onClick={check} disabled={busy} className="font-normal text-blue-700 underline disabled:opacity-40">{busy ? "checking…" : "check again"}</button>
+        <button onClick={() => check(true)} disabled={busy} title="Ask a verifier again, ignoring the stored answer. Uses one credit." className="font-normal text-blue-700 underline disabled:opacity-40">{busy ? "checking…" : "check again"}</button>
+        {left !== null && <span className="font-normal text-zinc-500">{left} credits left</span>}
       </span>
     );
   }
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
-      <button onClick={check} disabled={busy} title="Checks the address really accepts mail. Free where the domain or the source settles it, otherwise one credit." className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] hover:bg-zinc-100 disabled:opacity-40">{busy ? "Checking…" : "Check it is real"}</button>
+      <button onClick={() => check(false)} disabled={busy} title="Checks the address really accepts mail. Free where the domain or the source settles it, otherwise one credit." className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] hover:bg-zinc-100 disabled:opacity-40">{busy ? "Checking…" : "Check it is real"}</button>
       {what}
       {err && <span className="text-red-700">{err}</span>}
     </span>
@@ -2373,9 +2355,8 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
             <div>
               <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} placeholder="Subject" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm font-medium" />
               <div className="mt-2 rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1 text-sm text-zinc-500">
-                {/* The names go straight into the greeting: blank reads "Hi there,". */}
-                <div className="flex items-baseline gap-1">Hi <input value={l.contactName || ""} onChange={(e) => onChange({ contactName: e.target.value, nameFrom: "Added by you" })} placeholder="there" aria-label="Name(s) to greet, e.g. Paul and Louise" title="Name(s) to greet, e.g. Paul and Louise. Leave blank for “Hi there”." className="min-w-0 rounded border border-dashed border-zinc-300 bg-white px-1 py-0 text-sm text-zinc-900 placeholder:text-zinc-500" style={{ width: `${Math.max(5, (l.contactName || "").length + 2)}ch` }} />,</div>
-                <NameSources l={l} />
+                {/* Always "Hi there,": no name to pick, and none to get wrong. */}
+                <div>Hi there,</div>
                 <div className="mt-2">{dayGreeting()}</div>
               </div>
               <AutoTextarea value={draftText} placeholder="Paste Claude’s email here" onChange={(e) => onChange({ email: e.target.value, emailEdited: true, review: { ...r, drafted: r.drafted || new Date().toISOString() } })} onPaste={(e) => { const t = e.clipboardData.getData("text"); if (!t || draftText.trim()) return; e.preventDefault(); const c = cleanPastedEmail(t); onChange({ email: c.body, emailEdited: true, ...(c.subject && !r.subjectTyped ? { subject: c.subject } : {}), review: { ...r, drafted: new Date().toISOString() } }); }} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
