@@ -1,5 +1,5 @@
 import { obviousDomain, leadTriggers, jobsSearch, jobsConfigured, placesSearch, placesConfigured, placesUsage, leadsEnrichOutside } from "@/lib/leads";
-import { areaFor, setPatchOutcodes, siteAddress, townFromAddress, verifyWebsite, websiteIsVerified, searchUsage, hunterUsage, applyTradingAddress, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findEmailAt, emailFromPage, emailWhere, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
+import { areaFor, setPatchOutcodes, siteAddress, townFromAddress, verifyWebsite, websiteIsVerified, searchUsage, findersUsage, applyTradingAddress, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findEmailAt, emailFromPage, emailWhere, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 50;
@@ -11,12 +11,12 @@ export async function GET(request) {
     try { const { searchVolumes, keywordsConfigured } = await import("@/lib/keywords"); if (!keywordsConfigured()) return Response.json({ ok: false, error: "Google Ads variables are not all set." }); const v = await searchVolumes([vq]); return Response.json({ ok: true, volume: v[vq.toLowerCase()] || 0 }); }
     catch (e) { return Response.json({ ok: false, error: String(e?.message || e) }); }
   }
-  let usage = { used: 0, cap: 0 }, hunter = { used: 0, cap: 0, configured: false };
+  let usage = { used: 0, cap: 0 }, finders = { connected: 0, live: 0, left: 0, mobiles: false, rows: [] };
   try { usage = await searchUsage(); } catch {}
-  try { hunter = await hunterUsage(); } catch {}
+  try { finders = await findersUsage(); } catch {}
   let places = { used: 0, cap: 0 };
   try { if (placesConfigured()) places = await placesUsage(); } catch {}
-  return Response.json({ jobs: jobsConfigured(), places: placesConfigured(), placesUsage: places, configured: leadsConfigured(), brave: Boolean(process.env.BRAVE_SEARCH_KEY || process.env.BRAVE_API_KEY), hunter: Boolean(process.env.HUNTER_API_KEY), hunterUsage: hunter, usage, areas: Object.fromEntries(Object.entries(AREA_PRESETS).map(([k, v]) => [k, v.label])), sectors: Object.fromEntries(Object.entries(SECTOR_PRESETS).map(([k, v]) => [k, v.label])) });
+  return Response.json({ jobs: jobsConfigured(), places: placesConfigured(), placesUsage: places, configured: leadsConfigured(), brave: Boolean(process.env.BRAVE_SEARCH_KEY || process.env.BRAVE_API_KEY), finders, usage, areas: Object.fromEntries(Object.entries(AREA_PRESETS).map(([k, v]) => [k, v.label])), sectors: Object.fromEntries(Object.entries(SECTOR_PRESETS).map(([k, v]) => [k, v.label])) });
 }
 
 // Steps, each one short request:
@@ -33,7 +33,7 @@ export async function POST(request) {
       const l = b.lead || {};
       if (!l.companyNumber && !l.website) return Response.json({ error: "Needs a company number or a website." }, { status: 400 });
       if (l.companyNumber && !leadsConfigured()) return Response.json({ error: "Companies House is not set up (Settings → Connections), so only the website can be searched." }, { status: 400 });
-      const ct = await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business, employees: l.employees, websiteVerified: websiteIsVerified(l), useHunter: !!b.useHunter, forceHunter: !!b.forceHunter, rejectedSites: l.rejectedSites || [] });
+      const ct = await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business, employees: l.employees, websiteVerified: websiteIsVerified(l), useFinders: !!(b.useFinders ?? b.useHunter), forceFinders: !!(b.forceFinders ?? b.forceHunter), rejectedSites: l.rejectedSites || [] });
       const patch = { postcode: l.postcode, area: l.area, caveats: l.caveats || "" };
       applyTradingAddress(patch, ct.tradingAddress, null);
       return Response.json({ ...ct, tradingPostcode: patch.tradingPostcode || "", tradingAddressText: patch.tradingAddress || "", tradesElsewhere: !!patch.tradesElsewhere, caveats: patch.caveats });

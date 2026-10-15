@@ -239,18 +239,10 @@ export default function Settings() {
                 </>}
           </section>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
-            <h2 className="font-semibold">Contact finder (Hunter.io)</h2>
-            <p className="mb-3 text-sm text-zinc-500">Finds named people at each company with their role and a scored email address, marketing managers included, so far fewer leads end up as &quot;contact not verified&quot;. Free for 25 lookups a month; the Starter plan (about £30 a month) covers 500. One lookup per lead, only for leads worth pitching, cached 60 days.</p>
-            {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.hunter
-              ? <StatusRow ok label="Hunter.io connected" detail="runs inside every contact lookup" />
-              : <>
-                  <StatusRow ok={false} label="Not connected" detail="contacts come from Companies House and the website only" />
-                  <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-700">
-                    <li>Sign up at <a href="https://hunter.io/users/sign_up" target="_blank" rel="noreferrer" className="text-blue-700 underline">hunter.io</a> with the work email (free plan to start).</li>
-                    <li>Open <b>API</b> in the left menu and copy the API key.</li>
-                    <li>In Vercel add <code>HUNTER_API_KEY</code>, then Redeploy. Optional: <code>HUNTER_MONTHLY_CAP</code> to stop the app at your plan&apos;s limit (default 450).</li>
-                  </ol>
-                </>}
+            <h2 className="font-semibold">Contact finders (for WhatsApp numbers)</h2>
+            <p className="mb-3 text-sm text-zinc-500">Free tiers stacked. Each one is asked in turn and the first with an answer wins, so when one runs out of credits the next one covers. A UK mobile is what they are for; email addresses are the backup, checked for bounces by whichever verifier has the most credits left. Credits are only spent on a confirmed website the free routes found nothing for, or when you press <b>Find the mobile</b> on a lead.</p>
+            <p className="mb-3 text-sm text-zinc-500"><b>Nothing can run over a free plan.</b> Every credit the app spends is counted, and a call is refused when it would take the month past the cap. Each cap sits just under the free allowance, so a few credits are always left spare, and one lead can never cost more than {"\u2248"}14 credits in total.</p>
+            <FindersPanel />
           </section>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
             <h2 className="font-semibold">Search volumes (Google Ads Keyword Planner)</h2>
@@ -289,6 +281,57 @@ export default function Settings() {
 }
 
 const SECTIONS = [["team", "Team"], ["clients", "Clients"], ["templates", "Email templates"], ["emails", "Email details"], ["leads", "Lead maintenance"], ["proposals", "Proposals"], ["archived", "Archived checks"], ["connections", "Connections"]];
+
+// The eight contact finders: what is connected, what is left this month, and a free test.
+function FindersPanel() {
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState("");
+  const [said, setSaid] = useState({});
+  const load = () => fetch("/api/finders").then((r) => r.json()).then((j) => setRows(j.finders || [])).catch(() => setRows([]));
+  useEffect(() => { load(); }, []);
+  async function test(id, reset = false) {
+    setBusy(id);
+    try {
+      const j = await fetch("/api/finders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, reset }) }).then((r) => r.json());
+      setSaid((s) => ({ ...s, [id]: j }));
+      await load();
+    } catch (e) { setSaid((s) => ({ ...s, [id]: { ok: false, detail: String(e?.message || e) } })); }
+    finally { setBusy(""); }
+  }
+  if (!rows) return <p className="text-sm text-zinc-500">Checking…</p>;
+  const live = rows.filter((r) => r.configured && !r.out);
+  return (
+    <>
+      <p className="mb-2 text-sm"><b>{live.length}</b> of {rows.length} connected and ready{live.some((r) => r.mobiles) ? "" : <span className="text-amber-800">; none of them return mobile numbers, so add Prospeo or Lusha</span>}.</p>
+      <ul className="divide-y divide-zinc-100">
+        {rows.map((f) => (
+          <li key={f.id} className="flex flex-wrap items-start gap-x-3 gap-y-1 py-2 text-sm">
+            <span className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ${f.configured ? (f.out ? "bg-amber-500" : "bg-green-600") : "bg-zinc-300"}`}>{f.configured ? (f.out ? "!" : "\u2713") : "\u2013"}</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-medium">{f.name}</span>
+                {f.mobiles && <span className="rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">Mobiles</span>}
+                <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600">{f.kinds.join(", ")}</span>
+                {f.configured
+                  ? <span className={`text-xs ${f.cap > 0 && f.used >= f.cap ? "font-semibold text-amber-800" : "text-zinc-500"}`}>{f.cap > 0 ? `${f.used} of ${f.cap} ${f.unit} used this month (stops at ${f.cap}, plan gives ${f.free})` : `${f.used} ${f.unit} used this month \u00b7 no cap set, so this one can run into paid usage`}</span>
+                  : <span className="text-xs text-zinc-500">free plan: {f.plan}</span>}
+              </div>
+              <div className="text-xs text-zinc-500">{f.help}</div>
+              {f.out && <div className="mt-0.5 text-xs font-medium text-amber-800">Parked until {new Date(f.out.until).toLocaleString("en-GB")}: {f.out.kind === "credits" ? "out of credits" : "the key was rejected"}{f.out.note ? ` (${f.out.note})` : ""}.</div>}
+              {!f.configured && <div className="mt-0.5 text-xs text-zinc-600">Sign up at <a href={f.signup} target="_blank" rel="noreferrer" className="text-blue-700 underline">{f.signup.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}</a>, then add {f.env.map((e, i) => <span key={e}>{i ? " and " : ""}<code>{e}</code></span>)} in Vercel and redeploy. Optional: <code>{f.id.toUpperCase()}_MONTHLY_CAP</code> (0 for no cap).</div>}
+              {said[f.id] && <div className={`mt-0.5 text-xs ${said[f.id].ok ? "text-green-700" : "text-red-700"}`}>{said[f.id].detail}</div>}
+            </div>
+            {f.configured && <span className="flex gap-2">
+              <button onClick={() => test(f.id)} disabled={busy === f.id} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40">{busy === f.id ? "Testing…" : "Test"}</button>
+              {f.out && <button onClick={() => test(f.id, true)} disabled={busy === f.id} className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40">Try it again</button>}
+            </span>}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-zinc-500">Caps and the &quot;out of credits&quot; marks live in the shared store, so every visit and every server agrees on what has been spent. Without Redis connected the count is per server and resets when it restarts, so connect the store before adding keys. Raising a cap in Vercel is the only way to spend more: <code>PROSPEO_MONTHLY_CAP</code> and the like, or <code>0</code> for no cap at all, which does allow paid usage.</p>
+    </>
+  );
+}
 
 function StatusRow({ ok, label, detail }) {
   return (
