@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, to100, businessLabel, subjectForText, draftBatchPrompt, parseDraftBatch, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, sortFindings, presetSubject, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck, footerOnly } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, to100, businessLabel, subjectForText, draftBatchPrompt, parseDraftBatch, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, sortFindings, presetSubject, stripFlagLine, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck, footerOnly } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 import { mergeDoc } from "@/lib/merge";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, unmarkSent, sentIds, PasteHint, reportProgress, withTitle } from "@/app/claudeInbox";
@@ -346,6 +346,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const [id, l] of Object.entries(j.results || {})) { const m = mergeDoc(next[id], l); if (next[id] && JSON.stringify(m) !== JSON.stringify(l)) pushBack.push(id); next[id] = m; }
         setTimeout(() => { for (const id of pushBack) if (leadsRef.current[id]) push(id, leadsRef.current[id]); }, 500);
         for (const l of Object.values(next)) if (handledByYou(l)) yoursShared[l.id] = l.status;
+        // "Just thought I'd flag it with you…" is gone from every email: the closing paragraph
+        // does that job. Drafts written before lose it here, sent ones are left as they went.
+        for (const l of Object.values(next)) if (l.email && !isFrozen(l) && /flag it with you/i.test(l.email)) { const t = stripFlagLine(l.email); if (t !== l.email) { l.email = t; l.updatedAt = new Date().toISOString(); push(l.id, l); } }
         // A lead whose draft is already in belongs in Ready to check email, not in the queue
         // that is still waiting for Claude.
         for (const l of Object.values(next)) if (l.status === "to-draft" && l.review?.drafted && l.email) { l.status = "to-check"; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
@@ -947,7 +950,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         const current = String(f.emailAddress ?? l.emailAddress ?? "");
         if (c.email && (!current || GENERIC_BOX_RE.test(current.split("@")[0]))) { f.emailAddress = c.email; f.contactName = firstNameOf(c.name); f.emailFrom = `Claude: ${c.email_source || "no source given"}`; f.contactUnverified = false; if (["no-contact", "not-pursuing"].includes(l.status) && l.contactUnverified) f.status = "new"; }
       }
-      if (it.email_body && !l.emailEdited) Object.assign(f, { emailPrevious: l.email, email: it.email_body, subject: it.email_subject || l.subject, emailEdited: false, claudeDraft: true });
+      if (it.email_body && !l.emailEdited) Object.assign(f, { emailPrevious: l.email, email: stripFlagLine(it.email_body), subject: it.email_subject || l.subject, emailEdited: false, claudeDraft: true });
       // Fill the lead's fields with what Claude confirmed (shown in orange in the drawer).
       const filled = [];
       if (it.business_type) f.businessType = it.business_type;
@@ -1066,7 +1069,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     let done = 0;
     for (const it of items) {
       const l = leadsRef.current[it.lead_id]; if (!l || isFrozen(l)) continue;
-      update(l.id, { ...(l.status === "to-draft" ? { status: "to-check" } : {}), email: it.body, emailEdited: true, claudeDraft: true, emailPrevious: l.email && l.email !== it.body ? l.email : l.emailPrevious, subject: presetSubject(l, linksRef.current?.subjects || {}), review: { ...(l.review || {}), step: 3, drafted: new Date().toISOString(), ...(it.subject ? { subjectTyped: true } : {}) } });
+      update(l.id, { ...(l.status === "to-draft" ? { status: "to-check" } : {}), email: stripFlagLine(it.body), emailEdited: true, claudeDraft: true, emailPrevious: l.email && l.email !== it.body ? l.email : l.emailPrevious, subject: presetSubject(l, linksRef.current?.subjects || {}), review: { ...(l.review || {}), step: 3, drafted: new Date().toISOString(), ...(it.subject ? { subjectTyped: true } : {}) } });
       done++;
     }
     return `${done} email${done === 1 ? "" : "s"} added. Check each one in Email to draft, then Ready to send.`;
@@ -1168,7 +1171,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     let id = ""; try { const m = String(text).match(/"lead_id"\s*:\s*"([^"]+)"/); id = m ? m[1] : ""; } catch {}
     const l = leadsRef.current[id] || (open ? leadsRef.current[open] : null);
     if (!l) throw new Error("Couldn't tell which lead this draft is for. Open the lead, then paste again.");
-    update(l.id, { ...(l.status === "to-draft" ? { status: "to-check" } : {}), subject: presetSubject(l, linksRef.current?.subjects || {}), email: d.body, emailEdited: true, emailPrevious: l.email && l.email !== d.body ? l.email : l.emailPrevious, review: { ...(l.review || {}), step: 3, drafted: new Date().toISOString(), ...(d.subject ? { subjectTyped: true } : {}) } }); // Claude's subject shows in the box like one you typed
+    update(l.id, { ...(l.status === "to-draft" ? { status: "to-check" } : {}), subject: presetSubject(l, linksRef.current?.subjects || {}), email: stripFlagLine(d.body), emailEdited: true, emailPrevious: l.email && l.email !== d.body ? l.email : l.emailPrevious, review: { ...(l.review || {}), step: 3, drafted: new Date().toISOString(), ...(d.subject ? { subjectTyped: true } : {}) } }); // Claude's subject shows in the box like one you typed
     return `Draft added to ${l.business}.`;
   });
   async function checkLicence(l) {
