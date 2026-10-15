@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, to100, businessLabel, subjectForText, draftBatchPrompt, parseDraftBatch, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, to100, businessLabel, subjectForText, draftBatchPrompt, parseDraftBatch, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck, footerOnly } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 import { mergeDoc } from "@/lib/merge";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, unmarkSent, sentIds, PasteHint, reportProgress, withTitle } from "@/app/claudeInbox";
@@ -141,7 +141,8 @@ const YOUR_EDITS = ["website", "websiteConfirmed", "noWebsiteConfirmed", "reject
 const recentlyEdited = (l) => !!l.youEditedAt && Date.now() - new Date(l.youEditedAt).getTime() < 7 * 86400000;
 const vetted = (l) => { const c = vetChecks(l); return c.site && c.contact; }; // the Google check runs with Claude's vet but never holds a lead back
 // Where a vetted lead goes on the board: a problem to raise, nothing wrong (maintenance pitch), or no website.
-const boardColumn = (l) => (!l.website ? "not-pursuing" : l.problem ? "new" : "maintenance");
+// Only the footer year to go on is not an issue to raise: that is a maintenance conversation.
+const boardColumn = (l) => (!l.website ? "not-pursuing" : l.problem && !footerOnly(l) ? "new" : "maintenance");
 function routeVetting(l) {
   const was = l.status || "new";
   if (isFrozen(l) || l.optedOut || !PRE_BOARD.includes(was)) return false;
@@ -826,26 +827,39 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     if (sc.kind === "refresh") { const st = sc; setRun({ kind: "refresh", phase: "Continuing…", done: st.done || 0, total: st.total || 0, found: st.found || 0, errors: [] }); refreshLeads(sc.ids || []); }
     else findLeads(sc);
   }
-  // Leads that have never had a contact lookup get one automatically, one at a time in the background.
+  // Leads that have never had a contact lookup get one automatically, one at a time in the
+  // background. A lead whose website is confirmed but still has no address gets the contact
+  // finders too: an address is something the APIs should find on their own, so the only leads
+  // left for Chris to chase by hand are the ones nothing could find. (Mobile numbers are never
+  // looked up here: those are a manual click, on a lead he has decided to ring.)
   const contactsRunRef = useRef(false);
+  // Worth spending finder credits on an address for this lead?
+  const finderEmailOk = (l) => !!cfg?.finders?.live && !l.emailAddress && !l.finderEmailTried && !!l.website && vetChecks(l).site && l.likelihood !== "Low" && l.hunterOnFile !== 0;
   useEffect(() => {
     if (contactsRunRef.current) return;
-    const todo = Object.values(leads).filter((l) => !l.contactsAt && !l.contactsTried && (l.companyNumber || l.website) && !["won", "lost", "not-pursuing"].includes(l.status) && (l.status !== "vetting" || vetChecks(l).site));
+    const first = (l) => !l.contactsAt && !l.contactsTried;
+    // A lead parked as "contact not verified" is exactly the one the finders should try, so
+    // being in Not pursuing for that reason does not stop it.
+    const parkedForContact = (l) => l.contactUnverified && !l.emailAddress;
+    const todo = Object.values(leads).filter((l) => (first(l) || finderEmailOk(l)) && (l.companyNumber || l.website) && !["won", "lost"].includes(l.status) && (l.status !== "not-pursuing" || parkedForContact(l)) && (l.status !== "vetting" || vetChecks(l).site));
     if (!todo.length) return;
     contactsRunRef.current = true;
     (async () => {
       for (const l of todo) {
         try {
-          const r = await post({ step: "contacts", lead: l, useFinders: false });
+          const useFinders = finderEmailOk(l);
+          const r = await post({ step: "contacts", lead: l, useFinders });
           const cur = leadsRef.current[l.id]; if (!cur) continue;
           const best = r.people.find((p) => p.email) || null;
-          const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), ...(r.hunterOnFile !== undefined && r.hunterOnFile !== null ? { hunterOnFile: r.hunterOnFile } : {}), contactsTried: true, contactsStamp: contactsStamp(cfg), ...(r.mobile ? { mobile: r.mobile } : {}) };
+          const f = { contacts: r.people, channels: r.channels, contactsAt: r.contactsAt, ...addressFields(r), ...(r.hunterOnFile !== undefined && r.hunterOnFile !== null ? { hunterOnFile: r.hunterOnFile } : {}), contactsTried: true, contactsStamp: contactsStamp(cfg), ...(useFinders ? { finderEmailTried: true } : {}), ...(r.mobile ? { mobile: r.mobile } : {}) };
           const generic = r.channels.find((c) => c.kind === "email");
           if (!cur.emailAddress && (best || generic)) { f.emailAddress = best ? best.email : generic.value; if (best && !cur.contactName) f.contactName = firstNameOf(best.name); }
           const email = f.emailAddress || cur.emailAddress;
           if (["new", "qualified", "no-contact"].includes(cur.status)) { if (email) { f.status = "new"; f.contactUnverified = false; } else { f.contactUnverified = true; f.status = parkStatus(cur); } }
+          // Parked for "contact not verified" and a finder has now found one: back on the board.
+          else if (cur.status === "not-pursuing" && cur.contactUnverified && !cur.emailAddress && email) { f.status = "new"; f.contactUnverified = false; }
           update(l.id, f);
-        } catch { update(l.id, { contactsTried: true }); }
+        } catch { update(l.id, { contactsTried: true, ...(finderEmailOk(l) ? { finderEmailTried: true } : {}) }); }
       }
       contactsRunRef.current = false;
     })();
@@ -1263,7 +1277,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         {leadSource === "jobs" && <p className="mt-2 text-xs text-zinc-500"><a href="https://www.adzuna.co.uk" target="_blank" rel="noreferrer" className="underline">Jobs by Adzuna</a>. Recruitment agencies are left out.</p>}
         {cfg?.finders?.connected > 0 && (
           <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
-            <span title="Every finder is asked in turn and the first one with an answer wins, so when one runs out of credits the next one covers. Each one stops just under its free allowance and one lead can never cost more than about 14 credits, so nothing can run into paid usage. Credits are only spent on a confirmed website where their own site and Companies House gave nothing, or when you press Find the mobile yourself.">
+            <span title="Every finder is asked in turn and the first one with an answer wins, so when one runs out of credits the next one covers. Each one stops just under its free allowance and one lead can never cost more than about 14 credits, so nothing can run into paid usage. The background pass only ever looks for email addresses: phone numbers are looked up one lead at a time, when you press Find the mobile.">
               Contact finders: <span className="font-semibold">{cfg.finders.live}</span> of {cfg.finders.connected} with credits left
               {cfg.finders.left > 0 && <> · <span className="font-semibold">{cfg.finders.left}</span> credits left this month, then they stop</>}
               {cfg.finders.connected > 0 && !cfg.finders.shared && <span className="text-amber-800"> · the shared store is off, so the caps only count per server</span>}
@@ -1408,16 +1422,14 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                 <div className="flex items-start gap-1.5">
                   <input type="checkbox" checked={selected.has(l.id)} onChange={() => onToggle(l.id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${l.business}`} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span className="flex-1 text-sm font-medium leading-tight">{l.business}</span>
-                  {["new", "no-contact"].includes(c.id) && (!l.claude
-                    ? <span className="whitespace-nowrap rounded border border-orange-300 bg-orange-50 px-1.5 py-0.5 text-[10px] font-semibold text-orange-800" title="Not checked by Claude yet: use the Claude button at the top of the page">Needs checking</span>
-                    : l.likelihood && <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${LIKELY[l.likelihood]}`} title={l.likelihoodWhy || ""}>{l.likelihood}</span>)}
+                  {/* "Needs checking" said the same thing as the column, so it is gone: the whole
+                      of To assess is waiting for Claude. The likelihood stays, since it ranks them. */}
+                  {["new", "no-contact"].includes(c.id) && l.claude && l.likelihood && <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${LIKELY[l.likelihood]}`} title={l.likelihoodWhy || ""}>{l.likelihood}</span>}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
-                  {businessLabel(l) && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 font-semibold text-white" title={l.whatTheyDo || ""}>{businessLabel(l)}</span>}
                   {c.id === "to-draft" && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${l.review?.drafted ? "bg-emerald-100 text-emerald-800" : "bg-orange-100 text-orange-800"}`}>{l.review?.drafted ? "Draft in: check it" : "Waiting for Claude"}</span>}
                   {l.review?.step > 2 && !l.review?.done && ["new", "no-contact"].includes(c.id) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="Review in progress">Step 2/2</span>}
                   {cantFind(l) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="No website anywhere, so nothing to pitch">Can’t find them</span>}
-                  {TRIGGER_TAG[l.triggerKind] && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 font-semibold text-violet-800" title={l.trigger}>{TRIGGER_TAG[l.triggerKind]}</span>}
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
                   {l.noWebsiteConfirmed && !l.website && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title={l.problemDetail}>No site ✓</span>}
                   {l.websiteNeeded && !l.website && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="Claude couldn't find their real website. Open the lead to paste it in, or confirm they have none.">Find website</span>}
@@ -1428,8 +1440,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                   {!websiteIsVerified(l) && !isFrozen(l) && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="The website was matched on its name only. Open the lead and confirm it is theirs before anything goes out.">Confirm website</span>}
                   {needsChase(l, followUp) && <span className="rounded-full bg-amber-500 px-1.5 py-0.5 font-semibold text-white" title={`No reply ${Math.floor(daysSince(l))} days after contact: send the follow-up`}>Chase</span>}
                   {l.status === "contacted" && l.chasedAt && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 text-zinc-700">Chased {new Date(l.chasedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>}
-                  <span>{l.area}</span>
-                  {l.netAssets != null && l.netAssets !== "" && <span title={`Company worth ${money(l.netAssets)} (net assets)`}>· {compact(l.netAssets)}</span>}
+
                 </div>
                 {c.id === "not-pursuing" && <div className="mt-1 truncate text-[11px] font-medium text-red-700" title={parkExplain(l)}>{parkReason(l) || (l.contactUnverified && !l.emailAddress ? "No verified email address" : !l.problem ? "Site is current" : "Moved by hand")}</div>}
                 {l.checking && <div className="mt-1 text-[11px] text-blue-600">Checking…</div>}
@@ -1513,7 +1524,7 @@ function Contacts({ l, onChange, onContacts, onHunter, cfgHunter = false, subjec
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold">Who to contact</span>
         <span className="ml-auto flex flex-wrap gap-2">
-          {cfgHunter && <button onClick={onHunter} disabled={l.checking} title={l.website ? "Ask the contact finders for a mobile number and named people at this domain. Each one is tried in turn until a number comes back; it spends credits." : "No website on file: the finders look the company up by name, which can also turn up the domain. Spends credits."} className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs text-amber-900 hover:bg-amber-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {l.checking ? "Looking…" : l.hunterTried ? "Try the finders again" : "Find the mobile"}{l.hunterOnFile > 0 ? ` · ${l.hunterOnFile} named ${l.hunterOnFile === 1 ? "person" : "people"} on file` : l.hunterOnFile === 0 && siteHost ? " · no named people on file" : ""}</button>}
+          {cfgHunter && <button onClick={onHunter} disabled={l.checking} title={l.website ? "Ask the contact finders for a mobile number for the decision-maker. This is the only thing that spends mobile credits: the background pass never looks for a number. Worth doing once you are ready to ring them." : "No website on file: the finders look the company up by name, which can also turn up the domain. Spends credits."} className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs text-amber-900 hover:bg-amber-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {l.checking ? "Looking…" : l.hunterTried ? "Try the finders again" : "Find the mobile"}{l.hunterOnFile > 0 ? ` · ${l.hunterOnFile} named ${l.hunterOnFile === 1 ? "person" : "people"} on file` : l.hunterOnFile === 0 && siteHost ? " · no named people on file" : ""}</button>}
           <button onClick={onContacts} disabled={l.checking} title="Companies House and the website, free" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40"><SearchIcon className="h-3.5 w-3.5" /> {people.length ? "Look again" : "Find contacts"}</button>
         </span>
       </div>
@@ -1589,6 +1600,44 @@ function FollowUp({ l, onChange }) {
       <AutoTextarea value={body} onChange={(e) => onChange({ followUpEmail: e.target.value })} minRows={4} className="mt-1 w-full rounded-md border border-amber-200 bg-white px-2 py-1 text-sm" />
       {(l.followUpEmail || l.followUpSubject) && <button onClick={() => onChange({ followUpEmail: "", followUpSubject: "" })} className="mt-1 text-[11px] text-zinc-500 underline">Back to the suggested wording</button>}
     </div>
+  );
+}
+
+// Is the address real? A verification credit, spent only when you ask, from whichever
+// account has the most left. The answer is kept on the lead so it is only ever paid for once.
+const VERIFY_OK = /^(valid|deliverable|ok|accept|catch[-_ ]?all|unknown)$/i;
+function VerifyEmail({ l, onChange }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const v = l.emailVerified;
+  const email = String(l.emailAddress || "").trim().toLowerCase();
+  const current = v && String(v.email || "").toLowerCase() === email ? v : null;
+  async function check() {
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ step: "verify-email", email }) });
+      const j = await r.json();
+      if (j.error) setErr(j.error);
+      else onChange({ emailVerified: { email: j.email, status: j.status, by: j.by, at: j.at } });
+    } catch (e) { setErr(String(e?.message || e)); }
+    setBusy(false);
+  }
+  if (!email) return null;
+  if (current) {
+    const ok = VERIFY_OK.test(current.status);
+    const soft = /catch|unknown/i.test(current.status);
+    return (
+      <span className={`inline-flex items-center gap-1 font-medium ${ok ? (soft ? "text-amber-800" : "text-green-700") : "text-red-700"}`} title={`${current.by} said "${current.status}" on ${new Date(current.at).toLocaleDateString("en-GB")}`}>
+        {ok ? "✓" : "✕"} {soft ? `${current.by}: ${current.status.replace(/[-_]/g, " ")}` : ok ? `Verified with ${current.by}` : `${current.by} says it is ${current.status.replace(/[-_]/g, " ")}`}
+        <button onClick={check} disabled={busy} className="font-normal text-blue-700 underline disabled:opacity-40">{busy ? "checking…" : "check again"}</button>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <button onClick={check} disabled={busy} title="Checks the address really accepts mail, using one verification credit" className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] hover:bg-zinc-100 disabled:opacity-40">{busy ? "Checking…" : "Check it is real"}</button>
+      {err && <span className="text-red-700">{err}</span>}
+    </span>
   );
 }
 
@@ -2012,6 +2061,22 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   // What the email should say: used for this lead's own prompt, and saved on the lead for the batch prompt.
   const brief = lead ? { leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => c.key !== mainKey && (c.from === "You" || (r.also || []).includes(c.key))).map((c) => c.label), /* what you noticed is always mentioned */ notes: r.notes || "", path, template: lead.issue?.body || "" } : null;
   const prompt = lead ? withTitle("Email draft", l.business, draftPrompt({ l, first, ...brief, subject: subjectOf(lead) })) : "";
+  // Changing the main issue or the approach rewrites the email. A draft that argues a point you
+  // have just dropped is worse than no draft at all. An email you have edited by hand is never
+  // overwritten, and one Claude wrote goes back to Claude rather than being replaced by a template.
+  function redraftFor(key, pathId) {
+    if (!l.email || l.emailEdited) return null;
+    const c = cands.find((x) => x.key === key);
+    if (c?.issue) {
+      const d = draftFor(l, person, c.issue, subjects);
+      setMsg("Email rewritten for the new pick.");
+      return { email: d.body, subject: d.subject, issueId: d.issueId, pitch: c.label, emailEdited: false, emailPrevious: l.email !== d.body ? l.email : l.emailPrevious };
+    }
+    // Claude's wording, Claude's rewrite: it goes back into Email to draft with the new brief.
+    const also = cands.filter((x) => x.key !== key && (x.from === "You" || (r.also || []).includes(x.key))).map((x) => x.label);
+    setMsg("That changes what the email should say, so Claude will write it again.");
+    return { status: "to-draft", draftBrief: { leadWith: c?.label || "", also, notes: r.notes || "", path: pathId, template: "" } };
+  }
   // Issue and approach picked, no email yet: the lead waits in Email to draft (Claude can write it there or in a batch).
   // Once the issue is picked (step 3), a lead still on a pre-board column moves to Email to draft, whether or not an email exists yet.
   const toDraftNow = !!lead && lead.key !== "chk:maintenance" && ["new", "no-contact", "vetting", "find-site", "maintenance"].includes(l.status || "new");
@@ -2115,7 +2180,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
             <div className="space-y-1">
               {cands.map((c) => (
                 <div key={c.key} className={`flex items-center gap-2 rounded-md border px-2 py-1.5 ${mainKey === c.key ? "border-zinc-900 bg-zinc-50" : "border-zinc-200"}`}>
-                  <button onClick={() => setR({ lead: c.key, subjectTyped: false, path: r.pathSet ? r.path : suggestPath(c.issue?.id || c.label, l) }, { subject: subjectOf(c) })} title="Make this the main issue: the email leads with it and it sets the subject" className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                  <button onClick={() => { const np = r.pathSet ? r.path : suggestPath(c.issue?.id || c.label, l); setR({ lead: c.key, subjectTyped: false, path: np, ...(l.email && !l.emailEdited && !cands.find((x) => x.key === c.key)?.issue ? { drafted: "" } : {}) }, { subject: subjectOf(c), ...(redraftFor(c.key, np) || {}) }); }} title="Make this the main issue: the email leads with it, it sets the subject, and the email is rewritten to match" className="flex min-w-0 flex-1 items-center gap-2 text-left">
                     <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${mainKey === c.key ? "border-zinc-900 bg-zinc-900" : "border-zinc-400"}`}>{mainKey === c.key && <span className="h-1.5 w-1.5 rounded-full bg-white" />}</span>
                     <span className="min-w-0 flex-1">{c.label}{mainKey === c.key && <span className="ml-2 rounded-full bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">Main</span>}</span>
                   </button>
@@ -2125,10 +2190,6 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
                 </div>
               ))}
             </div>
-            {lead && (
-              <label className="block text-xs"><span className="text-zinc-500">Subject (from the main issue; <a href="/settings?section=emails" target="_blank" className="underline">edit the defaults</a>)</span>
-                <input value={(r.subjectTyped || !lead ? l.subject : subjectOf(lead)) || ""} onChange={(e) => setR({ subjectTyped: true }, { subject: e.target.value })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
-            )}
             <div className="flex gap-2">
               {(() => { const addOwn = () => { const t = own.trim(); if (!t) return; setR({ own: [...new Set([...(r.own || []), t])], lead: r.lead || `own:${t}` }); setOwn(""); }; return <>
               <input value={own} onChange={(e) => setOwn(e.target.value)} onBlur={addOwn} onKeyDown={(e) => { if (e.key === "Enter") addOwn(); }} placeholder="Add your own issue" className="flex-1 rounded-md border border-zinc-300 px-2 py-1 text-sm" />
@@ -2139,7 +2200,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
               <div className="text-xs text-zinc-500">Approach</div>
               <div className="mt-1 grid gap-1 sm:grid-cols-2">
                 {REVIEW_PATHS.map((p) => (
-                  <button key={p.id} onClick={() => setR({ path: p.id, pathSet: true })} className={`rounded-md border px-2 py-1.5 text-left ${path === p.id ? "border-zinc-900 bg-zinc-50" : "border-zinc-200 hover:bg-zinc-50"}`}>
+                  <button key={p.id} onClick={() => setR({ path: p.id, pathSet: true, ...(l.email && !l.emailEdited && !lead?.issue ? { drafted: "" } : {}) }, redraftFor(mainKey, p.id) || {})} className={`rounded-md border px-2 py-1.5 text-left ${path === p.id ? "border-zinc-900 bg-zinc-50" : "border-zinc-200 hover:bg-zinc-50"}`}>
                     <div className="text-xs font-semibold">{p.label}{!r.pathSet && path === p.id && lead && <span className="ml-1 font-normal text-zinc-400">suggested</span>}</div>
                     <div className="text-[11px] text-zinc-500">{p.hint}</div>
                   </button>
@@ -2175,12 +2236,13 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
                   {(() => { const src = emailSource(l); return src && (
                     <div className="text-[11px] sm:col-span-2">
                       <span className="text-zinc-600">Found: {src.text}</span> {!/website \(|site \(/i.test(src.text) && <><EmailWhere l={l} onChange={onChange} /> · </>}<a href={src.google} target="_blank" rel="noreferrer" className="text-blue-700 underline" title="See where this address is published">check on Google</a>
+                      <div className="mt-0.5"><VerifyEmail l={l} onChange={onChange} /></div>
                       {src.warn && <div className="mt-0.5 font-medium text-amber-800">{src.warn}</div>}
                     </div>
                   ); })()}
                   {!l.emailAddress && <div className="flex flex-wrap items-center gap-2 text-xs sm:col-span-2">
                     {l.website && <a href={`https://${String(l.website).replace(/^https?:\/\//, "")}`} target="_blank" rel="noopener" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 hover:bg-zinc-100"><ExternalIcon /> Search website</a>}
-                    {onHunter && <button onClick={onHunter} disabled={l.checking} title="Ask the contact finders for a mobile number and a named person's address. Each one is tried in turn; it spends credits." className="rounded-md border border-zinc-300 bg-white px-2 py-1 hover:bg-zinc-100 disabled:opacity-40">{l.checking ? "Looking…" : "Find the mobile"}</button>}
+                    {onHunter && <button onClick={onHunter} disabled={l.checking} title="Ask the contact finders for a mobile number and a named person's address. Numbers are only ever looked up here, never by the background pass." className="rounded-md border border-zinc-300 bg-white px-2 py-1 hover:bg-zinc-100 disabled:opacity-40">{l.checking ? "Looking…" : "Find the mobile"}</button>}
                     {l.hunterTried && !l.checking && <span className="text-zinc-500">Finders already tried{l.hunterOnFile === 0 ? ": nothing on file" : ""}</span>}
                   </div>}
                 </div>
@@ -2276,7 +2338,7 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
     const c = vetChecks(l);
     if (!l.website) return <span className="flex items-center gap-1"><input key={`s${l.id}`} placeholder="Paste their website" className={input} onKeyDown={(e) => { if (e.key === "Enter" && e.currentTarget.value.trim()) onSite(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (e.target.value.trim()) onSite(l, e.target.value.trim()); }} /><a href={`https://www.google.co.uk/search?q=${encodeURIComponent(`"${l.business}"`)}`} target="_blank" rel="noopener" className="text-xs text-blue-700 hover:underline">Google</a><button onClick={() => onNoSite(l)} className="text-xs text-zinc-500 hover:underline">no website</button></span>;
     if (!c.site) return <span className="flex items-center gap-1 text-xs"><a href={`https://${l.website}`} target="_blank" rel="noopener" className="text-blue-700 hover:underline">Open {l.website}</a><button onClick={() => onOpen(l.id)} className="rounded border border-zinc-300 px-1.5 py-0.5 hover:bg-zinc-100">Confirm it’s theirs</button></span>;
-    if (!c.contact) return <span className="flex flex-wrap items-center gap-1"><input key={`e${l.id}`} type="email" placeholder="Paste an email address" className={input} onKeyDown={(e) => { if (e.key === "Enter" && /@/.test(e.currentTarget.value)) onEmail(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (/@/.test(e.target.value)) onEmail(l, e.target.value.trim()); }} />{l.website && <a href={`https://${l.website}`} target="_blank" rel="noopener" className="ml-1 text-xs text-blue-700 hover:underline">Search website</a>}{l.website && <button onClick={() => onHunter(l)} disabled={l.checking} className="ml-3 text-xs text-blue-700 hover:underline disabled:opacity-40">{l.checking ? "Looking…" : l.hunterTried ? "Finders again" : "Find the mobile"}</button>}{!l.checking && (l.error || l.hunterNote) && <span className={`basis-full text-[11px] ${l.error ? "text-red-700" : "text-zinc-500"}`}>{l.error || l.hunterNote}</span>}</span>;
+    if (!c.contact) return <span className="flex flex-wrap items-center gap-1"><input key={`e${l.id}`} type="email" placeholder="Paste an email address" className={input} onKeyDown={(e) => { if (e.key === "Enter" && /@/.test(e.currentTarget.value)) onEmail(l, e.currentTarget.value.trim()); }} onBlur={(e) => { if (/@/.test(e.target.value)) onEmail(l, e.target.value.trim()); }} />{l.website && <a href={`https://${l.website}`} target="_blank" rel="noopener" className="ml-1 text-xs text-blue-700 hover:underline">Search website</a>}{l.website && <button onClick={() => onHunter(l)} disabled={l.checking} title="Looks for a mobile number as well as an address, and spends mobile credits" className="ml-3 text-xs text-blue-700 hover:underline disabled:opacity-40">{l.checking ? "Looking…" : "Find the mobile"}</button>}{!l.checking && (l.error || l.hunterNote) && <span className={`basis-full text-[11px] ${l.error ? "text-red-700" : "text-zinc-500"}`}>{l.error || l.hunterNote}</span>}</span>;
     return null;
   };
   // Each lead waits in the first step it's stuck on: website, then contact, then Google.
@@ -2284,8 +2346,8 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
   const stepOf = (l) => { const c = vetChecks(l); return !l.website || !c.site ? "site" : "contact"; };
   const cols = [
     ["claude", "Waiting for Claude", "Not vetted yet: Claude does all three steps in order.", waiting],
-    ["site", "1. Website", "Paste their site, confirm it, or mark no website. Nothing else is searched until this is done.", needsYou.filter((l) => stepOf(l) === "site")],
-    ["contact", "2. Contact", "Add an email or a mobile: their site, the finders, or one you found.", needsYou.filter((l) => stepOf(l) === "contact")],
+    ["site", "1. Website, by hand", "Claude couldn’t find or confirm a site for these. Run Claude again below, paste the address, or mark them as having none.", needsYou.filter((l) => stepOf(l) === "site")],
+    ["contact", "2. Contact, by hand", "The site, Companies House and the contact finders all came back with nothing. These are the only ones that need you.", needsYou.filter((l) => stepOf(l) === "contact")],
   ];
   const card = (l, col) => {
     const w = (l.seo?.searches || [])[0];
@@ -2310,6 +2372,7 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
           <div className="flex items-center gap-1.5 px-1 text-xs font-semibold text-zinc-700"><span>{label}</span><span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{items.length}</span></div>
           <div className="px-1 pb-2 text-[11px] text-zinc-500">{hint}</div>
           {id === "search" && items.length > 0 && <button onClick={() => openClaude({ job: "rank-check", preset: items.map((l) => l.id) })} className="mb-2 w-full rounded-md bg-orange-600 px-2 py-1 text-xs font-medium text-white hover:bg-orange-700">Check {items.length} on Google with Claude</button>}
+          {id === "site" && items.filter((l) => !l.website && siteSearchable(l)).length > 0 && <button onClick={() => openClaude({ job: "find-sites", preset: items.filter((l) => !l.website && siteSearchable(l)).map((l) => l.id) })} className="mb-2 w-full rounded-md bg-amber-600 px-2 py-1 text-xs font-medium text-white hover:bg-amber-700">Find {items.filter((l) => !l.website && siteSearchable(l)).length} website{items.filter((l) => !l.website && siteSearchable(l)).length === 1 ? "" : "s"} with Claude</button>}
           {id === "claude" && items.length > 0 && <button onClick={() => onVet(items.map((l) => l.id))} className="mb-2 w-full rounded-md bg-orange-600 px-2 py-1 text-xs font-medium text-white hover:bg-orange-700">Vet {items.length} with Claude</button>}
           <div className="flex flex-col gap-2">{items.slice(0, shown).map((l) => card(l, id))}{items.length === 0 && <div className="rounded-md border border-dashed border-zinc-300 p-3 text-center text-[11px] text-zinc-400">Nothing here</div>}</div>
           {items.length > shown && <button onClick={() => setShown((n) => n + 100)} className="mt-2 text-xs text-zinc-600 hover:underline">Show {items.length - shown} more</button>}

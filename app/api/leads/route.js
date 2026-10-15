@@ -33,10 +33,19 @@ export async function POST(request) {
       const l = b.lead || {};
       if (!l.companyNumber && !l.website) return Response.json({ error: "Needs a company number or a website." }, { status: 400 });
       if (l.companyNumber && !leadsConfigured()) return Response.json({ error: "Companies House is not set up (Settings → Connections), so only the website can be searched." }, { status: 400 });
-      const ct = await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business, employees: l.employees, websiteVerified: websiteIsVerified(l), useFinders: !!(b.useFinders ?? b.useHunter), forceFinders: !!(b.forceFinders ?? b.forceHunter), rejectedSites: l.rejectedSites || [] });
+      const ct = await findContacts({ companyNumber: l.companyNumber, website: l.website, business: l.business, employees: l.employees, websiteVerified: websiteIsVerified(l) || !!l.websiteConfirmed, useFinders: !!(b.useFinders ?? b.useHunter), forceFinders: !!(b.forceFinders ?? b.forceHunter), rejectedSites: l.rejectedSites || [] });
       const patch = { postcode: l.postcode, area: l.area, caveats: l.caveats || "" };
       applyTradingAddress(patch, ct.tradingAddress, null);
       return Response.json({ ...ct, tradingPostcode: patch.tradingPostcode || "", tradingAddressText: patch.tradingAddress || "", tradesElsewhere: !!patch.tradesElsewhere, caveats: patch.caveats });
+    }
+    // Is this address real? One verification credit, from whichever account has the most left.
+    if (b.step === "verify-email") {
+      const { verifyEmail } = await import("@/lib/enrich");
+      const email = String(b.email || "").trim().toLowerCase();
+      if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(email)) return Response.json({ error: "That does not look like an email address." }, { status: 400 });
+      const v = await verifyEmail(email);
+      if (!v.status) return Response.json({ error: v.trail.join(" · ") || "No verifier could check it (no key set, or all of them are out of credits this month)." }, { status: 503 });
+      return Response.json({ email, status: v.status, by: v.from, at: new Date().toISOString() });
     }
     if (b.step === "refresh") {
       if (!b.lead?.business) return Response.json({ error: "lead required" }, { status: 400 });

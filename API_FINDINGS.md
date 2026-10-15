@@ -147,7 +147,10 @@ verify    : zerobounce, bouncer, mailboxlayer, hunter, tomba
 - Errors are classified by `classify()` from HTTP status and body text: `credits` (402, or text like insufficient, quota, no credits, limit reached), `auth` (401, 403, invalid key), `rate` (429, timeouts), other.
 - `credits` marks the provider out **until the end of the month**; `auth` for **4 hours**. State is stored with `cacheSet` in Redis when a store exists, otherwise in memory (resets on restart and is per instance on Vercel, so **connect Redis** for real failover memory).
 - Usage counters per provider per month (`finder:<id>:<YYYY-MM>` via `counterIncr`). Prospeo charges 10 for a mobile, others 1. Caps are soft; override with `<PROVIDER>_MONTHLY_CAP` (set 0 for unlimited on paid plans).
-- `findContacts()` (in `lib/leads.js`) calls: `searchDomain` once, `enrichPerson` for the top two decision makers, `companyPhone` only if nothing else gave a number, `verifyEmail` for any new email. A human readable trail ("Prospeo: out of credits · Lusha: number found") is returned as `hunterNote`.
+- `findContacts()` (in `lib/leads.js`) calls `searchDomain` once and `verifyEmail` for any new
+  address. **`enrichPerson` and `companyPhone` only run on a manual click** (`forceFinders`),
+  because a phone number is for the follow-up call after a couple of emails, not for a
+  background sweep. That also means Prospeo and Lusha credits are never spent automatically. A human readable trail ("Prospeo: out of credits · Lusha: number found") is returned as `hunterNote`.
 - Credit budget per lead: up to about 1 domain search + 2 person lookups (each possibly walking several providers) + 1 verify. Leads are only enriched when `likelihood` is not Low (`useHunter: provisional !== "Low"`), or on a manual click.
 
 ### Env vars

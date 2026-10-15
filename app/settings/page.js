@@ -240,7 +240,7 @@ export default function Settings() {
           </section>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
             <h2 className="font-semibold">Contact finders (for WhatsApp numbers)</h2>
-            <p className="mb-3 text-sm text-zinc-500">Free tiers stacked. Each one is asked in turn and the first with an answer wins, so when one runs out of credits the next one covers. A UK mobile is what they are for; email addresses are the backup, checked for bounces by whichever verifier has the most credits left. Credits are only spent on a confirmed website the free routes found nothing for, or when you press <b>Find the mobile</b> on a lead.</p>
+            <p className="mb-3 text-sm text-zinc-500">Free tiers stacked. Each one is asked in turn and the first with an answer wins, so when one runs out of credits the next one covers. Email addresses come first, checked for bounces by whichever verifier has the most credits left. A UK mobile for WhatsApp or a follow-up call is <b>never looked up automatically</b>: that only happens when you press <b>Find the mobile</b> on a lead you have decided to chase, which is also the only thing that spends Prospeo or Lusha credits. The background pass spends credits on addresses alone, and only for a confirmed website the free routes found nothing for.</p>
             <p className="mb-3 text-sm text-zinc-500"><b>Nothing can run over a free plan.</b> Every credit the app spends is counted, and a call is refused when it would take the month past the cap. Each cap sits just under the free allowance, so a few credits are always left spare, and one lead can never cost more than {"\u2248"}14 credits in total.</p>
             <FindersPanel />
           </section>
