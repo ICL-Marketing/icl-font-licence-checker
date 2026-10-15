@@ -117,10 +117,14 @@ function raisedIn(l) {
   if (k.startsWith("chk:")) return (issuesFor(l).find((i) => `chk:${i.id}` === k) || {}).label || l.problem || "";
   return l.problem || "";
 }
-// Nothing to fix on the site: offer to look after it (Web maintenance column, with the maintenance email unless edited).
+// Nothing to fix on the site. That is not a dead end: it is a good site, so the pitch is
+// looking after it for less than they are paying now. The lead goes through the board like
+// any other, tagged Maintenance, with no issues to raise.
 function toMaintenance(l) {
-  l.status = "maintenance"; l.likelihoodWhy = "Site looks current: offer website maintenance";
-  if (!l.emailEdited) { const t = emailTemplates().maintenance; l.subject = t.subject; l.email = t.body; l.issueId = "maintenance"; }
+  l.maintenance = true;
+  l.status = l.emailAddress ? "to-draft" : "no-contact";
+  l.likelihoodWhy = "Site looks current: offer to look after it for less than they pay now";
+  if (!l.emailEdited) { l.subject = emailTemplates().maintenance.subject; l.issueId = "maintenance"; }
   l.caveats = String(l.caveats || "").split("; ").filter((x) => x && !/site is current/i.test(x)).join("; ");
   l.statusAt = l.updatedAt = new Date().toISOString();
 }
@@ -130,7 +134,7 @@ const googleUk = (q) => `https://www.google.co.uk/search?q=${encodeURIComponent(
 // What the app adds under the email when it's sent: the paragraph about us (unless the email already covers it) and the opt-out line.
 const addedBelow = (body) => { const b = String(body || "").trimEnd(); return withIclLine(b || "x", { optOut: true }).slice((b || "x").length).trim(); };
 // Vetting: before a lead reaches the board its website is verified (or confirmed missing), a contact is found and its Google ranking is checked.
-const PRE_BOARD = ["new", "qualified", "no-contact", "find-site", "maintenance", "vetting"];
+const PRE_BOARD = ["new", "qualified", "no-contact", "find-site", "maintenance", "vetting", "to-draft"];
 const vetChecks = (l) => ({
   site: l.website ? (websiteIsVerified(l) || humanConfirmed(l)) && !siteDoubt(l) : !!l.noWebsiteConfirmed,
   contact: !!l.emailAddress,
@@ -142,7 +146,7 @@ const recentlyEdited = (l) => !!l.youEditedAt && Date.now() - new Date(l.youEdit
 const vetted = (l) => { const c = vetChecks(l); return c.site && c.contact; }; // the Google check runs with Claude's vet but never holds a lead back
 // Where a vetted lead goes on the board: a problem to raise, nothing wrong (maintenance pitch), or no website.
 // Only the footer year to go on is not an issue to raise: that is a maintenance conversation.
-const boardColumn = (l) => (!l.website ? "not-pursuing" : l.problem && !footerOnly(l) ? "new" : "maintenance");
+const boardColumn = (l) => (!l.website ? "not-pursuing" : l.problem && !footerOnly(l) ? "new" : "maintenance"); // "maintenance" here means the support pitch, not a column
 function routeVetting(l) {
   const was = l.status || "new";
   if (isFrozen(l) || l.optedOut || !PRE_BOARD.includes(was)) return false;
@@ -199,7 +203,7 @@ function parkSoleTraders(all) {
   for (const l of Object.values(all)) if (soleTrader(l) && !["not-pursuing", "lost", "won", "contacted", "replied", "meeting", "cold"].includes(l.status)) { l.status = "not-pursuing"; l.caveats = ["Sole trader (not a limited company): not emailed", ...String(l.caveats || "").split("; ").filter((x) => x && !/not a limited company/i.test(x))].join("; "); l.statusAt = l.updatedAt = new Date().toISOString(); }
 }
 // Leads worth a rankings check: open, with a website.
-const rankable = (l) => !!l.website && !isFrozen(l) && !l.optedOut && ["vetting", "new", "no-contact", "maintenance", "ready"].includes(l.status || "new");
+const rankable = (l) => !!l.website && !isFrozen(l) && !l.optedOut && ["vetting", "new", "no-contact", "to-draft", "ready"].includes(l.status || "new");
 const STALE_WHY = /site is current|no outreach planned/i;
 const humanConfirmed = (l) => !!l.websiteConfirmed || ["confirmed by you", "checked by Claude"].includes(l.websiteVerified || "");
 const siteDoubt = (l) => !!(l.website && l.websiteDoubt && !humanConfirmed(l));
@@ -222,7 +226,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       const parkedSmall = l.status === "not-pursuing" && tooSmallCaveat.test(l.caveats || "");
       if (parkedSmall && l.netAssets >= floor) {
         const caveats = (l.caveats || "").split("; ").filter((x) => !tooSmallCaveat.test(x)).join("; ");
-        const status = !l.problem ? (l.website ? "maintenance" : "not-pursuing") : l.emailAddress ? ("new") : "no-contact";
+        const status = !l.problem ? (l.website ? "to-draft" : "not-pursuing") : l.emailAddress ? ("new") : "no-contact";
         if (status !== "not-pursuing") { next[id] = { ...l, caveats, status, contactUnverified: !l.emailAddress, statusAt: at, updatedAt: at }; changed++; push(id, next[id]); }
       } else if (["vetting", "new", "qualified", "no-contact"].includes(l.status) && l.netAssets < floor) {
         next[id] = { ...l, caveats: [l.caveats, `Net assets under £${floor.toLocaleString("en-GB")}`].filter(Boolean).join("; "), status: "not-pursuing", statusAt: at, updatedAt: at }; changed++; push(id, next[id]);
@@ -350,6 +354,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const [id, l] of Object.entries(j.results || {})) { const m = mergeDoc(next[id], l); if (next[id] && JSON.stringify(m) !== JSON.stringify(l)) pushBack.push(id); next[id] = m; }
         setTimeout(() => { for (const id of pushBack) if (leadsRef.current[id]) push(id, leadsRef.current[id]); }, 500);
         for (const l of Object.values(next)) if (handledByYou(l)) yoursShared[l.id] = l.status;
+        // The Web maintenance column is gone: those leads are ordinary leads with a tag.
+        for (const l of Object.values(next)) if (l.status === "maintenance") { l.maintenance = true; l.status = l.emailAddress ? "to-draft" : "no-contact"; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
         // "Looking…" is passing state, not something to keep: a run cut short by a reload or a
         // closed tab would otherwise leave the buttons disabled for good.
         for (const l of Object.values(next)) if (l.checking) l.checking = false;
@@ -462,15 +468,11 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   // Pages on icldigital.com the emails link to (shared setting, edited in Settings → Connections).
   const linksRef = useRef({});
   const [followUp, setFollowUp] = useState(FOLLOW_UP_DEFAULTS);
-  // Email wording from Settings → Email templates; unedited maintenance emails follow it.
+  // The shared email wording from Settings → Email templates: the footer, the opt-out line,
+  // and the maintenance pitch Claude is given as a guide.
   useEffect(() => {
-    fetch("/api/settings?key=email-templates").then((r) => r.json()).then((j) => {
-      if (!j.shared || !j.value) return;
-      setEmailTemplates(j.value);
-      const t = emailTemplates().maintenance;
-      for (const l of Object.values(leadsRef.current)) if (l.issueId === "maintenance" && !l.emailEdited && !isFrozen(l) && (l.email !== t.body || l.subject !== t.subject)) update(l.id, { email: t.body, subject: t.subject });
-    }).catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    fetch("/api/settings?key=email-templates").then((r) => r.json()).then((j) => { if (j.shared && j.value) setEmailTemplates(j.value); }).catch(() => {});
+  }, []);
   useEffect(() => { fetch("/api/settings?key=lead-links").then((r) => r.json()).then((j) => { if (j.shared && j.value) { linksRef.current = j.value; if (j.value.followUp) setFollowUp({ ...FOLLOW_UP_DEFAULTS, ...j.value.followUp }); } }).catch(() => {}); }, []);
 
   // Silence moves leads along: Contacted → Cold after coldDays, Cold → Lost after lostDays.
@@ -588,7 +590,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           st.done++;
           if (lead.problem && !tooSmall) { if (["new", "qualified"].includes(lead.status)) st.found++; else st.parked = (st.parked || 0) + 1; update(lead.id, lead); markSeen(c.companyNumber, lead.status); }
           else if (lead.problem) { st.parked = (st.parked || 0) + 1; update(lead.id, { ...lead, status: "not-pursuing" }); markSeen(c.companyNumber, "too-small"); }
-          else if (lead.status === "maintenance") { st.found++; update(lead.id, lead); markSeen(c.companyNumber, "maintenance"); } // nothing wrong with the site: a maintenance pitch
+          else if (lead.maintenance) { st.found++; update(lead.id, lead); markSeen(c.companyNumber, "maintenance"); } // nothing wrong with the site: a maintenance pitch
           else { st.parked = (st.parked || 0) + 1; update(lead.id, { ...lead, status: "not-pursuing" }); markSeen(c.companyNumber, "site-fine"); }
         } catch (e) { if (stopRef.current) break; st.done++; st.errors.push(`${c.name}: ${e.message}`); }
         candidates = candidates.slice(1);
@@ -1053,7 +1055,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         const g = { rejectedSites: [...new Set([...(l.rejectedSites || []), site])], websiteDoubt: "", seo: null, ...(l.emailAddress && l.emailAddress.endsWith("@" + site) ? { emailAddress: "", contactName: "" } : {}) };
         if (it.correct_website) Object.assign(g, { website: it.correct_website, websiteConfirmed: true, websiteVerified: "checked by Claude", websiteEvidence: it.website_evidence || "found by Claude", ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}) });
         else Object.assign(g, { website: "", websiteConfirmed: false, websiteVerified: "", problem: "No website", problemDetail: `${site} belongs to a different business${it.website_evidence ? ` (${it.website_evidence})` : ""}`, websiteNeeded: false, noWebsiteConfirmed: true }); // Claude looked and found nothing: parked as Can't find them online
-        if (["new", "no-contact", "maintenance", "ready", "to-draft"].includes(l.status)) g.status = "vetting";
+        if (["new", "no-contact", "ready", "to-draft"].includes(l.status)) g.status = "vetting";
         update(l.id, g);
         l = leadsRef.current[l.id];
         if (!it.correct_website) continue;
@@ -1407,7 +1409,7 @@ const PLACES = {
 // Newest arrival in the column first (moved or added), then likelihood and size for ties.
 const arrived = (l) => Date.parse(l.statusAt || l.addedAt || "") || 0;
 // Batches of Claude work start with To assess, then the other open columns.
-const COL_RANK = { vetting: -2, "find-site": -1, new: 0, "no-contact": 1, maintenance: 3, ready: 4 };
+const COL_RANK = { vetting: -2, "find-site": -1, new: 0, "no-contact": 1, ready: 4 };
 const colRank = (l) => COL_RANK[l.status || "new"] ?? 9;
 const sorted = (list) => list.slice().sort((a, b) => arrived(b) - arrived(a) || ({ High: 0, Medium: 1, Low: 2 }[a.likelihood] ?? 3) - ({ High: 0, Medium: 1, Low: 2 }[b.likelihood] ?? 3) || (b.netAssets || 0) - (a.netAssets || 0));
 
@@ -1431,7 +1433,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
           {c.id === "new" && c.items.some((l) => !l.claude) && <button onClick={() => openClaude({ job: "lead-check", column: "new" })} title="Claude checks each site for the issue to raise; leads with an issue and an address move to Email to draft" className="mb-2 w-full rounded-md bg-orange-600 px-2 py-1 text-xs font-medium text-white hover:bg-orange-700">Find issues for {c.items.filter((l) => !l.claude).length} with Claude</button>}
           {c.id === "find-site" && c.items.length > 0 && <button onClick={() => openClaude({ job: "find-sites", preset: c.items.map((l) => l.id) })} className="mb-2 w-full rounded-md bg-amber-600 px-2 py-1 text-xs font-medium text-white hover:bg-amber-700">Find {c.items.length} website{c.items.length === 1 ? "" : "s"} with Claude</button>}
           {c.id === "to-draft" && c.items.some((l) => !l.review?.drafted) && <button onClick={() => openClaude({ job: "draft-batch" })} className="mb-2 w-full rounded-md bg-orange-600 px-2 py-1 text-xs font-medium text-white hover:bg-orange-700">Write {c.items.filter((l) => !l.review?.drafted).length} emails with Claude</button>}
-          {["new", "to-draft", "no-contact", "maintenance"].includes(c.id) && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.id)} title="Go through these one at a time: look at the site, pick the issue and approach, then draft the email with Claude" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
+          {["new", "to-draft", "no-contact"].includes(c.id) && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.id)} title="Go through these one at a time: look at the site, pick the issue and approach, then draft the email with Claude" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
           <div className="flex flex-1 flex-col gap-2">
             {c.items.slice(0, shown[c.id] || 60).map((l) => (
               <div key={l.id} draggable onDragStart={(e) => { e.dataTransfer.setData("text/lead", l.id); e.dataTransfer.effectAllowed = "move"; }} onClick={() => onOpen(l.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") onOpen(l.id); }}
@@ -1446,6 +1448,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
                   {c.id === "to-draft" && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${l.review?.drafted ? "bg-emerald-100 text-emerald-800" : "bg-orange-100 text-orange-800"}`}>{l.review?.drafted ? "Draft in: check it" : "Waiting for Claude"}</span>}
                   {l.review?.step > 2 && !l.review?.done && ["new", "no-contact"].includes(c.id) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="Review in progress">Step 2/2</span>}
+                  {l.maintenance && <span className="rounded-full bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-800" title="Nothing wrong with their site: the pitch is looking after it for less than they pay now">Maintenance</span>}
                   {cantFind(l) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="No website anywhere, so nothing to pitch">Can’t find them</span>}
                   {l.contactUnverified && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
                   {l.noWebsiteConfirmed && !l.website && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title={l.problemDetail}>No site ✓</span>}
@@ -1623,6 +1626,8 @@ function FollowUp({ l, onChange }) {
 // Is the address real? A verification credit, spent only when you ask, from whichever
 // account has the most left. The answer is kept on the lead so it is only ever paid for once.
 const VERIFY_OK = /^(valid|deliverable|ok|accept|catch[-_ ]?all|unknown)$/i;
+// Checked and real: a warning about the address being a personal one has had its answer.
+const emailChecked = (l) => { const v = l.emailVerified; return !!v && String(v.email || "").toLowerCase() === String(l.emailAddress || "").trim().toLowerCase() && VERIFY_OK.test(v.status); };
 function VerifyEmail({ l, onChange }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -1663,7 +1668,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
   const [asking, setAsking] = useState(false);
   const [optingOut, setOptingOut] = useState(false);
   const [footerEl, setFooterEl] = useState(null); // the review steps put their buttons here, so they stay in view
-  const reviewable = ["new", "find-site", "to-draft", "no-contact", "maintenance"].includes(l.status) && !isFrozen(l);
+  const reviewable = ["new", "find-site", "to-draft", "no-contact"].includes(l.status) && !isFrozen(l);
   // Opening a lead always lands on the Review tab (where it has one).
   const [view, setView] = useState(() => (reviewable || l.review ? "review" : "details"));
   const downOnBackdrop = useRef(false);
@@ -1899,7 +1904,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             const btn = "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-white";
             if (l.optedOut || isFrozen(l)) return null;
             if (l.status === "ready" && l.email && l.emailAddress && websiteIsVerified(l)) return <a href={outlook} target="_blank" rel="noopener" onClick={() => onChange({ status: "contacted", sentAt: new Date().toISOString() })} className={`${btn} bg-emerald-600 hover:bg-emerald-700`}><MailIcon className="h-4 w-4" /> Open in Outlook and mark as sent</a>;
-            if (!["vetting", "new", "find-site", "to-draft", "no-contact", "maintenance"].includes(l.status || "new")) return null;
+            if (!["vetting", "new", "find-site", "to-draft", "no-contact"].includes(l.status || "new")) return null;
             if (!l.website && siteSearchable(l)) return <button onClick={onFindSite} className={`${btn} bg-amber-600 hover:bg-amber-700`}><SearchIcon className="h-4 w-4" /> Find their website with Claude</button>;
             if (!l.claude) return <button onClick={onClaude} className={`${btn} bg-orange-600 hover:bg-orange-700`}><SearchIcon className="h-4 w-4" /> Check with Claude</button>;
             return null;
@@ -2036,15 +2041,15 @@ function FindLeadsModal({ area, miles, exclude, onClose }) {
 function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects, commitWebsite, rejectWebsite, onNext, onRecheck, footerEl = null }) {
   const inFooter = (node) => (footerEl ? createPortal(node, footerEl) : node);
   const r = l.review || {};
-  const step = l.status === "maintenance" ? 3 : r.step || 1; // maintenance: straight to the email, even before it's saved
+  const step = l.maintenance ? 3 : r.step || 1; // maintenance: straight to the email, even before it's saved
   const setR = (patch, extra = {}) => onChange({ review: { ...r, ...patch }, ...extra });
   // Web maintenance: nothing to pick, the maintenance email is written already (Settings → Email templates). Straight to the email.
-  const maint = l.status === "maintenance";
+  const maint = !!l.maintenance;
   useEffect(() => {
-    if (!maint || (r.step === 3 && r.lead === "chk:maintenance" && r.drafted)) return;
-    const t = emailTemplates().maintenance;
-    const at = new Date().toISOString();
-    const timer = setTimeout(() => onChange({ review: { ...r, step: 3, lead: "chk:maintenance", path: "maintenance", siteChecked: true, drafted: r.drafted || at }, issueId: "maintenance", ...(l.emailEdited ? {} : { email: t.body, subject: t.subject }) }), 0);
+    if (!maint || (r.step === 3 && r.lead === "chk:maintenance")) return;
+    // Nothing to raise on a good site, so the review skips straight to the email. Claude
+    // writes it: the pitch is looking after the site for less than they pay now.
+    const timer = setTimeout(() => onChange({ review: { ...r, step: 3, lead: "chk:maintenance", path: "maintenance", siteChecked: true }, issueId: "maintenance", ...(l.email || l.emailEdited ? {} : { status: "to-draft", draftBrief: { leadWith: "Website maintenance: nothing is wrong with their site, so offer to look after it from £49 a month, likely cheaper than they pay now", also: [], notes: "", path: "maintenance", template: emailTemplates().maintenance.body } }) }), 0);
     return () => clearTimeout(timer);
   }, [l.id, maint]); // eslint-disable-line react-hooks/exhaustive-deps
   const [own, setOwn] = useState("");
@@ -2106,7 +2111,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   }
   // Issue and approach picked, no email yet: the lead waits in Email to draft (Claude can write it there or in a batch).
   // Once the issue is picked (step 3), a lead still on a pre-board column moves to Email to draft, whether or not an email exists yet.
-  const toDraftNow = !!lead && lead.key !== "chk:maintenance" && ["new", "no-contact", "vetting", "find-site", "maintenance"].includes(l.status || "new");
+  const toDraftNow = !!lead && lead.key !== "chk:maintenance" && ["new", "no-contact", "vetting", "find-site"].includes(l.status || "new");
   useEffect(() => {
     if (r.step !== 3 || !toDraftNow) return;
     const t = setTimeout(() => onChange({ status: "to-draft", draftBrief: brief }), 0);
@@ -2130,7 +2135,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
     if (names) { const t = setTimeout(() => onChange({ contactName: names, review: { ...(l.review || {}), namesFilled: true } }), 0); return () => clearTimeout(t); }
   }, [l.id, l.emailAddress]); // eslint-disable-line react-hooks/exhaustive-deps
   // The email box only holds Claude's draft (or your own typing), never the app's automatic template.
-  const draftText = r.drafted || maint ? l.email || (maint && !l.emailEdited ? emailTemplates().maintenance.body : "") : "";
+  const draftText = r.drafted || maint ? l.email || "" : "";
   // Address and email text both in: Ready to send, and on to the next lead.
   const finishReady = (extra = {}) => { setR({ done: true, doneAt: new Date().toISOString(), drafted: r.drafted || new Date().toISOString() }, { status: "ready", statusBy: "you", ...extra }); onNext?.(true); };
   return (
@@ -2277,7 +2282,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
                     <div className="text-[11px] sm:col-span-2">
                       <span className="text-zinc-600">Found: {src.text}</span> {!/website \(|site \(/i.test(src.text) && <><EmailWhere l={l} onChange={onChange} /> · </>}<a href={src.google} target="_blank" rel="noreferrer" className="text-blue-700 underline" title="See where this address is published">check on Google</a>
                       <div className="mt-0.5"><VerifyEmail l={l} onChange={onChange} /></div>
-                      {src.warn && <div className="mt-0.5 font-medium text-amber-800">{src.warn}</div>}
+                      {src.warn && !emailChecked(l) && <div className="mt-0.5 font-medium text-amber-800">{src.warn}</div>}
                     </div>
                   ); })()}
                   {!l.emailAddress && <div className="flex flex-wrap items-center gap-2 text-xs sm:col-span-2">
