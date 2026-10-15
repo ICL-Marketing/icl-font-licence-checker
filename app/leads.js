@@ -1279,69 +1279,6 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
 
   return (
     <div>
-      <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-        <h2 className="font-semibold">Website Leads</h2>
-        {cfg && !cfg.configured && <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Companies House is not connected yet. Add the free API key in <Link href="/settings?section=connections" className="underline">Settings → Connections</Link>. The board below still works.</p>}
-        <div className="mt-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className={`flex min-w-[16rem] flex-1 flex-wrap items-center gap-1 rounded-md border bg-white px-2 py-1 ${areaState.error ? "border-red-300" : "border-zinc-300"}`} title={areaTitle}>
-              <PinIcon className="h-4 w-4 shrink-0 text-zinc-400" />
-              {areaCentres.map((c) => (
-                <span key={c} className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">{c}<button onClick={() => saveArea(areaCentres.filter((x) => x !== c), areaMiles)} disabled={running} aria-label={`Remove ${c}`} className="text-zinc-400 hover:text-red-600 disabled:opacity-40">×</button></span>
-              ))}
-              <input value={areaDraft} onChange={(e) => setAreaDraft(e.target.value)} onKeyDown={(e) => { if ((e.key === "Enter" || e.key === ",") && areaDraft.trim()) { e.preventDefault(); saveArea([...areaCentres, areaDraft.trim()], areaMiles); setAreaDraft(""); } else if (e.key === "Backspace" && !areaDraft && areaCentres.length > 1) saveArea(areaCentres.slice(0, -1), areaMiles); }} onBlur={() => { if (areaDraft.trim()) { saveArea([...areaCentres, areaDraft.trim()], areaMiles); setAreaDraft(""); } }} disabled={running} placeholder={areaCentres.length ? "Add a town or postcode" : "Town or postcode"} className="min-w-[9rem] flex-1 bg-transparent px-1 py-0.5 text-sm outline-none" />
-              <span className="shrink-0 text-xs text-zinc-500">{areaState.busy ? "Mapping…" : areaState.error ? <span className="text-red-700">{areaState.error}</span> : areaState.outcodes ? `${areaState.outcodes} postcode areas` : ""}</span>
-            </div>
-            <label className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-700" title="How far from the locations to look. Companies registered outside it are dropped.">within
-              <input type="number" min={1} max={30} value={areaMilesDraft} onChange={(e) => setAreaMilesDraft(e.target.value)} onBlur={() => { const n = Math.max(1, Math.min(30, Number(areaMilesDraft) || areaMiles)); setAreaMilesDraft(String(n)); if (n !== areaMiles) saveArea(areaCentres, n); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} disabled={running} className="w-12 rounded border border-zinc-200 px-1 py-0.5 text-sm" /> miles
-            </label>
-            {!running && pending && (
-              <button onClick={continueScan} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white"><PlayIcon className="h-4 w-4" /> Continue {pending.kind === "refresh" ? "rescan" : "scan"} ({(pending.queue || pending.ids || []).length} left)</button>
-            )}
-            <select value={leadSource} onChange={(e) => setLeadSource(e.target.value)} disabled={running} title={(LEAD_SOURCES.find((x) => x[0] === leadSource) || [])[2]} className="rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm disabled:opacity-40">
-              {LEAD_SOURCES.map(([k, label]) => <option key={k} value={k}>{label}{k === "jobs" && cfg && !cfg.jobs ? " (connect Adzuna)" : k === "maps" && cfg && !cfg.places ? " (connect Google)" : ""}</option>)}
-            </select>
-            {leadSource === "maps" && (
-              <select value={MAPS_TYPES.some(([, t]) => t.includes(mapsWhat)) ? mapsWhat : ""} onChange={(e) => setMapsWhat(e.target.value)} disabled={running} title="What kind of business to look for on Google Maps" className="rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm disabled:opacity-40">
-                <option value="">Business type…</option>
-                {MAPS_TYPES.map(([group, types]) => <optgroup key={group} label={group}>{types.map((t) => <option key={t} value={t}>{t}</option>)}</optgroup>)}
-              </select>
-            )}
-            {running
-              ? <button onClick={stopNow} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
-              : <>{queue.length > 0 && <button onClick={runQueue} disabled={cfg?.configured === false} title="Run every queued search, one after another" className="inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><PlayIcon className="h-4 w-4" /> Run queue ({queue.length})</button>}<button onClick={queueSearch} disabled={cfg?.configured === false || leadSource === "claude" || !areaState.outcodes || (leadSource === "maps" && !MAPS_TYPES.some(([, t]) => t.includes(mapsWhat)))} title="Add this search (source, type and area) to the queue, then change the controls and add another" className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40">+ Queue</button><button onClick={() => findLeads()} disabled={cfg?.configured === false} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> {leadSource === "claude" ? "Ask Claude" : "Find leads"}</button></>}
-            <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
-          </div>
-        </div>
-        {repeat && !running && (
-          <p className="mt-2 text-xs text-amber-800"><span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold">Already searched</span> {(LEAD_SOURCES.find((x) => x[0] === repeat.mode) || [])[1]}{repeat.what ? `: ${repeat.what}` : ""} within {repeat.miles} miles of {repeat.centres.join(", ")} on {new Date(repeat.at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}, which covers this search. Running it again mostly finds the same businesses.</p>
-        )}
-        {(queue.length > 0 || queueAt) && (
-          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-            {queueAt && <span className="rounded-full bg-blue-600 px-2 py-0.5 font-medium text-white">Running {queueAt.n} of {queueAt.total}: {queueAt.label}</span>}
-            {queue.map((q) => <span key={q.id} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${covering(q) ? "bg-amber-100 text-amber-900" : "bg-zinc-100 text-zinc-700"}`} title={covering(q) ? "Already searched: a past search covers this one" : ""}>{covering(q) ? "⚠ " : ""}{queueLabel(q)}<button onClick={() => unqueue(q.id)} aria-label="Remove from queue" className="text-zinc-400 hover:text-zinc-700">✕</button></span>)}
-            {!queueAt && <span className="text-zinc-500">Queued: they run one after another when you click Run queue.</span>}
-          </div>
-        )}
-        {leadSource === "maps" && cfg?.places && <p className="mt-2 text-xs text-zinc-500">Google Maps searches this month: <span className="font-semibold">{cfg.placesUsage?.used || 0}</span> of {cfg.placesUsage?.cap || 900} free. Each run uses 1 to 3 per location; repeating a search within 30 days is free.</p>}
-        {leadSource === "jobs" && <p className="mt-2 text-xs text-zinc-500"><a href="https://www.adzuna.co.uk" target="_blank" rel="noreferrer" className="underline">Jobs by Adzuna</a>. Recruitment agencies are left out.</p>}
-        {cfg?.finders?.connected > 0 && (
-          <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
-            <span title="Every finder is asked in turn and the first one with an answer wins, so when one runs out of credits the next one covers. Each one stops just under its free allowance and one lead can never cost more than about 14 credits, so nothing can run into paid usage. The background pass only ever looks for email addresses: phone numbers are looked up one lead at a time, when you press Find the mobile.">
-              Contact finders: <span className="font-semibold">{cfg.finders.live}</span> of {cfg.finders.connected} with credits left
-              {cfg.finders.left > 0 && <> · <span className="font-semibold">{cfg.finders.left}</span> credits left this month, then they stop</>}
-              {cfg.finders.connected > 0 && !cfg.finders.shared && <span className="text-amber-800"> · the shared store is off, so the caps only count per server</span>}
-              {!cfg.finders.mobiles && <span className="text-amber-800"> · none of the live ones return mobile numbers (add Prospeo or Lusha)</span>}
-            </span>
-          </p>
-        )}
-        {run && (
-          <div className="mt-3 text-sm">
-            <div className="flex items-center gap-2">{running ? <SpinnerIcon className="h-4 w-4 text-blue-600" /> : /^Done/.test(run.phase) ? <CheckIcon className="h-4 w-4 text-emerald-600" /> : null}<span className={running ? "text-blue-700" : "text-zinc-700"}>{run.phase}</span>{run.total > 0 && <span className="text-xs text-zinc-500">{run.kind === "refresh" ? `${run.done} of ${run.total} rescanned` : run.kind === "contacts" ? `${run.done} of ${run.total} looked up · ${run.found} now have a contact` : `${run.done} of ${run.total} checked · ${run.found} new lead${run.found === 1 ? "" : "s"}${run.parked ? ` · ${run.parked} parked` : ""}`}</span>}</div>
-            {run.total > 0 && running && <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-zinc-100"><div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.round((run.done / run.total) * 100)}%` }} /></div>}
-          </div>
-        )}
-      </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search leads" className="w-56 rounded-md border border-zinc-300 px-3 py-1.5 text-sm" />
@@ -1378,6 +1315,72 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           <span className="text-xs text-zinc-500">{boardTab === "vetting" ? "Website verified and a contact found, then it goes on the board by itself." : "Only vetted leads, ready to work."}</span>
         </div>
       ); })()}
+      {/* Finding leads is the first step of vetting, so the search lives in that tab. */}
+      {boardTab === "vetting" && (
+        <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <h2 className="font-semibold">Find new leads</h2>
+          {cfg && !cfg.configured && <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Companies House is not connected yet. Add the free API key in <Link href="/settings?section=connections" className="underline">Settings → Connections</Link>. The board below still works.</p>}
+          <div className="mt-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className={`flex min-w-[16rem] flex-1 flex-wrap items-center gap-1 rounded-md border bg-white px-2 py-1 ${areaState.error ? "border-red-300" : "border-zinc-300"}`} title={areaTitle}>
+                <PinIcon className="h-4 w-4 shrink-0 text-zinc-400" />
+                {areaCentres.map((c) => (
+                  <span key={c} className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">{c}<button onClick={() => saveArea(areaCentres.filter((x) => x !== c), areaMiles)} disabled={running} aria-label={`Remove ${c}`} className="text-zinc-400 hover:text-red-600 disabled:opacity-40">×</button></span>
+                ))}
+                <input value={areaDraft} onChange={(e) => setAreaDraft(e.target.value)} onKeyDown={(e) => { if ((e.key === "Enter" || e.key === ",") && areaDraft.trim()) { e.preventDefault(); saveArea([...areaCentres, areaDraft.trim()], areaMiles); setAreaDraft(""); } else if (e.key === "Backspace" && !areaDraft && areaCentres.length > 1) saveArea(areaCentres.slice(0, -1), areaMiles); }} onBlur={() => { if (areaDraft.trim()) { saveArea([...areaCentres, areaDraft.trim()], areaMiles); setAreaDraft(""); } }} disabled={running} placeholder={areaCentres.length ? "Add a town or postcode" : "Town or postcode"} className="min-w-[9rem] flex-1 bg-transparent px-1 py-0.5 text-sm outline-none" />
+                <span className="shrink-0 text-xs text-zinc-500">{areaState.busy ? "Mapping…" : areaState.error ? <span className="text-red-700">{areaState.error}</span> : areaState.outcodes ? `${areaState.outcodes} postcode areas` : ""}</span>
+              </div>
+              <label className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-700" title="How far from the locations to look. Companies registered outside it are dropped.">within
+                <input type="number" min={1} max={30} value={areaMilesDraft} onChange={(e) => setAreaMilesDraft(e.target.value)} onBlur={() => { const n = Math.max(1, Math.min(30, Number(areaMilesDraft) || areaMiles)); setAreaMilesDraft(String(n)); if (n !== areaMiles) saveArea(areaCentres, n); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} disabled={running} className="w-12 rounded border border-zinc-200 px-1 py-0.5 text-sm" /> miles
+              </label>
+              {!running && pending && (
+                <button onClick={continueScan} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white"><PlayIcon className="h-4 w-4" /> Continue {pending.kind === "refresh" ? "rescan" : "scan"} ({(pending.queue || pending.ids || []).length} left)</button>
+              )}
+              <select value={leadSource} onChange={(e) => setLeadSource(e.target.value)} disabled={running} title={(LEAD_SOURCES.find((x) => x[0] === leadSource) || [])[2]} className="rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm disabled:opacity-40">
+                {LEAD_SOURCES.map(([k, label]) => <option key={k} value={k}>{label}{k === "jobs" && cfg && !cfg.jobs ? " (connect Adzuna)" : k === "maps" && cfg && !cfg.places ? " (connect Google)" : ""}</option>)}
+              </select>
+              {leadSource === "maps" && (
+                <select value={MAPS_TYPES.some(([, t]) => t.includes(mapsWhat)) ? mapsWhat : ""} onChange={(e) => setMapsWhat(e.target.value)} disabled={running} title="What kind of business to look for on Google Maps" className="rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm disabled:opacity-40">
+                  <option value="">Business type…</option>
+                  {MAPS_TYPES.map(([group, types]) => <optgroup key={group} label={group}>{types.map((t) => <option key={t} value={t}>{t}</option>)}</optgroup>)}
+                </select>
+              )}
+              {running
+                ? <button onClick={stopNow} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
+                : <>{queue.length > 0 && <button onClick={runQueue} disabled={cfg?.configured === false} title="Run every queued search, one after another" className="inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><PlayIcon className="h-4 w-4" /> Run queue ({queue.length})</button>}<button onClick={queueSearch} disabled={cfg?.configured === false || leadSource === "claude" || !areaState.outcodes || (leadSource === "maps" && !MAPS_TYPES.some(([, t]) => t.includes(mapsWhat)))} title="Add this search (source, type and area) to the queue, then change the controls and add another" className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40">+ Queue</button><button onClick={() => findLeads()} disabled={cfg?.configured === false} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> {leadSource === "claude" ? "Ask Claude" : "Find leads"}</button></>}
+              <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
+            </div>
+          </div>
+          {repeat && !running && (
+            <p className="mt-2 text-xs text-amber-800"><span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold">Already searched</span> {(LEAD_SOURCES.find((x) => x[0] === repeat.mode) || [])[1]}{repeat.what ? `: ${repeat.what}` : ""} within {repeat.miles} miles of {repeat.centres.join(", ")} on {new Date(repeat.at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}, which covers this search. Running it again mostly finds the same businesses.</p>
+          )}
+          {(queue.length > 0 || queueAt) && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+              {queueAt && <span className="rounded-full bg-blue-600 px-2 py-0.5 font-medium text-white">Running {queueAt.n} of {queueAt.total}: {queueAt.label}</span>}
+              {queue.map((q) => <span key={q.id} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${covering(q) ? "bg-amber-100 text-amber-900" : "bg-zinc-100 text-zinc-700"}`} title={covering(q) ? "Already searched: a past search covers this one" : ""}>{covering(q) ? "⚠ " : ""}{queueLabel(q)}<button onClick={() => unqueue(q.id)} aria-label="Remove from queue" className="text-zinc-400 hover:text-zinc-700">✕</button></span>)}
+              {!queueAt && <span className="text-zinc-500">Queued: they run one after another when you click Run queue.</span>}
+            </div>
+          )}
+          {leadSource === "maps" && cfg?.places && <p className="mt-2 text-xs text-zinc-500">Google Maps searches this month: <span className="font-semibold">{cfg.placesUsage?.used || 0}</span> of {cfg.placesUsage?.cap || 900} free. Each run uses 1 to 3 per location; repeating a search within 30 days is free.</p>}
+          {leadSource === "jobs" && <p className="mt-2 text-xs text-zinc-500"><a href="https://www.adzuna.co.uk" target="_blank" rel="noreferrer" className="underline">Jobs by Adzuna</a>. Recruitment agencies are left out.</p>}
+          {cfg?.finders?.connected > 0 && (
+            <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
+              <span title="Every finder is asked in turn and the first one with an answer wins, so when one runs out of credits the next one covers. Each one stops just under its free allowance and one lead can never cost more than about 14 credits, so nothing can run into paid usage. The background pass only ever looks for email addresses: phone numbers are looked up one lead at a time, when you press Find the mobile.">
+                Contact finders: <span className="font-semibold">{cfg.finders.live}</span> of {cfg.finders.connected} with credits left
+                {cfg.finders.left > 0 && <> · <span className="font-semibold">{cfg.finders.left}</span> credits left this month, then they stop</>}
+                {cfg.finders.connected > 0 && !cfg.finders.shared && <span className="text-amber-800"> · the shared store is off, so the caps only count per server</span>}
+                {!cfg.finders.mobiles && <span className="text-amber-800"> · none of the live ones return mobile numbers (add Prospeo or Lusha)</span>}
+              </span>
+            </p>
+          )}
+          {run && (
+            <div className="mt-3 text-sm">
+              <div className="flex items-center gap-2">{running ? <SpinnerIcon className="h-4 w-4 text-blue-600" /> : /^Done/.test(run.phase) ? <CheckIcon className="h-4 w-4 text-emerald-600" /> : null}<span className={running ? "text-blue-700" : "text-zinc-700"}>{run.phase}</span>{run.total > 0 && <span className="text-xs text-zinc-500">{run.kind === "refresh" ? `${run.done} of ${run.total} rescanned` : run.kind === "contacts" ? `${run.done} of ${run.total} looked up · ${run.found} now have a contact` : `${run.done} of ${run.total} checked · ${run.found} new lead${run.found === 1 ? "" : "s"}${run.parked ? ` · ${run.parked} parked` : ""}`}</span>}</div>
+              {run.total > 0 && running && <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-zinc-100"><div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.round((run.done / run.total) * 100)}%` }} /></div>}
+            </div>
+          )}
+        </div>
+      )}
       {boardTab === "vetting" ? <VettingList leads={visible.filter((l) => l.status === "vetting")} onOpen={(id) => setOpen(id)} onVet={(ids) => openClaude({ job: "vet", preset: ids })} onSend={(l) => update(l.id, { status: boardColumn(l), statusBy: "you" })} onPark={(l) => update(l.id, { status: "not-pursuing", statusBy: "you", likelihoodWhy: "Vetting: not pursuing" })}
         onSite={(l, v) => { const h = String(v).trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""); if (!h.includes(".")) return; update(l.id, { youEditedAt: new Date().toISOString(), website: h, websiteConfirmed: true, websiteVerified: "confirmed by you", websiteEvidence: "confirmed by you", websiteNeeded: false, noWebsiteConfirmed: false, websiteDoubt: "", ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}) }); setTimeout(() => refreshLeads([l.id]), 50); }}
         onNoSite={(l) => update(l.id, { youEditedAt: new Date().toISOString(), website: "", noWebsiteConfirmed: true, websiteNeeded: false, problem: "No website", problemDetail: "Checked by hand: they have no website" })}
@@ -1940,10 +1943,9 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             if (!l.claude) return <button onClick={onClaude} className={`${btn} bg-orange-600 hover:bg-orange-700`}><SearchIcon className="h-4 w-4" /> Check with Claude</button>;
             return null;
           })()}
-          {l.checking && <span className="inline-flex items-center gap-1 text-blue-700"><SpinnerIcon className="h-3.5 w-3.5" /> Working…</span>}
-          {!l.checking && l.finderFound && l.hunterNote && <span className="font-medium text-green-700" title={(l.finderTrail || []).join(" · ")}>✓ {l.hunterNote}</span>}
-          {l.error && <span className="text-red-700" title={(l.finderTrail || []).join(" · ")}>{l.error}</span>}
-          {!isFrozen(l) && l.status !== "not-pursuing" && !(view === "review" && l.review?.step === 3 && !l.review?.done) && <button onClick={() => { onChange({ status: "not-pursuing", statusBy: "you", likelihoodWhy: "Reviewed by hand: not worth it" }); onClose(); }} title="Moves it to Not pursuing and closes it (nothing in that list is ever contacted)" className="rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100">Not pursuing</button>}
+          {l.checking && <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-blue-700"><SpinnerIcon className="h-3.5 w-3.5" /> Working…</span>}
+          {!l.checking && (l.finderFound || l.error) && <span className={`order-last basis-full ${l.finderFound ? "font-medium text-green-700" : "text-red-700"}`} title={(l.finderTrail || []).join(" · ")}>{l.finderFound ? `✓ ${l.hunterNote}` : l.error}</span>}
+          {!isFrozen(l) && l.status !== "not-pursuing" && view !== "review" && <button onClick={() => { onChange({ status: "not-pursuing", statusBy: "you", likelihoodWhy: "Reviewed by hand: not worth it" }); onClose(); }} title="Moves it to Not pursuing and closes it (nothing in that list is ever contacted)" className="rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100">Not pursuing</button>}
           <div ref={setFooterEl} className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2" />
           {/* Everything else, as plain links (no menu to open). */}
           <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-xs">
@@ -2344,11 +2346,11 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
             </div>
             {/* The buttons live in the window's footer, so they stay in view while the email is checked. */}
             {inFooter(<>
-              <button onClick={() => setR({ step: 2 })} className="text-xs text-zinc-500 hover:text-zinc-900">← Back</button>
+              <button onClick={() => setR({ step: 2 })} className="whitespace-nowrap text-xs text-zinc-500 hover:text-zinc-900">← Back</button>
               <span className="ml-auto" />
-                <button onClick={() => { setR({ done: true, doneAt: new Date().toISOString() }, { status: "not-pursuing", likelihoodWhy: "Reviewed by hand: not worth it" }); onNext?.(true); }} className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Not pursuing</button>
-              {onNext && <button onClick={() => onNext(false)} className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Skip for now →</button>}
-              <button onClick={() => finishReady()} disabled={!l.emailAddress || !draftText.trim()} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Ready to send ✓{onNext ? " · next" : ""}</button>
+                <button onClick={() => { setR({ done: true, doneAt: new Date().toISOString() }, { status: "not-pursuing", likelihoodWhy: "Reviewed by hand: not worth it" }); onNext?.(true); }} className="whitespace-nowrap rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Not pursuing</button>
+              {onNext && <button onClick={() => onNext(false)} className="whitespace-nowrap rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Skip for now →</button>}
+              <button onClick={() => finishReady()} disabled={!l.emailAddress || !draftText.trim()} className="whitespace-nowrap rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Ready to send ✓{onNext ? " · next" : ""}</button>
             </>)}
           </div>
         )}
