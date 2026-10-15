@@ -1474,9 +1474,9 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                 <div className="flex items-start gap-1.5">
                   <input type="checkbox" checked={selected.has(l.id)} onChange={() => onToggle(l.id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${l.business}`} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span className="flex-1 text-sm font-medium leading-tight">{l.business}</span>
-                  {/* "Needs checking" said the same thing as the column, so it is gone: the whole
-                      of To assess is waiting for Claude. The likelihood stays, since it ranks them. */}
-                  {["new", "no-contact"].includes(c.id) && l.claude && l.likelihood && <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${LIKELY[l.likelihood]}`} title={l.likelihoodWhy || ""}>{l.likelihood}</span>}
+                  {/* Nothing here but what needs doing. "Needs checking" said the same as the
+                      column it sat in, and the likelihood badge sat on every card without ever
+                      asking for anything: both are in the lead itself instead. */}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
                   {c.id === "to-draft" && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${l.review?.drafted ? "bg-emerald-100 text-emerald-800" : "bg-orange-100 text-orange-800"}`}>{l.review?.drafted ? "Draft in: check it" : "Waiting for Claude"}</span>}
