@@ -73,7 +73,7 @@ export default function Home() {
   const [ideasRunning, setIdeasRunning] = useState(false);
   const anyRunning = !!running || launchRunning || postRunning || designRunning || leadsRunning || ideasRunning;
   const [area, setAreaState] = useState("leads"); // "leads" | "design" | "launch" | "post" | "fonts" | "images"; opens on the first tab
-  const TAB_SLUG = { design: "design", fonts: "fonts", images: "images", launch: "launch", post: "post-launch", leads: "leads", ideas: "client-ideas" };
+  const TAB_SLUG = { design: "design", fonts: "fonts", images: "images", launch: "launch", post: "post-launch", leads: "leads", linkedin: "linkedin-sales", ideas: "client-ideas" };
   const setArea = (id) => {
     setAreaState(id);
     try { const u = new URL(window.location.href); u.searchParams.set("tab", TAB_SLUG[id]); u.searchParams.delete("lead"); u.searchParams.delete("idea"); const sel = selected[id]; if (sel) u.searchParams.set("site", sel); else u.searchParams.delete("site"); window.history.replaceState(null, "", u.search); } catch {}
@@ -363,13 +363,13 @@ export default function Home() {
         <nav className="ml-auto flex flex-wrap items-center justify-end gap-x-5 gap-y-1" aria-label="Sections">
           <ClaudeInbox />
           {(() => {
-            const tabs = [["leads", "Website Leads", leadsCount || null], ["ideas", "Client Ideas", ideasCount || null],
+            const tabs = [["leads", "Website Leads", leadsCount || null], ["linkedin", "LinkedIn Sales", null], ["ideas", "Client Ideas", ideasCount || null],
               ["design", "Design Checks", designCount || null],
               ["launch", "Launch Checks", launchCount || null],
               ["post", "Post Launch Checks", postCount || null],
               ["fonts", "Font Licenses", fontRows.length ? fontCounts.PROBLEM + fontCounts.CHECK : null],
               ["images", "Image Licenses", imgRows.length ? imgPaidSites : null]];
-            const busy = (id) => running === id || (id === "launch" && launchRunning) || (id === "post" && postRunning) || (id === "design" && designRunning) || (id === "leads" && leadsRunning) || (id === "ideas" && ideasRunning);
+            const busy = (id) => running === id || (id === "launch" && launchRunning) || (id === "post" && postRunning) || (id === "design" && designRunning) || ((id === "leads" || id === "linkedin") && leadsRunning) || (id === "ideas" && ideasRunning);
             const tab = ([id, label, n]) => (
               <button key={id} onClick={(e) => { setArea(id); e.currentTarget.closest("details")?.removeAttribute("open"); }} aria-current={area === id ? "page" : undefined}
                 className={`whitespace-nowrap py-1 text-left text-sm ${area === id ? "font-semibold text-zinc-900 underline decoration-2 underline-offset-[6px]" : "text-zinc-500 hover:text-zinc-900"}`}>
@@ -377,8 +377,8 @@ export default function Home() {
                 {busy(id) && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500 align-middle" />}
               </button>
             );
-            // Sales only needs the first two; the website-build checks sit under More tools.
-            const main = tabs.slice(0, 2), more = tabs.slice(2), inMore = more.find((t) => t[0] === area);
+            // Sales only needs the first three; the website-build checks sit under More tools.
+            const main = tabs.slice(0, 3), more = tabs.slice(3), inMore = more.find((t) => t[0] === area);
             return <>
               {main.map(tab)}
               <details className="relative">
@@ -402,12 +402,13 @@ export default function Home() {
 
       {/* All areas stay mounted so a running scan carries on when you switch tabs. */}
       <section className={`mt-5 ${area === "design" ? "" : "hidden"}`}><DesignArea onRunning={setDesignRunning} onCount={setDesignCount} /></section>
-      <section className={`mt-5 ${area === "leads" ? "" : "hidden"}`}><LeadsArea onRunning={setLeadsRunning} onCount={setLeadsCount} clients={clients} /></section>
+      {/* Website Leads and LinkedIn Sales are one board: the same leads, worked by email or on LinkedIn. */}
+      <section className={`mt-5 ${area === "leads" || area === "linkedin" ? "" : "hidden"}`}><LeadsArea channel={area === "linkedin" ? "linkedin" : "email"} onRunning={setLeadsRunning} onCount={setLeadsCount} clients={clients} /></section>
       <section className={`mt-5 ${area === "ideas" ? "" : "hidden"}`}><IdeasArea onRunning={setIdeasRunning} onCount={setIdeasCount} clients={clients} onClientsChange={(next) => { const list = normaliseClients(next); setClients(list); saveClients(list); fetch("/api/clients", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clients: list }) }).catch(() => {}); }} /></section>
       <section className={`mt-5 ${area === "launch" ? "" : "hidden"}`}><LaunchArea post={post} mode="launch" onRunning={setLaunchRunning} onCount={setLaunchCount} onSiteResult={patch} siteResults={results} /></section>
       <section className={`mt-5 ${area === "post" ? "" : "hidden"}`}><LaunchArea post={post} mode="post" onRunning={setPostRunning} onCount={setPostCount} onSiteResult={patch} siteResults={results} /></section>
 
-      <div className={area !== "launch" && area !== "post" && area !== "design" && area !== "leads" && area !== "ideas" ? "" : "hidden"}>
+      <div className={area !== "launch" && area !== "post" && area !== "design" && area !== "leads" && area !== "linkedin" && area !== "ideas" ? "" : "hidden"}>
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
         <button onClick={() => setShowList((v) => !v)} className="flex w-full items-center justify-between text-left text-sm font-medium">
           <span>Sites to check ({sites.length})</span>

@@ -201,7 +201,7 @@ const humanConfirmed = (l) => !!l.websiteConfirmed || ["confirmed by you", "chec
 const siteDoubt = (l) => !!(l.website && l.websiteDoubt && !humanConfirmed(l));
 const signed = (n) => (n === null || n === undefined || n === "" ? "—" : `${n < 0 ? "-" : "+"}£${Math.abs(Math.round(Number(n))).toLocaleString("en-GB")}`);
 
-export default function LeadsArea({ onRunning, onCount, clients = [] }) {
+export default function LeadsArea({ onRunning, onCount, clients = [], channel = "email" }) {
   const [leads, setLeads] = useState({});
   const [cfg, setCfg] = useState(null); // {configured, areas, sectors}
   const [minAssets, setMinAssetsState] = useState(() => { try { return Number(localStorage.getItem("flc-leads-floor") || 20000) || 20000; } catch { return 20000; } });
@@ -274,7 +274,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     try {
       const u = new URL(window.location.href);
       if ((u.searchParams.get("lead") || null) === (id || null)) return;
-      if (id) { u.searchParams.set("tab", "leads"); u.searchParams.set("lead", id); window.history.pushState({ lead: id }, "", u.search); }
+      if (id) { u.searchParams.set("tab", channel === "linkedin" ? "linkedin-sales" : "leads"); u.searchParams.set("lead", id); window.history.pushState({ lead: id }, "", u.search); }
       else { u.searchParams.delete("lead"); window.history.pushState({}, "", u.search); }
     } catch {}
   };
@@ -488,12 +488,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   useEffect(() => {
     fetch("/api/settings?key=email-templates").then((r) => r.json()).then((j) => { if (j.shared && j.value) setEmailTemplates(j.value); }).catch(() => {});
   }, []);
-  // Email or LinkedIn, from Settings → Outreach. A ref too, for code that runs outside a render.
-  const [channel, setChannel] = useState("email");
-  const channelRef = useRef("email");
-  useEffect(() => {
-    fetch("/api/settings?key=outreach").then((r) => r.json()).then((j) => { const ch = j?.value?.channel === "linkedin" ? "linkedin" : "email"; channelRef.current = ch; setChannel(ch); }).catch(() => {});
-  }, []);
+  // Email or LinkedIn: Website Leads or LinkedIn Sales at the top. A ref too, for code that runs outside a render.
+  const channelRef = useRef(channel);
+  channelRef.current = channel;
   // Subjects are the presets from Settings now, not whatever Claude wrote. Every email not yet
   // sent, Ready to send included, takes its preset once. One typed by hand afterwards stays.
   // It waits for both the leads and the presets, since either can arrive first.
@@ -782,7 +779,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       update(l.id, { li, ...(quiet ? {} : { checking: false, error: f?.linkedin ? "" : "No finder had a LinkedIn profile for them. Claude looks for it when it writes the messages." }) });
     } catch (e) { update(l.id, { li: { ...(leadsRef.current[l.id]?.li || {}), lookupAt: now }, ...(quiet ? {} : { checking: false, error: e.message }) }); }
   }
-  // With LinkedIn switched on, every lead waiting for a message gets its profile looked up once,
+  // On LinkedIn Sales, every lead waiting for a message gets its profile looked up once,
   // in the background, so Claude starts from the right person and their latest role.
   const profilesRunRef = useRef(false);
   useEffect(() => {
@@ -1483,7 +1480,7 @@ const FOLLOW_UP_DEFAULTS = { chaseDays: 7, coldDays: 21, lostDays: 60 };
 const contactsStamp = (cfg) => `${CONTACTS_VERSION}${cfg?.finders?.connected ? `f${cfg.finders.connected}` : ""}`;
 const daysSince = (l) => (Date.now() - new Date(l.statusAt || l.updatedAt || l.addedAt || Date.now()).getTime()) / 86400000;
 // ---- Email or LinkedIn ------------------------------------------------------------------
-// Settings → Outreach picks the channel for everyone. Each lead keeps both drafts side by side
+// Website Leads (email) or LinkedIn Sales at the top picks the channel. Each lead keeps both drafts side by side
 // (email on the lead, LinkedIn under l.li), so switching back and forth never loses anything:
 // it only changes which one the board asks for and shows.
 const hasDraft = (l, ch) => (ch === "linkedin" ? !!l.li?.message : !!(l.email && (l.review?.drafted || l.claudeDraft)));
@@ -1774,7 +1771,7 @@ function CopyBtn({ text, label = "Copy" }) {
 const monthYear = (ym) => { const d = new Date(`${ym}-01T00:00:00`); return isNaN(d) ? ym : d.toLocaleDateString("en-GB", { month: "long", year: "numeric" }); };
 // Everything for writing to them on LinkedIn: who, their profile, the recent thing to open
 // with, and Claude's connection note, message and two follow-ups. All of it lives under l.li,
-// apart from the email, so switching channel in Settings never loses either.
+// apart from the email, so switching between Website Leads and LinkedIn Sales never loses either.
 function LinkedInPanel({ l, onChange, onFind, brief }) {
   const li = l.li || {};
   const p = liPerson(l);
