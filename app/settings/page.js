@@ -159,6 +159,7 @@ export default function Settings() {
           </section>
         </>
       )}
+      {section === "outreach" && <OutreachSetting />}
       {section === "leads" && (
         <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
           <h2 className="font-semibold">Lead maintenance</h2>
@@ -280,7 +281,7 @@ export default function Settings() {
   );
 }
 
-const SECTIONS = [["team", "Team"], ["clients", "Clients"], ["templates", "Email templates"], ["emails", "Email details"], ["leads", "Lead maintenance"], ["proposals", "Proposals"], ["archived", "Archived checks"], ["connections", "Connections"]];
+const SECTIONS = [["team", "Team"], ["clients", "Clients"], ["outreach", "Outreach"], ["templates", "Email templates"], ["emails", "Email details"], ["leads", "Lead maintenance"], ["proposals", "Proposals"], ["archived", "Archived checks"], ["connections", "Connections"]];
 
 // The eight contact finders: what is connected, what is left this month, and a free test.
 function FindersPanel() {
@@ -330,6 +331,40 @@ function FindersPanel() {
       </ul>
       <p className="mt-2 text-xs text-zinc-500">Caps and the &quot;out of credits&quot; marks live in the shared store, so every visit and every server agrees on what has been spent. Without Redis connected the count is per server and resets when it restarts, so connect the store before adding keys. Raising a cap in Vercel is the only way to spend more: <code>PROSPEO_MONTHLY_CAP</code> and the like, or <code>0</code> for no cap at all, which does allow paid usage.</p>
     </>
+  );
+}
+
+// Email or LinkedIn for Website Leads. Each lead keeps both drafts, so switching is safe: it
+// only changes which one the board asks Claude for and which one you send.
+function OutreachSetting() {
+  const [ch, setCh] = useState(null);
+  const [saved, setSaved] = useState("");
+  useEffect(() => { fetch("/api/settings?key=outreach").then((r) => r.json()).then((j) => setCh(j?.value?.channel === "linkedin" ? "linkedin" : "email")).catch(() => setCh("email")); }, []);
+  async function save(next) {
+    setCh(next); setSaved("");
+    try { const r = await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "outreach", value: { channel: next } }) }); setSaved(r.ok ? "Saved for the whole team. Reload Website Leads to see it." : "Couldn't save: is the shared store connected?"); }
+    catch { setSaved("Couldn't save: is the shared store connected?"); }
+  }
+  const on = ch === "linkedin";
+  return (
+    <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+      <h2 className="font-semibold">Outreach</h2>
+      <p className="mb-3 text-sm text-zinc-500">How Website Leads gets in touch: an email, or a LinkedIn connection request followed by a message once they accept. Every lead keeps its email and its LinkedIn messages side by side, so switching never loses either.</p>
+      {ch === null ? <p className="text-sm text-zinc-500">Loading…</p> : (
+        <label className="flex cursor-pointer items-center gap-3 text-sm">
+          <button role="switch" aria-checked={on} onClick={() => save(on ? "email" : "linkedin")} className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${on ? "bg-sky-700" : "bg-zinc-300"}`}>
+            <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition ${on ? "translate-x-5" : "translate-x-0.5"}`} />
+          </button>
+          <span><b>{on ? "LinkedIn" : "Email"}</b> {on ? "is on: Claude looks each person up for something recent to open with, then writes a connection note, a message and two follow-ups." : "is on: Claude writes an email and two follow-ups. Switch on to use LinkedIn instead."}</span>
+        </label>
+      )}
+      {saved && <p className="mt-2 text-xs text-zinc-500">{saved}</p>}
+      <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-zinc-500">
+        <li>With LinkedIn on, the contact finders look up each person&apos;s profile once, in the background: their profile link, headline and when they started their current role. At most a credit or two, never a mobile.</li>
+        <li>LinkedIn has no way for an app to send messages, so each one is copied and pasted. The lead shows which step is next.</li>
+        <li>Follow-ups are written with the first message, each raising something new the site check found.</li>
+      </ul>
+    </section>
   );
 }
 
