@@ -295,6 +295,9 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
   const [selected, setSelected] = useState(() => new Set());
   const stopRef = useRef(false);
   const sharedRef = useRef(false);
+  // This browser's copy can be well out of date (it stops saving once the leads outgrow
+  // localStorage), so the board waits for the team's leads before showing anything.
+  const [synced, setSynced] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -338,7 +341,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
       leadsRef.current = local;
       setLeads(local);
       fetch("/api/results?kind=leads").then((r) => r.json()).then((j) => {
-        if (!j.shared) return;
+        if (!j.shared) { setSynced(true); return; }
         sharedRef.current = true;
         const next = { ...leadsRef.current };
         const pushBack = [];
@@ -397,10 +400,11 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
         save(next);
         leadsRef.current = next;
         setLeads(next);
+        setSynced(true);
         setTimeout(presetSubjects, 0);
         // Push anything only this browser has (the seed on first load).
         for (const [id, l] of Object.entries(next)) if (!(j.results || {})[id]) push(id, l);
-      }).catch(() => {});
+      }).catch(() => setSynced(true));
     }, 0);
     fetch("/api/leads").then((r) => r.json()).then(setCfg).catch(() => setCfg({ configured: false, areas: {}, sectors: {} }));
     setTimeout(() => { const sc = loadScan(); if (sc && (sc.queue?.length || sc.ids?.length)) setPending(sc); }, 0);
@@ -467,7 +471,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
 
   const list = Object.values(leads);
   const openLeads = list.filter((l) => ["new", "qualified", "ready", "replied"].includes(l.status)).length;
-  useEffect(() => { onCount?.(openLeads); }, [openLeads, onCount]);
+  useEffect(() => { onCount?.(synced ? openLeads : 0); }, [openLeads, onCount, synced]);
 
   // Seen registry: local copy merged with the team's, pushed after each scan.
   const seenRef = useRef({});
@@ -1358,8 +1362,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
       {(() => { const vetting = visible.filter((l) => l.status === "vetting"); return (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-md border border-zinc-300 bg-white p-0.5 text-sm">
-            <button onClick={() => setBoardTab("vetting")} className={`rounded px-3 py-1 ${boardTab === "vetting" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>1. Vetting ({vetting.length})</button>
-            <button onClick={() => setBoardTab("board")} className={`rounded px-3 py-1 ${boardTab === "board" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>2. Prospects ({onBoard.filter((l) => l.status !== "vetting").length})</button>
+            <button onClick={() => setBoardTab("vetting")} className={`rounded px-3 py-1 ${boardTab === "vetting" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>1. Vetting ({synced ? vetting.length : "…"})</button>
+            <button onClick={() => setBoardTab("board")} className={`rounded px-3 py-1 ${boardTab === "board" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>2. Prospects ({synced ? onBoard.filter((l) => l.status !== "vetting").length : "…"})</button>
           </div>
           <span className="text-xs text-zinc-500">{boardTab === "vetting" ? "Website verified and a contact found, then it goes on the board by itself." : "Only vetted leads, ready to work."}</span>
         </div>
@@ -1430,7 +1434,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
           )}
         </div>
       )}
-      {boardTab === "vetting" ? <VettingList leads={visible.filter((l) => l.status === "vetting")} onOpen={(id) => setOpen(id)} onVet={(ids) => openClaude({ job: "vet", preset: ids })} onSend={(l) => update(l.id, { status: boardColumn(l), statusBy: "you" })} onPark={(l) => update(l.id, { status: "not-pursuing", statusBy: "you", likelihoodWhy: "Vetting: not pursuing" })}
+      {!synced ? <p className="mt-6 text-sm text-zinc-500">Loading the team’s leads…</p> : boardTab === "vetting" ? <VettingList leads={visible.filter((l) => l.status === "vetting")} onOpen={(id) => setOpen(id)} onVet={(ids) => openClaude({ job: "vet", preset: ids })} onSend={(l) => update(l.id, { status: boardColumn(l), statusBy: "you" })} onPark={(l) => update(l.id, { status: "not-pursuing", statusBy: "you", likelihoodWhy: "Vetting: not pursuing" })}
         onSite={(l, v) => { const h = String(v).trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""); if (!h.includes(".")) return; update(l.id, { youEditedAt: new Date().toISOString(), website: h, websiteConfirmed: true, websiteVerified: "confirmed by you", websiteEvidence: "confirmed by you", websiteNeeded: false, noWebsiteConfirmed: false, websiteDoubt: "", ...(l.problem === "No website" ? { problem: "", problemDetail: "" } : {}) }); setTimeout(() => refreshLeads([l.id]), 50); }}
         onNoSite={(l) => update(l.id, { youEditedAt: new Date().toISOString(), website: "", noWebsiteConfirmed: true, websiteNeeded: false, problem: "No website", problemDetail: "Checked by hand: they have no website" })}
         onHunter={(l) => hunterLookup(l)}
