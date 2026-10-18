@@ -164,6 +164,7 @@ export default function Settings() {
           <h2 className="font-semibold">Lead maintenance</h2>
           <p className="mb-3 text-sm text-zinc-500">Occasional jobs for whoever looks after Website Leads. Each one opens the board and runs there; keep that tab open until it finishes.</p>
           <div className="space-y-3 text-sm">
+            <CompanyFloor />
             <div className="flex flex-wrap items-center gap-3"><Link href="/?tab=leads&admin=rescan" className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-white">Rescan all open leads</Link><span className="text-zinc-500">Re-runs the website, accounts and contact checks on every open lead with the latest rules. Ready to send, Won, Lost and Not pursuing are skipped; statuses and notes are kept.</span></div>
             <div className="flex flex-wrap items-center gap-3"><Link href="/?tab=leads&admin=contacts" className="rounded-md border border-zinc-300 px-3 py-1.5 font-medium hover:bg-zinc-100">Retry contacts</Link><span className="text-zinc-500">Looks for an email address again on every lead in Contact not verified. Any that now have one move back to To assess.</span></div>
           </div>
@@ -573,5 +574,20 @@ function TemplatesEditor() {
       </section>
       <p className={`mt-3 text-xs ${state === "failed" ? "text-red-700" : "text-zinc-500"}`}>{state === "saving" ? "Saving…" : state === "saved" ? "Saved for the whole team" : state === "failed" ? "Couldn’t save. Check the shared storage connection." : "Changes save as you type."}</p>
     </>
+  );
+}
+
+// Company size floor for Website Leads: only companies worth at least this (net assets in the
+// latest accounts) stay open. Kept in this browser, as it was on the board; the board picks it
+// up next time it opens and re-sorts parked and open leads around it.
+function CompanyFloor() {
+  const [v, setV] = useState("");
+  useEffect(() => { const t = setTimeout(() => { try { setV(localStorage.getItem("flc-leads-floor") || "20000"); } catch { setV("20000"); } }, 0); return () => clearTimeout(t); }, []);
+  const save = (n) => { setV(n); try { localStorage.setItem("flc-leads-floor", String(Number(n) || 0)); } catch {} };
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <label className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2 py-1.5">Company size ≥ £<input type="number" value={v} onChange={(e) => save(e.target.value)} step={5000} min={0} className="w-24 rounded border border-zinc-200 px-1.5 py-0.5" /></label>
+      <span className="text-zinc-500">What a company is worth on paper (net assets in its latest accounts). Leads below it are parked, parked ones above it come back. Leads already in conversation are left alone.</span>
+    </div>
   );
 }

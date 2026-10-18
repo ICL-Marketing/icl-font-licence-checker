@@ -204,8 +204,7 @@ const signed = (n) => (n === null || n === undefined || n === "" ? "—" : `${n 
 export default function LeadsArea({ onRunning, onCount, clients = [], channel = "email" }) {
   const [leads, setLeads] = useState({});
   const [cfg, setCfg] = useState(null); // {configured, areas, sectors}
-  const [minAssets, setMinAssetsState] = useState(() => { try { return Number(localStorage.getItem("flc-leads-floor") || 20000) || 20000; } catch { return 20000; } });
-  const floorTimer = useRef(null);
+  const [minAssets] = useState(() => { try { return Number(localStorage.getItem("flc-leads-floor") || 20000) || 20000; } catch { return 20000; } }); // set in Settings → Lead maintenance
   // Changing the floor re-sorts the board: parked-as-too-small leads above the new floor come back,
   // open leads below it are parked. Leads already in conversation, won or lost are left alone.
   function applyFloor(floor) {
@@ -231,12 +230,6 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
     return changed;
   }
   useEffect(() => { const t = setTimeout(() => { if (Object.keys(leadsRef.current).length) applyFloor(minAssets); }, 1500); return () => clearTimeout(t); }, [leads]); // eslint-disable-line react-hooks/exhaustive-deps
-  function setMinAssets(v) {
-    setMinAssetsState(v);
-    try { localStorage.setItem("flc-leads-floor", String(v)); } catch {}
-    clearTimeout(floorTimer.current);
-    floorTimer.current = setTimeout(() => { const n = applyFloor(v); if (n) setRun({ kind: "floor", phase: `Done: floor set to £${v.toLocaleString("en-GB")}, ${n} lead${n === 1 ? "" : "s"} moved between columns.`, done: 0, total: 0, found: 0, errors: [] }); }, 700);
-  }
   const [run, setRun] = useState(null); // {phase, done, total, found, errors}
   // Scan area: locations + radius, shared with the team. The server turns it into postcode districts.
   const [areaCentres, setAreaCentres] = useState(["Richmond"]);
@@ -1315,16 +1308,17 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
   const q = filter.trim().toLowerCase();
   const visible = list.filter((l) => !pendingRescan.has(l.id) && (!q || `${l.business} ${l.area} ${l.website} ${l.problem} ${l.notes || ""}`.toLowerCase().includes(q)) && (!showProblem || l.problem === showProblem));
   const isLowNew = (l) => (l.status || "new") === "new" && l.likelihood === "Low";
-  const parkedCount = visible.filter((l) => ["not-pursuing", "lost"].includes(l.status)).length;
   const lowCount = visible.filter(isLowNew).length;
   const filtering = !!q || !!showProblem;
-  const onBoard = visible.filter((l) => (showParked || filtering || !["not-pursuing", "lost"].includes(l.status)) && (showLow || filtering || !isLowNew(l)));
+  // Closed leads stay in the list: the board keeps them behind its Closed link.
+  const onBoard = visible.filter((l) => showLow || filtering || !isLowNew(l));
   const current = open ? leads[open] : null;
   // Review one by one: the next lead in the same column that hasn't been reviewed (skipped ones go to the back).
   const skippedRef = useRef(new Set());
   function reviewNext(status, afterId = null) {
     if (afterId) skippedRef.current.add(afterId);
-    const col = sorted(Object.values(leadsRef.current).filter((x) => boardStatus(x, channelRef.current) === status && !x.review?.done && !x.optedOut && x.id !== afterId));
+    const sts = stageOf(status).statuses;
+    const col = sorted(Object.values(leadsRef.current).filter((x) => sts.includes(boardStatus(x, channelRef.current)) && !x.review?.done && !x.optedOut && x.id !== afterId));
     const next = col.find((x) => !skippedRef.current.has(x.id)) || null;
     if (!next) skippedRef.current = new Set();
     setOpen(next ? next.id : null);
@@ -1335,14 +1329,22 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search leads" className="w-56 rounded-md border border-zinc-300 px-3 py-1.5 text-sm" />
-        <label className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-700" title="Company size: what the company is worth on paper (net assets in its latest accounts). Only keep companies worth at least this. Changing it re-sorts the board: parked leads above the new floor come back, open leads below it are parked. Leads already in conversation are left alone.">Company size ≥ £<input type="number" value={minAssets} onChange={(e) => setMinAssets(Number(e.target.value) || 0)} step={5000} min={0} className="w-20 rounded border border-zinc-200 px-1.5 py-0.5 text-sm" /></label>
         <select value={showProblem} onChange={(e) => setShowProblem(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm">
           <option value="">All problems</option>
           {PROBLEMS.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
-        {parkedCount > 0 && <button onClick={() => setShowParked((v) => !v)} className={`rounded-full border px-2.5 py-1 text-xs ${showParked ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{showParked ? "Hide" : "Show"} Not pursuing &amp; Lost ({parkedCount})</button>}
-        {lowCount > 0 && <button onClick={() => setShowLow((v) => !v)} className={`rounded-full border px-2.5 py-1 text-xs ${showLow ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{showLow ? "Hide" : "Show"} Low in To assess ({lowCount})</button>}
-        <span className="text-xs text-zinc-500">{onBoard.length} of {list.length} leads · drag a card to change its status{pendingRescan.size ? <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-blue-800">{pendingRescan.size} hidden until rescanned</span> : null}</span>
+        {lowCount > 0 && <button onClick={() => setShowLow((v) => !v)} title="Leads Claude rated Low are hidden from Assess until you ask for them" className={`rounded-full border px-2.5 py-1 text-xs ${showLow ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{showLow ? "Hide" : "Show"} Low ({lowCount})</button>}
+        {pendingRescan.size ? <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-800">{pendingRescan.size} hidden until rescanned</span> : null}
+        <span className="ml-auto flex items-center gap-2">
+          {boardTab !== "vetting" && <button onClick={() => setBoardTab("vetting")} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-100"><SearchIcon className="h-4 w-4" /> Find leads</button>}
+          <details className="relative">
+            <summary aria-label="More" title="More" className="cursor-pointer list-none rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm leading-none hover:bg-zinc-100">⋯</summary>
+            <div className="absolute right-0 z-30 mt-1 flex w-48 flex-col rounded-lg border border-zinc-200 bg-white p-1 text-sm shadow-lg">
+              <button onClick={(e) => { e.currentTarget.closest("details")?.removeAttribute("open"); exportExcel(); }} disabled={!list.length} className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Export to Excel</button>
+              <Link href="/settings?section=leads" className="rounded px-2 py-1.5 hover:bg-zinc-100">Company size and lead settings</Link>
+            </div>
+          </details>
+        </span>
       </div>
 
       {selected.size > 0 && (
@@ -1359,20 +1361,40 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
           <button onClick={() => { if (confirm(`Delete ${selected.size} lead${selected.size === 1 ? "" : "s"}?`)) removeMany([...selected]); }} className="ml-auto inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50"><TrashIcon className="h-3.5 w-3.5" /> Delete</button>
         </div>
       )}
-      {(() => { const vetting = visible.filter((l) => l.status === "vetting"); return (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-md border border-zinc-300 bg-white p-0.5 text-sm">
-            <button onClick={() => setBoardTab("vetting")} className={`rounded px-3 py-1 ${boardTab === "vetting" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>1. Vetting ({synced ? vetting.length : "…"})</button>
-            <button onClick={() => setBoardTab("board")} className={`rounded px-3 py-1 ${boardTab === "board" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>2. Prospects ({synced ? onBoard.filter((l) => l.status !== "vetting").length : "…"})</button>
+      {/* Today: the next things that turn into sales, each one a click away. */}
+      {synced && boardTab !== "vetting" && (() => {
+        const open = list.filter((l) => !l.optedOut);
+        const first = (arr) => () => { const n = sorted(arr)[0]; if (n) setOpen(n.id); };
+        const toSend = open.filter((l) => l.status === "ready");
+        const toCheck = open.filter((l) => boardStatus(l, channel) === "to-check" && !l.review?.done);
+        const due = open.filter((l) => needsChase(l, followUp));
+        const replies = open.filter((l) => l.status === "replied");
+        const jobs = allPending(list).total;
+        const items = [
+          [replies.length, `${replies.length} repl${replies.length === 1 ? "y" : "ies"} to answer`, first(replies), "bg-emerald-600 text-white hover:bg-emerald-700"],
+          [toSend.length, `${toSend.length} ready to send`, first(toSend), "bg-zinc-900 text-white hover:bg-zinc-800"],
+          [due.length, `${due.length} follow-up${due.length === 1 ? "" : "s"} due`, first(due), "bg-amber-500 text-white hover:bg-amber-600"],
+          [toCheck.length, `${toCheck.length} draft${toCheck.length === 1 ? "" : "s"} to check`, first(toCheck), "border border-violet-300 bg-violet-50 text-violet-900 hover:bg-violet-100"],
+          [jobs, `${jobs} job${jobs === 1 ? "" : "s"} for Claude`, () => openClaude({ job: "all" }), "bg-orange-600 text-white hover:bg-orange-700"],
+        ].filter(([n]) => n > 0);
+        return (
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Today</span>
+            {items.length ? items.map(([, label, go, cls]) => <button key={label} onClick={go} className={`rounded-full px-3 py-1 text-sm font-medium ${cls}`}>{label}</button>) : <span className="text-sm text-zinc-500">All caught up.</span>}
           </div>
-          <span className="text-xs text-zinc-500">{boardTab === "vetting" ? "Website verified and a contact found, then it goes on the board by itself." : "Only vetted leads, ready to work."}</span>
+        );
+      })()}
+      {boardTab === "vetting" && (
+        <div className="mt-3 flex flex-wrap items-baseline gap-3">
+          <button onClick={() => setBoardTab("board")} className="text-sm text-zinc-500 hover:text-zinc-900">← Back to the board</button>
+          <h2 className="font-semibold">Find and vet leads</h2>
+          <span className="text-xs text-zinc-500">Website verified and a contact found, then each lead joins Assess by itself.</span>
         </div>
-      ); })()}
+      )}
       {/* Finding leads is the first step of vetting, so the search lives in that tab. */}
       {boardTab === "vetting" && (
-        <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <h2 className="font-semibold">Find new leads</h2>
-          {cfg && !cfg.configured && <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Companies House is not connected yet. Add the free API key in <Link href="/settings?section=connections" className="underline">Settings → Connections</Link>. The board below still works.</p>}
+        <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <h3 className="flex flex-wrap items-baseline gap-2 font-semibold">Find new leads{cfg && !cfg.configured && <span className="text-xs font-normal text-amber-800">Companies House isn’t connected: <Link href="/settings?section=connections" className="underline">add the free key</Link></span>}</h3>
           <div className="mt-3">
             <div className="flex flex-wrap items-center gap-2">
               <div className={`flex min-w-[16rem] flex-1 flex-wrap items-center gap-1 rounded-md border bg-white px-2 py-1 ${areaState.error ? "border-red-300" : "border-zinc-300"}`} title={areaTitle}>
@@ -1401,7 +1423,6 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
               {running
                 ? <button onClick={stopNow} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
                 : <>{queue.length > 0 && <button onClick={runQueue} disabled={cfg?.configured === false} title="Run every queued search, one after another" className="inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><PlayIcon className="h-4 w-4" /> Run queue ({queue.length})</button>}<button onClick={queueSearch} disabled={cfg?.configured === false || leadSource === "claude" || !areaState.outcodes || (leadSource === "maps" && !MAPS_TYPES.some(([, t]) => t.includes(mapsWhat)))} title="Add this search (source, type and area) to the queue, then change the controls and add another" className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40">+ Queue</button><button onClick={() => findLeads()} disabled={cfg?.configured === false} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> {leadSource === "claude" ? "Ask Claude" : "Find leads"}</button></>}
-              <button onClick={exportExcel} disabled={!list.length} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><DownloadIcon className="h-4 w-4" /> Excel</button>
             </div>
           </div>
           {repeat && !running && (
@@ -1416,16 +1437,6 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
           )}
           {leadSource === "maps" && cfg?.places && <p className="mt-2 text-xs text-zinc-500">Google Maps searches this month: <span className="font-semibold">{cfg.placesUsage?.used || 0}</span> of {cfg.placesUsage?.cap || 900} free. Each run uses 1 to 3 per location; repeating a search within 30 days is free.</p>}
           {leadSource === "jobs" && <p className="mt-2 text-xs text-zinc-500"><a href="https://www.adzuna.co.uk" target="_blank" rel="noreferrer" className="underline">Jobs by Adzuna</a>. Recruitment agencies are left out.</p>}
-          {cfg?.finders?.connected > 0 && (
-            <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
-              <span title="Every finder is asked in turn and the first one with an answer wins, so when one runs out of credits the next one covers. Each one stops just under its free allowance and one lead can never cost more than about 14 credits, so nothing can run into paid usage. The background pass only ever looks for email addresses: phone numbers are looked up one lead at a time, when you press Find the mobile.">
-                Contact finders: <span className="font-semibold">{cfg.finders.live}</span> of {cfg.finders.connected} with credits left
-                {cfg.finders.left > 0 && <> · <span className="font-semibold">{cfg.finders.left}</span> credits left this month, then they stop</>}
-                {cfg.finders.connected > 0 && !cfg.finders.shared && <span className="text-amber-800"> · the shared store is off, so the caps only count per server</span>}
-                {!cfg.finders.mobiles && <span className="text-amber-800"> · none of the live ones return mobile numbers (add Prospeo or Lusha)</span>}
-              </span>
-            </p>
-          )}
           {run && (
             <div className="mt-3 text-sm">
               <div className="flex items-center gap-2">{running ? <SpinnerIcon className="h-4 w-4 text-blue-600" /> : /^Done/.test(run.phase) ? <CheckIcon className="h-4 w-4 text-emerald-600" /> : null}<span className={running ? "text-blue-700" : "text-zinc-700"}>{run.phase}</span>{run.total > 0 && <span className="text-xs text-zinc-500">{run.kind === "refresh" ? `${run.done} of ${run.total} rescanned` : run.kind === "contacts" ? `${run.done} of ${run.total} looked up · ${run.found} now have a contact` : `${run.done} of ${run.total} checked · ${run.found} new lead${run.found === 1 ? "" : "s"}${run.parked ? ` · ${run.parked} parked` : ""}`}</span>}</div>
@@ -1440,7 +1451,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
         onHunter={(l) => hunterLookup(l)}
         onRank={(l, query, v) => update(l.id, { youEditedAt: new Date().toISOString(), searchTown: l.searchTown, ...rankFields(l, query, v) })}
         onEmail={(l, v) => { const e = v.toLowerCase(); if (/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(e)) update(l.id, { youEditedAt: new Date().toISOString(), emailAddress: e, emailFrom: "Added by you", contactUnverified: false }); }} /> :
-      <Board channel={channel} onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} hideCols={showParked || filtering ? ["vetting"] : ["vetting", "not-pursuing", "lost"]} leads={onBoard} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
+      <Board channel={channel} onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} showClosed={showParked} onShowClosed={setShowParked} vetting={visible.filter((l) => l.status === "vetting").length} onVetting={() => setBoardTab("vetting")} leads={onBoard} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status, statusBy: "you" }); }} />}
 
       {current && <LeadDrawer key={current.id} channel={channel} onLinkedin={() => linkedinLookup(current)} onNoSite={async (extra = {}) => { if (await tryObviousDomain(current.id)) return false; update(current.id, { websiteNeeded: false, noWebsiteConfirmed: true, problem: "No website", problemDetail: "Checked by hand: they have no website", ...extra }); return true; }} onFindSite={() => openClaude({ job: "find-sites", preset: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => { unmarkSent([current.id]); openClaude({ job: "lead-check", preset: [current.id], column: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new" }); }} l={current} followUp={followUp} hunterOn={!!cfg?.finders?.connected} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, YOUR_EDITS.some((k) => k in f) ? { ...f, youEditedAt: new Date().toISOString() } : f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={(opts) => hunterLookup(current, opts)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
@@ -1529,78 +1540,117 @@ const PLACES = {
   spelthorne: ["Sunbury-on-Thames", "Sunbury", "Shepperton", "Staines-upon-Thames", "Staines", "Ashford", "Walton-on-Thames", "Hersham", "East Molesey", "West Molesey", "Weybridge", "Hanworth"],
 };
 
-// Anything moved into a column in the last day sits at the top (newest first); the rest by likelihood and size.
-// Newest arrival in the column first (moved or added), then likelihood and size for ties.
+// Anything moved into a column in the last day sits at the top (newest first); the rest by
+// likelihood, then what the company is worth, so the best leads lead.
 const arrived = (l) => Date.parse(l.statusAt || l.addedAt || "") || 0;
 // Batches of Claude work start with To assess, then the other open columns.
 const COL_RANK = { vetting: -2, "find-site": -1, new: 0, "no-contact": 1, ready: 4 };
 const colRank = (l) => COL_RANK[l.status || "new"] ?? 9;
-const sorted = (list) => list.slice().sort((a, b) => arrived(b) - arrived(a) || ({ High: 0, Medium: 1, Low: 2 }[a.likelihood] ?? 3) - ({ High: 0, Medium: 1, Low: 2 }[b.likelihood] ?? 3) || (b.netAssets || 0) - (a.netAssets || 0));
+const fresh = (l) => (Date.now() - arrived(l) < 86400000 ? arrived(l) : 0);
+const sorted = (list) => list.slice().sort((a, b) => fresh(b) - fresh(a) || ({ High: 0, Medium: 1, Low: 2 }[a.likelihood] ?? 3) - ({ High: 0, Medium: 1, Low: 2 }[b.likelihood] ?? 3) || (b.netAssets || 0) - (a.netAssets || 0));
 
-function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn, onOpen, onMove, onReview, hideCols = [], channel = "email" }) {
+// The board is five stages of selling, not one column per step. Each stage holds one or more
+// statuses (the lead keeps its exact one; a badge on the card says which). Closed sits behind
+// a link at the end so the open work fits on one screen.
+const STAGES = [
+  { id: "assess", label: "Assess", hint: "Claude checks the site and finds up to three things worth raising", statuses: ["new"] },
+  { id: "write", label: "Write", hint: "Claude writes the message, then you check it", statuses: ["to-draft", "to-check"] },
+  { id: "send", label: "Send", hint: "Checked: website, contact and message all correct", statuses: ["ready"] },
+  { id: "waiting", label: "Waiting", hint: "Sent, no reply yet. Chase shows when a follow-up is due", statuses: ["contacted"] },
+  { id: "talks", label: "In talks", hint: "They replied, or a meeting is booked", statuses: ["replied", "meeting"] },
+  { id: "closed", label: "Closed", hint: "Won, gone cold, lost or not pursuing", statuses: ["won", "cold", "lost", "not-pursuing"] },
+];
+const stageOf = (s) => STAGES.find((x) => x.statuses.includes(s)) || STAGES[0];
+const CLOSED = STAGES.find((x) => x.id === "closed").statuses;
+// Dropping a card on a stage: a lead already in it keeps its status; otherwise the stage's first
+// step (a lead with its draft in goes straight to checking it; anything already sent counts as Lost).
+function dropStatus(stage, l, ch) {
+  if (stage.statuses.includes(boardStatus(l, ch))) return null;
+  if (stage.id === "write") return hasDraft(l, ch) ? "to-check" : "to-draft";
+  if (stage.id === "closed") return ["contacted", "replied", "meeting", "cold"].includes(l.status) ? "lost" : "not-pursuing";
+  return stage.statuses[0];
+}
+const shortMoney = (n) => (n === null || n === undefined || n === "" || isNaN(Number(n)) ? "" : Math.abs(n) >= 1e6 ? `£${(n / 1e6).toFixed(1)}m` : `£${Math.round(n / 1000)}k`);
+const SUB = {
+  "to-check": ["Draft in: check it", "bg-emerald-100 text-emerald-800"], "to-draft": ["Claude to write", "bg-orange-100 text-orange-800"],
+  replied: ["Replied", "bg-emerald-100 text-emerald-800"], meeting: ["Meeting booked", "bg-violet-100 text-violet-800"],
+  won: ["Won", "bg-emerald-600 text-white"], cold: ["Gone cold", "bg-zinc-200 text-zinc-700"], lost: ["Lost", "bg-zinc-200 text-zinc-700"], "not-pursuing": ["Not pursuing", "bg-red-100 text-red-800"],
+};
+
+function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn, onOpen, onMove, onReview, showClosed = false, onShowClosed, vetting = 0, onVetting, channel = "email" }) {
   const [over, setOver] = useState(null);
   const [shown, setShown] = useState({}); // cards rendered per column; big columns page in
-  // While searching or filtering, only columns with a match are shown.
   const li = channel === "linkedin";
-  // On LinkedIn the drafting columns are about LinkedIn messages: a lead with only an email
-  // draft waits for its LinkedIn one, and switching back to email puts it where it was.
-  const label = (id, text) => (li && id === "to-draft" ? "Waiting for Claude's LinkedIn message" : li && id === "to-check" ? "LinkedIn draft in, check it" : text);
-  const cols = LEAD_STATUSES.map(([id, text, hint]) => ({ id, label: label(id, text), hint, items: sorted(leads.filter((l) => boardStatus(l, channel) === id)) })).filter((c) => !hideCols.includes(c.id) && (!filtering || c.items.length));
+  const selecting = selected.size > 0;
+  const all = STAGES.map((s) => ({ ...s, items: sorted(leads.filter((l) => s.statuses.includes(boardStatus(l, channel)))) }));
+  const closedCount = all.find((s) => s.id === "closed").items.length;
+  // While searching or filtering, only columns with a match are shown.
+  const cols = all.filter((c) => (c.id !== "closed" || showClosed || filtering) && (!filtering || c.items.length));
+  // Checkboxes stay out of the way until you hover a card or start a selection.
+  const tick = selecting ? "" : "opacity-0 group-hover:opacity-100 focus:opacity-100";
   return (
     <div className="mt-3 flex gap-3 overflow-x-auto pb-3">
       {!cols.length && <p className="text-sm text-zinc-500">No leads match.</p>}
       {cols.map((c) => (
         <div key={c.id} onDragOver={(e) => { e.preventDefault(); setOver(c.id); }} onDragLeave={() => setOver(null)}
-          onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData("text/lead"); if (id) onMove(id, c.id); setOver(null); }}
-          className={`flex w-64 shrink-0 flex-col rounded-xl border p-2 ${over === c.id ? "border-blue-400 bg-blue-50" : "border-zinc-200 bg-zinc-100/60"} ${c.id === "lost" ? "opacity-50 hover:opacity-100" : ""}`}>
+          onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData("text/lead"); const l = leads.find((x) => x.id === id); const to = l && dropStatus(c, l, channel); if (to) onMove(id, to); setOver(null); }}
+          className={`group/col flex min-w-[15rem] flex-1 flex-col rounded-xl border p-2 ${over === c.id ? "border-blue-400 bg-blue-50" : "border-zinc-200 bg-zinc-100/60"}`}>
           <div className="flex items-center gap-1.5 px-1 text-xs font-semibold text-zinc-700">
-            <input type="checkbox" aria-label={`Select everything in ${c.label}`} title="Select everything in this column" checked={c.items.length > 0 && c.items.every((l) => selected.has(l.id))} onChange={(e) => onSelectColumn(c.items.map((l) => l.id), e.target.checked)} disabled={!c.items.length} className="h-3.5 w-3.5" />
-            <span className="truncate" title={c.hint}>{c.label}</span><span className="ml-auto shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{c.items.length}</span>
+            <input type="checkbox" aria-label={`Select everything in ${c.label}`} title="Select everything in this column" checked={c.items.length > 0 && c.items.every((l) => selected.has(l.id))} onChange={(e) => onSelectColumn(c.items.map((l) => l.id), e.target.checked)} disabled={!c.items.length} className={`h-3.5 w-3.5 ${selecting ? "" : "opacity-0 group-hover/col:opacity-100 focus:opacity-100"}`} />
+            <span className="truncate text-sm" title={c.hint}>{c.label}</span><span className="ml-auto shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] text-zinc-600">{c.items.length}</span>
+            {c.id === "closed" && !filtering && <button onClick={() => onShowClosed(false)} title="Hide closed leads" aria-label="Hide closed leads" className="shrink-0 text-zinc-400 hover:text-zinc-900">×</button>}
           </div>
           <div className="pb-2" />
-          {c.id === "new" && c.items.some((l) => !l.claude) && <button onClick={() => openClaude({ job: "lead-check", column: "new" })} title="Claude checks each site for the issue to raise; leads with an issue and an address move to Email to draft" className="mb-2 w-full rounded-md bg-orange-600 px-2 py-1 text-xs font-medium text-white hover:bg-orange-700">Find issues for {c.items.filter((l) => !l.claude).length} with Claude</button>}
-          {c.id === "find-site" && c.items.length > 0 && <button onClick={() => openClaude({ job: "find-sites", preset: c.items.map((l) => l.id) })} className="mb-2 w-full rounded-md bg-amber-600 px-2 py-1 text-xs font-medium text-white hover:bg-amber-700">Find {c.items.length} website{c.items.length === 1 ? "" : "s"} with Claude</button>}
-          {c.id === "to-draft" && li && c.items.some((l) => !l.li?.message) && <button onClick={() => openClaude({ job: "linkedin-batch" })} className="mb-2 w-full rounded-md bg-sky-700 px-2 py-1 text-xs font-medium text-white hover:bg-sky-800">Write {c.items.filter((l) => !l.li?.message).length} LinkedIn message{c.items.filter((l) => !l.li?.message).length === 1 ? "" : "s"} with Claude</button>}
-          {c.id === "to-draft" && !li && c.items.some((l) => !l.review?.drafted) && <button onClick={() => openClaude({ job: "draft-batch" })} className="mb-2 w-full rounded-md bg-orange-600 px-2 py-1 text-xs font-medium text-white hover:bg-orange-700">Write {c.items.filter((l) => !l.review?.drafted).length} email{c.items.filter((l) => !l.review?.drafted).length === 1 ? "" : "s"} with Claude</button>}
-          {["new", "to-draft", "to-check", "no-contact"].includes(c.id) && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.id)} title="Go through these one at a time: look at the site, pick the issue and approach, then draft the email with Claude" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
+          {c.id === "assess" && vetting > 0 && <button onClick={onVetting} title="Leads still being vetted: website, contact and Google ranking. They join Assess by themselves." className="mb-2 rounded-md border border-dashed border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50">{vetting} being vetted ›</button>}
+          {["assess", "write"].includes(c.id) && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.statuses[c.statuses.length - 1])} title="Go through these one at a time: look at the site, pick the issue and approach, then check the message" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
           <div className="flex flex-1 flex-col gap-2">
-            {c.items.slice(0, shown[c.id] || 60).map((l) => (
+            {c.items.slice(0, shown[c.id] || 60).map((l) => {
+              const st = boardStatus(l, channel);
+              const sub = c.statuses.length > 1 && SUB[st];
+              const value = [shortMoney(l.netAssets), l.maintenance ? "Maintenance" : l.problem, l.likelihood].filter(Boolean).join(" · ");
+              return (
               <div key={l.id} draggable onDragStart={(e) => { e.dataTransfer.setData("text/lead", l.id); e.dataTransfer.effectAllowed = "move"; }} onClick={() => onOpen(l.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") onOpen(l.id); }}
-                className={`cursor-grab rounded-lg border bg-white p-2.5 text-left shadow-sm hover:border-zinc-400 active:cursor-grabbing ${selected.has(l.id) ? "border-blue-500 ring-1 ring-blue-300" : "border-zinc-200"}`}>
+                className={`group cursor-grab rounded-lg border bg-white p-2.5 text-left shadow-sm hover:border-zinc-400 active:cursor-grabbing ${selected.has(l.id) ? "border-blue-500 ring-1 ring-blue-300" : "border-zinc-200"}`}>
                 <div className="flex items-start gap-1.5">
-                  <input type="checkbox" checked={selected.has(l.id)} onChange={() => onToggle(l.id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${l.business}`} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span className="flex-1 text-sm font-medium leading-tight">{l.business}</span>
-                  {/* Nothing here but what needs doing. "Needs checking" said the same as the
-                      column it sat in, and the likelihood badge sat on every card without ever
-                      asking for anything: both are in the lead itself instead. */}
+                  <input type="checkbox" checked={selected.has(l.id)} onChange={() => onToggle(l.id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${l.business}`} className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${selected.has(l.id) ? "" : tick}`} />
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
-                  {c.id === "to-check" && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${hasDraft(l, channel) ? "bg-emerald-100 text-emerald-800" : "bg-orange-100 text-orange-800"}`}>{hasDraft(l, channel) ? "Draft in: check it" : "Waiting for Claude"}</span>}
-                  {l.contactedVia === "linkedin" && ["contacted", "cold", "replied", "meeting"].includes(c.id) && <span className="rounded-full bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-800" title={l.li?.sent?.message ? "Connected: message sent on LinkedIn" : "Connection request sent on LinkedIn, waiting for them to accept"}>{l.li?.sent?.message ? "LinkedIn" : "LinkedIn: request sent"}</span>}
-                  {l.review?.step > 2 && !l.review?.done && ["new", "no-contact"].includes(c.id) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="Review in progress">Step 2/2</span>}
-                  {l.maintenance && <span className="rounded-full bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-800" title="Nothing wrong with their site: the pitch is looking after it for less than they pay now">Maintenance</span>}
+                {/* What it's worth and what to pitch, so the best leads are easy to pick out. */}
+                {value && <div className="mt-0.5 truncate text-[11px] text-zinc-500" title={l.problemDetail || ""}>{value}</div>}
+                <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500 empty:hidden">
+                  {sub && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${sub[1]}`}>{st === "to-draft" && li ? "Claude to write (LinkedIn)" : sub[0]}</span>}
+                  {l.contactedVia === "linkedin" && ["contacted", "cold", "replied", "meeting"].includes(st) && <span className="rounded-full bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-800" title={l.li?.sent?.message ? "Connected: message sent on LinkedIn" : "Connection request sent on LinkedIn, waiting for them to accept"}>{l.li?.sent?.message ? "LinkedIn" : "LinkedIn: request sent"}</span>}
+                  {l.review?.step > 2 && !l.review?.done && st === "new" && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="Review in progress">Step 2/2</span>}
                   {cantFind(l) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="No website anywhere, so nothing to pitch">Can’t find them</span>}
-                  {l.contactUnverified && !l.emailAddress && c.id !== "no-contact" && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
-                  {l.noWebsiteConfirmed && !l.website && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title={l.problemDetail}>No site ✓</span>}
+                  {l.contactUnverified && !l.emailAddress && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
                   {l.websiteNeeded && !l.website && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="Claude couldn't find their real website. Open the lead to paste it in, or confirm they have none.">Find website</span>}
-                  {l.claude && !l.websiteNeeded && !l.claude.worth_contacting && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800" title={l.claude.reason}>Not worth it</span>}
+                  {/* A maintenance pitch is for a site with nothing wrong, so "not worth it" is not news there. */}
+                  {l.claude && !l.websiteNeeded && !l.claude.worth_contacting && !l.maintenance && !CLOSED.includes(st) && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800" title={l.claude.reason}>Not worth it</span>}
                   {l.optedOut && <span className="rounded-full bg-red-600 px-1.5 py-0.5 font-semibold text-white" title={`Asked not to be contacted${l.optedOutAt ? ` on ${new Date(l.optedOutAt).toLocaleDateString("en-GB")}` : ""}`}>Opted out</span>}
                   {l.tradesElsewhere && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800" title={`Website address: ${l.tradingAddress}`}>Trades elsewhere</span>}
                   {siteDoubt(l) && websiteIsVerified(l) && !isFrozen(l) && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800" title={l.websiteDoubt}>Check website</span>}
                   {!websiteIsVerified(l) && !isFrozen(l) && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="The website was matched on its name only. Open the lead and confirm it is theirs before anything goes out.">Confirm website</span>}
                   {needsChase(l, followUp) && <span className="rounded-full bg-amber-500 px-1.5 py-0.5 font-semibold text-white" title={`No reply ${Math.floor(daysSince(l))} days after contact: send the follow-up`}>Chase</span>}
-                  {l.status === "contacted" && l.chasedAt && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 text-zinc-700">Chased {new Date(l.chasedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>}
-
+                  {st === "contacted" && l.chasedAt && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 text-zinc-700">Chased {new Date(l.chasedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>}
                 </div>
-                {c.id === "not-pursuing" && <div className="mt-1 truncate text-[11px] font-medium text-red-700" title={parkExplain(l)}>{parkReason(l) || (l.contactUnverified && !l.emailAddress ? "No verified email address" : !l.problem ? "Site is current" : "Moved by hand")}</div>}
+                {st === "not-pursuing" && <div className="mt-1 truncate text-[11px] font-medium text-red-700" title={parkExplain(l)}>{parkReason(l) || (l.contactUnverified && !l.emailAddress ? "No verified email address" : !l.problem ? "Site is current" : "Moved by hand")}</div>}
                 {l.checking && <div className="mt-1 text-[11px] text-blue-600">Checking…</div>}
               </div>
-            ))}
-            {!c.items.length && <div className="rounded-lg border border-dashed border-zinc-300 p-3 text-center text-[11px] text-zinc-400">Drop here</div>}
+              );
+            })}
+            {!c.items.length && <div className="rounded-lg border border-dashed border-zinc-300 p-3 text-center text-[11px] text-zinc-400">Nothing here</div>}
             {c.items.length > (shown[c.id] || 60) && <button onClick={() => setShown({ ...shown, [c.id]: (shown[c.id] || 60) + 100 })} className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100">Show {Math.min(100, c.items.length - (shown[c.id] || 60))} more of {c.items.length}</button>}
           </div>
         </div>
       ))}
+      {!showClosed && !filtering && closedCount > 0 && (
+        <button onClick={() => onShowClosed(true)} onDragOver={(e) => { e.preventDefault(); setOver("closed"); }} onDragLeave={() => setOver(null)}
+          onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData("text/lead"); const l = leads.find((x) => x.id === id); const to = l && dropStatus(STAGES.find((s) => s.id === "closed"), l, channel); if (to) onMove(id, to); setOver(null); }}
+          title="Won, gone cold, lost and not pursuing. Drop a card here to close it."
+          className={`w-10 shrink-0 rounded-xl border text-xs font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 ${over === "closed" ? "border-blue-400 bg-blue-50" : "border-zinc-200"}`}>
+          <span className="inline-block whitespace-nowrap [writing-mode:vertical-rl]">Closed ({closedCount}) ›</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -2338,6 +2388,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
     return () => clearTimeout(timer);
   }, [l.id, maint]); // eslint-disable-line react-hooks/exhaustive-deps
   const [own, setOwn] = useState("");
+  const [moreRaise, setMoreRaise] = useState(false); // the standard checklist, folded away until asked for
   const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState(false);
   const site = l.siteUrl || (l.website ? `${l.problem === "Broken SSL" ? "http" : "https"}://${l.website}` : "");
@@ -2490,11 +2541,12 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
       {!maint && step <= 2 && <div className="-mt-3 rounded-b-lg border border-t-0 border-zinc-200 p-3 pt-0">
         {(
           <div className="space-y-3 text-sm">
-            <div className="border-t border-zinc-100 pt-3 text-xs font-semibold text-zinc-700">What to raise <span className="font-normal text-zinc-500">· tick everything the email should mention, and star the one it leads with</span></div>
+            <div className="border-t border-zinc-100 pt-3 text-xs font-semibold text-zinc-700">What to raise <span className="font-normal text-zinc-500">· star the one it leads with</span></div>
             {!cands.length && <p className="text-xs text-zinc-500">Nothing found yet. Add what you noticed in step 1, or type your own below.</p>}
             {dropped.length > 0 && <p className="text-[11px] text-zinc-500">{dropped.length} dropped as not true, so {dropped.length === 1 ? "it is" : "they are"} left out of the email. <button onClick={() => setR({ dropped: [] })} className="underline">put {dropped.length === 1 ? "it" : "them"} back</button></p>}
             <div className="space-y-1">
-              {cands.map((c) => (
+              {/* What the checker and Claude found, plus anything ticked; the rest of the standard checklist waits behind "Add another". */}
+              {cands.filter((c) => moreRaise || !c.standard || mainKey === c.key || included(c, mainKey)).map((c) => (
                 <div key={c.key} className={`flex items-center gap-2 rounded-md border px-2 py-1.5 ${mainKey === c.key ? "border-zinc-900 bg-zinc-50" : "border-zinc-200"}`}>
 <button onClick={() => { const np = r.pathSet ? r.path : suggestPath(c.issue?.id || c.label, l); setR({ lead: c.key, subjectTyped: false, path: np, ...(c.key.startsWith("you:") && !(r.seen || []).includes(c.key.slice(4)) ? { seen: [...(r.seen || []), c.key.slice(4)] } : {}), ...(l.email && !l.emailEdited && !cands.find((x) => x.key === c.key)?.issue ? { drafted: "" } : {}) }, { subject: subjectOf(c), ...(redraftFor(c.key, np) || {}) }); }} title="Star it: this is what the email leads with, and it sets the subject"
                     className="flex min-w-0 flex-1 items-center gap-2 text-left">
@@ -2527,6 +2579,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
                   }} title={mainKey === c.key ? "The one it leads with is always in" : "Tick to have the email mention this"} aria-label="Include this in the email" className="h-3.5 w-3.5 shrink-0" />
                 </div>
               ))}
+              {(() => { const hidden = cands.filter((c) => c.standard && mainKey !== c.key && !included(c, mainKey)).length; return (hidden > 0 || moreRaise) && <button onClick={() => setMoreRaise((v) => !v)} className="text-xs text-zinc-500 underline hover:text-zinc-900">{moreRaise ? "Show only what was found" : `+ Add another (${hidden} more to check)`}</button>; })()}
             </div>
             <div className="flex gap-2">
               {(() => { const addOwn = () => { const t = own.trim(); if (!t) return; setR({ own: [...new Set([...(r.own || []), t])], lead: r.lead || `own:${t}` }); setOwn(""); }; return <>

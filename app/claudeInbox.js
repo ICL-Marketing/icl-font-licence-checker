@@ -144,6 +144,8 @@ export function ClaudeInbox() {
   const currentId = promptJobs.has(job.id) ? job.id : list[0]?.[0] || "";
   const current = promptJobs.get(currentId);
   const close = () => setOpen(false);
+  // Everything waiting, on the button itself, so there is one place to go for Claude.
+  const waiting = Number(promptJobs.get("all")?.count()) || 0;
   useEffect(() => { if (!open) return; const k = (e) => { if (e.key === "Escape") setOpen(false); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [open]);
   async function take(t) {
     const kind = detectReply(t);
@@ -158,7 +160,7 @@ export function ClaudeInbox() {
   }
   return (
     <>
-      <button onClick={() => setOpen(true)} title="Get a prompt for Claude, or paste a reply" className="whitespace-nowrap rounded-md bg-orange-600 px-3 py-1 text-sm font-medium text-white hover:bg-orange-700">Claude{active.some(([, j]) => j.done < j.total) && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-white align-middle" />}</button>
+      <button onClick={() => setOpen(true)} title={waiting ? `${waiting} job${waiting === 1 ? "" : "s"} waiting for Claude: get a prompt, or paste a reply` : "Get a prompt for Claude, or paste a reply"} className="whitespace-nowrap rounded-md bg-orange-600 px-3 py-1 text-sm font-medium text-white hover:bg-orange-700">Claude{waiting > 0 && <span className="ml-1.5 rounded-full bg-white/25 px-1.5 text-xs">{waiting}</span>}{active.some(([, j]) => j.done < j.total) && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-white align-middle" />}</button>
       {open && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={() => setOpen(false)}>
           <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
