@@ -1362,7 +1362,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-md border border-zinc-300 bg-white p-0.5 text-sm">
             <button onClick={() => setBoardTab("vetting")} className={`rounded px-3 py-1 ${boardTab === "vetting" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>1. Vetting ({vetting.length})</button>
-            <button onClick={() => setBoardTab("board")} className={`rounded px-3 py-1 ${boardTab === "board" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>2. Board ({onBoard.filter((l) => l.status !== "vetting").length})</button>
+            <button onClick={() => setBoardTab("board")} className={`rounded px-3 py-1 ${boardTab === "board" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:text-zinc-900"}`}>2. Prospects ({onBoard.filter((l) => l.status !== "vetting").length})</button>
           </div>
           <span className="text-xs text-zinc-500">{boardTab === "vetting" ? "Website verified and a contact found, then it goes on the board by itself." : "Only vetted leads, ready to work."}</span>
         </div>
