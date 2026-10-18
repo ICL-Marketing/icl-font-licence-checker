@@ -1104,7 +1104,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
   };
   useClaudeHandler("draft-batch", handleDraftBatch);
   useClaudeJob("linkedin-batch", { label: "LinkedIn messages", order: 1.6, count: () => list.filter((l) => ["to-draft", "to-check"].includes(l.status) && !l.li?.message).length, render: (o, close) => <DraftBatchModal mode="linkedin" leads={list} preset={o.preset || []} onClose={close} /> });
-  useClaudeHandler("linkedin-batch", (text) => {
+  function handleLinkedin(text) {
     const items = parseLinkedinReply(text);
     if (!items.length) throw new Error("No LinkedIn messages in that reply. Make sure Claude kept the lead_id values.");
     let done = 0;
@@ -1116,7 +1116,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
       done++;
     }
     return `${done} LinkedIn message${done === 1 ? "" : "s"} added. Check each one, then Ready to send.`;
-  });
+  }
+  useClaudeHandler("linkedin-batch", handleLinkedin);
   useClaudeJob("rank-check", { label: "Search rankings", order: 3, count: () => list.filter((l) => rankable(l) && !l.seo?.claudeAt).length, render: (o, close) => <RankModal leads={list} preset={o.preset || []} onClose={close} /> });
   // Where they came for the searches their customers make: the weakest becomes the search issue.
   // Claude's Google positions: saved on the lead, and a weak search becomes the search issue.
@@ -1190,17 +1191,20 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
     run("Issues", d.check, handleCheck);
     run("Emails", d.emails, (j) => handleDraftBatch(`{"emails":${j}}`));
     run("Rankings", d.rankings, (j) => handleRank(`{"leads":${j}}`));
-    if (!out.length) throw new Error("Nothing in that reply. It should have vet, check, emails and rankings lists.");
+    run("Websites", d.sites, handleSites);
+    run("LinkedIn", d.linkedin, handleLinkedin);
+    if (!out.length) throw new Error("Nothing in that reply. It should have vet, check, emails, rankings, sites or linkedin lists.");
     return out.join(" | ");
   });
-  useClaudeHandler("find-sites", (text) => {
+  useClaudeHandler("find-sites", handleSites);
+  function handleSites(text) {
     const r = applySites(parseSitesReply(text));
     // Replies from the combined prompt also carry the full lead check: apply that too.
     let checked = null;
     try { const list = parseLeadCheck(text).filter((x) => x.reason); if (list.length) checked = applyLeadCheck(list); } catch {}
     if (checked) return [r.found && `${r.found} website${r.found === 1 ? "" : "s"} found (rescanning)`, r.none && `${r.none} with no website`, `${checked.done} lead${checked.done === 1 ? "" : "s"} checked`, checked.moved.back && `${checked.moved.back} to To assess`, checked.moved.skip && `${checked.moved.skip} to Not pursuing`].filter(Boolean).join(" · ");
     return [r.found && `${r.found} website${r.found === 1 ? "" : "s"} found (rescanning)`, r.none && `${r.none} with no website`, r.unsure && `${r.unsure} unsure (noted on the lead)`, r.left && `${r.left} left alone`].filter(Boolean).join(" · ") || "Nothing to update.";
-  });
+  }
   useClaudeHandler("find-leads", (text) => {
     const items = parseFoundLeads(text);
     if (!items.length) throw new Error("No businesses in that reply.");
@@ -2673,13 +2677,7 @@ function FindSitesModal({ leads, preset, onClose, onApply }) {
   const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState(false);
   useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
-  const items = picked.map((id) => leads.find((l) => l.id === id)).filter(Boolean).map((l) => ({
-    id: l.id, business: l.business, companyNumber: l.companyNumber, address: [l.address || l.area, l.tradingTown && `trades in ${l.tradingTown}`].filter(Boolean).join("; "), sic: l.whatTheyDo || sicDescription(l.sics || []), website: "",
-    issue: "No website found by our checks",
-    contacts: (l.contacts || []).filter((p) => p.email).slice(0, 5).map((p) => `${p.name} (${p.role}, ${p.email})`).join("; "),
-    people: (l.contacts || []).filter((p) => /Companies House/.test(p.source || "")).slice(0, 4).map((p) => `${p.name} (${p.role})`).join("; "),
-    rejected: (l.rejectedSites || []).join(", "),
-  }));
+  const items = picked.map((id) => leads.find((l) => l.id === id)).filter(Boolean).map(siteItem);
   // One prompt does both jobs: find the website, then the full lead check (contact, verdict, email).
   const prompt = items.length ? withTitle("Find websites", `${items.length} lead${items.length === 1 ? "" : "s"}`, leadCheckPrompt(items, { findSite: true })) : "";
   // Copying sends the batch to Claude and moves straight on to the next one, so several can run at once.
@@ -2772,18 +2770,33 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
 
 // What each Claude job would take right now, for the All prompt.
 const vetItem = (l) => ({ id: l.id, business: l.business, companyNumber: l.companyNumber, address: l.address || l.area, sic: sicDescription(l.sics || []), website: l.website || "", issue: [l.problem, l.problemDetail].filter(Boolean).join(": "), contacts: (l.contacts || []).slice(0, 5).map((p) => `${p.name} (${p.role}${p.email ? `, ${p.email}` : ""})`).join("; "), rejected: (l.rejectedSites || []).join(", ") });
+// Every Website Leads job, each lead in one task only: vetting already covers the website and
+// Google ranking, and finding a website already runs the full lead check.
 function allPending(leads) {
   const vet = leads.filter((l) => l.status === "vetting" && !l.vetAt && !l.optedOut);
-  const check = leads.filter((l) => (l.status || "new") === "new" && !l.claude && !claudeSkip(l));
+  const sites = leads.filter((l) => l.status !== "vetting" && !l.website && siteSearchable(l) && !l.sitesCheckedAt);
+  const inSites = new Set(sites.map((l) => l.id));
+  const check = leads.filter((l) => (l.status || "new") === "new" && !l.claude && !claudeSkip(l) && !inSites.has(l.id));
   const draft = leads.filter((l) => l.status === "to-draft" && !l.review?.drafted);
+  const linkedin = leads.filter((l) => ["to-draft", "to-check"].includes(l.status) && !l.li?.message);
   const rank = leads.filter((l) => rankable(l) && l.status !== "vetting" && !l.seo?.claudeAt);
-  return { vet, check, draft, rank, total: vet.length + check.length + draft.length + rank.length };
+  return { vet, sites, check, draft, linkedin, rank, total: vet.length + sites.length + check.length + draft.length + linkedin.length + rank.length };
 }
+// What the Find websites prompt sends for each lead.
+const siteItem = (l) => ({
+  id: l.id, business: l.business, companyNumber: l.companyNumber, address: [l.address || l.area, l.tradingTown && `trades in ${l.tradingTown}`].filter(Boolean).join("; "), sic: l.whatTheyDo || sicDescription(l.sics || []), website: "",
+  issue: "No website found by our checks",
+  contacts: (l.contacts || []).filter((p) => p.email).slice(0, 5).map((p) => `${p.name} (${p.role}, ${p.email})`).join("; "),
+  people: (l.contacts || []).filter((p) => /Companies House/.test(p.source || "")).slice(0, 4).map((p) => `${p.name} (${p.role})`).join("; "),
+  rejected: (l.rejectedSites || []).join(", "),
+});
 function allPrompt(p) {
   const parts = [];
   if (p.vet.length) parts.push(["vet", "Vet these leads", leadCheckPrompt(p.vet.map(vetItem), { vet: true })]);
+  if (p.sites.length) parts.push(["sites", "Find these websites, then check each lead", leadCheckPrompt(p.sites.map(siteItem), { findSite: true })]);
   if (p.check.length) parts.push(["check", "Check these leads for the issue to raise", leadCheckPrompt(p.check.map(vetItem))]);
   if (p.draft.length) parts.push(["emails", "Write these emails", draftBatchPrompt(p.draft.map((l) => ({ l, first: greetNames(l.contactName), ...briefOf(l), subject: l.subject || "" })))]);
+  if (p.linkedin.length) parts.push(["linkedin", "Write these LinkedIn messages", linkedinPrompt(p.linkedin.map((l) => ({ l, first: greetNames(l.contactName), ...briefOf(l), subject: l.subject || "", person: liPerson(l) })))]);
   if (p.rank.length) parts.push(["rankings", "Check these Google rankings", rankCheckPrompt(p.rank.map((l) => ({ id: l.id, business: l.business, companyNumber: l.companyNumber, address: l.address || l.area || "", website: l.website, what: l.tradeOverride || l.whatTheyDo || l.trade || "", town: l.searchTown || (l.tradesElsewhere ? "" : l.tradingTown) || "" })))]);
   if (!parts.length) return "";
   return `There are ${parts.length} separate tasks below for ICL Digital. Do every one of them, in full, for every lead listed.
@@ -2792,7 +2805,7 @@ Each task describes the JSON it wants. IGNORE each task's own "reply with" instr
 \`\`\`json
 { ${parts.map(([k]) => `"${k}": [ /* the list of objects that task asks for */ ]`).join(", ")} }
 \`\`\`
-(For the emails task use its "emails" list; for the rankings task use its "leads" list.) No other text.
+(For the emails task use its "emails" list; for the rankings task use its "leads" list; for the others, the list of objects it asks for.) No other text.
 
 ${parts.map(([k, title, body], n) => `==================== TASK ${n + 1}: ${title} (goes in "${k}") ====================\n\n${body}`).join("\n\n")}`;
 }
@@ -2800,14 +2813,14 @@ function AllModal({ leads, onClose }) {
   const p = allPending(leads);
   const [copied, setCopied] = useState(false);
   const prompt = p.total ? withTitle("All jobs", `${p.total} items`, allPrompt(p)) : "";
-  async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("vet", p.vet.map((l) => l.id)); markSent("lead-check", p.check.map((l) => l.id)); markSent("draft-batch", p.draft.map((l) => l.id)); markSent("rank-check", p.rank.map((l) => l.id)); }
+  async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("vet", p.vet.map((l) => l.id)); markSent("lead-check", p.check.map((l) => l.id)); markSent("draft-batch", p.draft.map((l) => l.id)); markSent("find-sites", p.sites.map((l) => l.id)); markSent("linkedin-batch", p.linkedin.map((l) => l.id)); markSent("rank-check", p.rank.map((l) => l.id)); }
   const row = (n, label) => <li className={n ? "" : "text-zinc-400"}><b>{n}</b> {label}</li>;
   return (
     <div className="space-y-4 text-sm">
       <div>
         <span className="font-semibold">1. Everything waiting, in one prompt</span>
-        <ul className="mt-1 space-y-0.5 text-xs text-zinc-700">{row(p.vet.length, "to vet (website, contact, Google)")}{row(p.check.length, "in To assess to check for an issue")}{row(p.draft.length, "emails to write")}{row(p.rank.length, "Google rankings to check on the board")}</ul>
-        <p className="mt-1 text-[11px] text-zinc-500">Big batches take Claude a while; it all comes back as one JSON to paste. Each lead is only included once per job.</p>
+        <ul className="mt-1 space-y-0.5 text-xs text-zinc-700">{row(p.vet.length, "to vet (website, contact, Google)")}{row(p.sites.length, "websites to find (and check the lead)")}{row(p.check.length, "in Assess to check for an issue")}{row(p.draft.length, "emails to write")}{row(p.linkedin.length, "LinkedIn messages to write")}{row(p.rank.length, "Google rankings to check on the board")}</ul>
+        <p className="mt-1 text-[11px] text-zinc-500">Big batches take Claude a while; it all comes back as one JSON to paste. Each lead is in one task only, so a lead being vetted isn’t also in Search rankings. Check ideas and Client research belong to Client Ideas and run on their own.</p>
       </div>
       <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">2. Run it in Claude</span>
         <span className="ml-auto flex gap-2">
