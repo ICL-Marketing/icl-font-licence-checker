@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, to100, businessLabel, subjectForText, draftBatchPrompt, parseDraftBatch, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, sortFindings, presetSubject, stripFlagLine, linkedinPrompt, parseLinkedinReply, LI_NOTE_MAX, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck, footerOnly } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, to100, businessLabel, subjectForText, draftBatchPrompt, parseDraftBatch, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, sortFindings, presetSubject, stripFlagLine, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck, footerOnly } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 import { mergeDoc } from "@/lib/merge";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, unmarkSent, sentIds, PasteHint, reportProgress, withTitle } from "@/app/claudeInbox";
@@ -201,7 +201,7 @@ const humanConfirmed = (l) => !!l.websiteConfirmed || ["confirmed by you", "chec
 const siteDoubt = (l) => !!(l.website && l.websiteDoubt && !humanConfirmed(l));
 const signed = (n) => (n === null || n === undefined || n === "" ? "—" : `${n < 0 ? "-" : "+"}£${Math.abs(Math.round(Number(n))).toLocaleString("en-GB")}`);
 
-export default function LeadsArea({ onRunning, onCount, clients = [], channel = "email" }) {
+export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const [leads, setLeads] = useState({});
   const [cfg, setCfg] = useState(null); // {configured, areas, sectors}
   const [minAssets] = useState(() => { try { return Number(localStorage.getItem("flc-leads-floor") || 20000) || 20000; } catch { return 20000; } }); // set in Settings → Lead maintenance
@@ -267,7 +267,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
     try {
       const u = new URL(window.location.href);
       if ((u.searchParams.get("lead") || null) === (id || null)) return;
-      if (id) { u.searchParams.set("tab", channel === "linkedin" ? "linkedin-sales" : "leads"); u.searchParams.set("lead", id); window.history.pushState({ lead: id }, "", u.search); }
+      if (id) { u.searchParams.set("tab", "leads"); u.searchParams.set("lead", id); window.history.pushState({ lead: id }, "", u.search); }
       else { u.searchParams.delete("lead"); window.history.pushState({}, "", u.search); }
     } catch {}
   };
@@ -485,9 +485,6 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
   useEffect(() => {
     fetch("/api/settings?key=email-templates").then((r) => r.json()).then((j) => { if (j.shared && j.value) setEmailTemplates(j.value); }).catch(() => {});
   }, []);
-  // Email or LinkedIn: Website Leads or LinkedIn Sales at the top. A ref too, for code that runs outside a render.
-  const channelRef = useRef(channel);
-  channelRef.current = channel;
   // Subjects are the presets from Settings now, not whatever Claude wrote. Every email not yet
   // sent, Ready to send included, takes its preset once. One typed by hand afterwards stays.
   // It waits for both the leads and the presets, since either can arrive first.
@@ -514,7 +511,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
     for (const l of Object.values(leadsRef.current)) {
       // Cold once the follow-ups have run out and the last one has had its week, or after
       // twice the usual wait whatever is left: a sequence still going is not silence yet.
-      if (l.status === "contacted" && ((age(l) >= followUp.coldDays && !nextFollowUp(l) && sinceLastTouch(l) >= followUp.chaseDays) || age(l) >= followUp.coldDays * 2)) update(l.id, { status: "cold", autoMoved: `Cold: no reply after ${l.contactedVia === "linkedin" ? "the LinkedIn messages" : "the email and its follow-ups"}` });
+      if (l.status === "contacted" && ((age(l) >= followUp.coldDays && !nextFollowUp(l) && sinceLastTouch(l) >= followUp.chaseDays) || age(l) >= followUp.coldDays * 2)) update(l.id, { status: "cold", autoMoved: "Cold: no reply after the email and its follow-ups" });
       else if (l.status === "cold" && age(l) >= followUp.lostDays) update(l.id, { status: "lost", autoMoved: `Lost: still nothing ${followUp.lostDays} days after going cold` });
     }
   }, [leads, followUp]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -761,31 +758,6 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
     finally { onRunning?.(false); }
   }
 
-  // Their LinkedIn profile, from the contact finders: the URL, headline and when they started
-  // their current role. Kept under l.li, so switching back to email loses nothing. At most a
-  // credit or two, and never a mobile.
-  async function linkedinLookup(l, { quiet = false } = {}) {
-    const p = liPerson(l);
-    const now = new Date().toISOString();
-    if (!p.name) { if (!quiet) update(l.id, { error: "No named person on this lead yet, so there is no profile to look for." }); else update(l.id, { li: { ...(l.li || {}), lookupAt: now } }); return; }
-    if (!quiet) update(l.id, { checking: true, error: "" });
-    try {
-      const r = await post({ step: "profile", lead: l, name: p.name, email: p.email });
-      const cur = leadsRef.current[l.id] || l; const f = r.found;
-      const li = { ...(cur.li || {}), lookupAt: now, ...(f ? { person: cur.li?.person || f.name, role: cur.li?.role || f.title || p.role, profile: cur.li?.profile || f.linkedin, headline: f.headline || cur.li?.headline || "", roleSince: f.roleSince || cur.li?.roleSince || "", history: f.history || cur.li?.history || "", profileFrom: f.from } : {}) };
-      update(l.id, { li, ...(quiet ? {} : { checking: false, error: f?.linkedin ? "" : "No finder had a LinkedIn profile for them. Claude looks for it when it writes the messages." }) });
-    } catch (e) { update(l.id, { li: { ...(leadsRef.current[l.id]?.li || {}), lookupAt: now }, ...(quiet ? {} : { checking: false, error: e.message }) }); }
-  }
-  // On LinkedIn Sales, every lead waiting for a message gets its profile looked up once,
-  // in the background, so Claude starts from the right person and their latest role.
-  const profilesRunRef = useRef(false);
-  useEffect(() => {
-    if (channel !== "linkedin" || profilesRunRef.current || !cfg?.finders?.live) return;
-    const todo = Object.values(leads).filter((l) => ["to-draft", "to-check"].includes(l.status) && !l.li?.profile && !l.li?.lookupAt && !isFrozen(l));
-    if (!todo.length) return;
-    profilesRunRef.current = true;
-    (async () => { for (const l of todo) await linkedinLookup(leadsRef.current[l.id] || l, { quiet: true }); profilesRunRef.current = false; })();
-  }, [leads, channel, cfg]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Explicit: spend finder credits on this lead now, whatever the free routes found.
   async function hunterLookup(l, opts) {
@@ -969,10 +941,10 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
       } else if (!l.website && it.correct_website) { if (l.problem === "No website") { f.problem = ""; f.problemDetail = ""; } f.website = it.correct_website; f.websiteConfirmed = true; f.websiteVerified = "checked by Claude"; f.websiteEvidence = it.website_evidence; rescan.push(l.id); }
       else if (l.website && !websiteIsVerified(l)) { f.websiteVerified = "checked by Claude"; f.websiteEvidence = it.website_evidence; f.websiteDoubt = ""; }
       const c = it.contact;
-      if (c.name && (c.email || c.linkedin)) {
+      if (c.name && c.email) {
         const contacts = [...(l.contacts || [])];
         const same = contacts.find((p) => (c.email && (p.email === c.email || p.emailGuess === c.email)) || p.name.toLowerCase() === c.name.toLowerCase());
-        const person = { name: c.name, role: c.role || "Contact", source: "Claude research", why: c.email_source ? `Address published at ${c.email_source}` : "Found by Claude", ...(c.email ? { email: c.email, emailStatus: `Found by Claude${c.email_source ? `: ${c.email_source}` : ""}` } : {}), ...(c.linkedin ? { linkedin: c.linkedin } : {}) };
+        const person = { name: c.name, role: c.role || "Contact", source: "Claude research", why: c.email_source ? `Address published at ${c.email_source}` : "Found by Claude", ...(c.email ? { email: c.email, emailStatus: `Found by Claude${c.email_source ? `: ${c.email_source}` : ""}` } : {}) };
         if (same) Object.assign(same, { ...person, name: same.name, source: /Claude/.test(same.source || "") ? same.source : `${same.source} + Claude` }); else contacts.unshift(person);
         f.contacts = contacts;
         const current = String(f.emailAddress ?? l.emailAddress ?? "");
@@ -1103,21 +1075,6 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
     return `${done} email${done === 1 ? "" : "s"} added. Check each one in Email to draft, then Ready to send.`;
   };
   useClaudeHandler("draft-batch", handleDraftBatch);
-  useClaudeJob("linkedin-batch", { label: "LinkedIn messages", order: 1.6, count: () => list.filter((l) => ["to-draft", "to-check"].includes(l.status) && !l.li?.message).length, render: (o, close) => <DraftBatchModal mode="linkedin" leads={list} preset={o.preset || []} onClose={close} /> });
-  function handleLinkedin(text) {
-    const items = parseLinkedinReply(text);
-    if (!items.length) throw new Error("No LinkedIn messages in that reply. Make sure Claude kept the lead_id values.");
-    let done = 0;
-    for (const it of items) {
-      const l = leadsRef.current[it.lead_id]; if (!l || isFrozen(l)) continue;
-      // Kept apart from the email, so switching back to email later loses nothing.
-      const li = { ...(l.li || {}), person: it.person || l.li?.person || "", role: it.role || l.li?.role || "", profile: it.profile || l.li?.profile || "", hook: it.hook, hookSource: it.hookSource, note: it.note, message: it.message, followUps: it.followUps, draftedAt: new Date().toISOString() };
-      update(l.id, { li, ...(l.status === "to-draft" ? { status: "to-check" } : {}) });
-      done++;
-    }
-    return `${done} LinkedIn message${done === 1 ? "" : "s"} added. Check each one, then Ready to send.`;
-  }
-  useClaudeHandler("linkedin-batch", handleLinkedin);
   useClaudeJob("rank-check", { label: "Search rankings", order: 3, count: () => list.filter((l) => rankable(l) && !l.seo?.claudeAt).length, render: (o, close) => <RankModal leads={list} preset={o.preset || []} onClose={close} /> });
   // Where they came for the searches their customers make: the weakest becomes the search issue.
   // Claude's Google positions: saved on the lead, and a weak search becomes the search issue.
@@ -1192,8 +1149,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
     run("Emails", d.emails, (j) => handleDraftBatch(`{"emails":${j}}`));
     run("Rankings", d.rankings, (j) => handleRank(`{"leads":${j}}`));
     run("Websites", d.sites, handleSites);
-    run("LinkedIn", d.linkedin, handleLinkedin);
-    if (!out.length) throw new Error("Nothing in that reply. It should have vet, check, emails, rankings, sites or linkedin lists.");
+    if (!out.length) throw new Error("Nothing in that reply. It should have vet, check, emails, rankings or sites lists.");
     return out.join(" | ");
   });
   useClaudeHandler("find-sites", handleSites);
@@ -1322,7 +1278,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
   function reviewNext(status, afterId = null) {
     if (afterId) skippedRef.current.add(afterId);
     const sts = stageOf(status).statuses;
-    const col = sorted(Object.values(leadsRef.current).filter((x) => sts.includes(boardStatus(x, channelRef.current)) && !x.review?.done && !x.optedOut && x.id !== afterId));
+    const col = sorted(Object.values(leadsRef.current).filter((x) => sts.includes(boardStatus(x)) && !x.review?.done && !x.optedOut && x.id !== afterId));
     const next = col.find((x) => !skippedRef.current.has(x.id)) || null;
     if (!next) skippedRef.current = new Set();
     setOpen(next ? next.id : null);
@@ -1370,7 +1326,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
         const open = list.filter((l) => !l.optedOut);
         const first = (arr) => () => { const n = sorted(arr)[0]; if (n) setOpen(n.id); };
         const toSend = open.filter((l) => l.status === "ready");
-        const toCheck = open.filter((l) => boardStatus(l, channel) === "to-check" && !l.review?.done);
+        const toCheck = open.filter((l) => boardStatus(l) === "to-check" && !l.review?.done);
         const due = open.filter((l) => needsChase(l, followUp));
         const replies = open.filter((l) => l.status === "replied");
         const jobs = allPending(list).total;
@@ -1455,10 +1411,10 @@ export default function LeadsArea({ onRunning, onCount, clients = [], channel = 
         onHunter={(l) => hunterLookup(l)}
         onRank={(l, query, v) => update(l.id, { youEditedAt: new Date().toISOString(), searchTown: l.searchTown, ...rankFields(l, query, v) })}
         onEmail={(l, v) => { const e = v.toLowerCase(); if (/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(e)) update(l.id, { youEditedAt: new Date().toISOString(), emailAddress: e, emailFrom: "Added by you", contactUnverified: false }); }} /> :
-      <Board channel={channel} onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} showClosed={showParked} onShowClosed={setShowParked} vetting={visible.filter((l) => l.status === "vetting").length} onVetting={() => setBoardTab("vetting")} leads={onBoard} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
+      <Board onReview={(col) => { skippedRef.current = new Set(); reviewNext(col); }} showClosed={showParked} onShowClosed={setShowParked} vetting={visible.filter((l) => l.status === "vetting").length} onVetting={() => setBoardTab("vetting")} leads={onBoard} followUp={followUp} filtering={!!q || !!showProblem} selected={selected} onToggle={toggle} onSelectColumn={selectIds} onOpen={setOpen}
         onMove={(id, status) => { if (selected.has(id)) { moveMany([...selected], status); setSelected(new Set()); } else update(id, { status, statusBy: "you" }); }} />}
 
-      {current && <LeadDrawer key={current.id} channel={channel} onLinkedin={() => linkedinLookup(current)} onNoSite={async (extra = {}) => { if (await tryObviousDomain(current.id)) return false; update(current.id, { websiteNeeded: false, noWebsiteConfirmed: true, problem: "No website", problemDetail: "Checked by hand: they have no website", ...extra }); return true; }} onFindSite={() => openClaude({ job: "find-sites", preset: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => { unmarkSent([current.id]); openClaude({ job: "lead-check", preset: [current.id], column: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new" }); }} l={current} followUp={followUp} hunterOn={!!cfg?.finders?.connected} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, YOUR_EDITS.some((k) => k in f) ? { ...f, youEditedAt: new Date().toISOString() } : f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={(opts) => hunterLookup(current, opts)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
+      {current && <LeadDrawer key={current.id} onNoSite={async (extra = {}) => { if (await tryObviousDomain(current.id)) return false; update(current.id, { websiteNeeded: false, noWebsiteConfirmed: true, problem: "No website", problemDetail: "Checked by hand: they have no website", ...extra }); return true; }} onFindSite={() => openClaude({ job: "find-sites", preset: [current.id] })} onNext={(status, done) => { if (done) skippedRef.current.delete(current.id); reviewNext(status, current.id); }} onClaude={() => { unmarkSent([current.id]); openClaude({ job: "lead-check", preset: [current.id], column: current.status === "no-contact" || current.status === "not-pursuing" ? current.status : "new" }); }} l={current} followUp={followUp} hunterOn={!!cfg?.finders?.connected} subjects={linksRef.current?.subjects || {}} onClose={() => setOpen(null)} onChange={(f) => update(current.id, YOUR_EDITS.some((k) => k in f) ? { ...f, youEditedAt: new Date().toISOString() } : f)} onRemove={() => remove(current.id)} onRecheck={(redraft) => recheck(current, redraft)} onContacts={() => findContacts(current)} onHunter={(opts) => hunterLookup(current, opts)} onLicence={() => checkLicence(current)} onRefresh={() => refreshLeads([current.id])} />}
     </div>
   );
 }
@@ -1498,42 +1454,21 @@ const FOLLOW_UP_DEFAULTS = { chaseDays: 7, coldDays: 21, lostDays: 60 };
 // is only worth retrying when this has changed since its last lookup.
 const contactsStamp = (cfg) => `${CONTACTS_VERSION}${cfg?.finders?.connected ? `f${cfg.finders.connected}` : ""}`;
 const daysSince = (l) => (Date.now() - new Date(l.statusAt || l.updatedAt || l.addedAt || Date.now()).getTime()) / 86400000;
-// ---- Email or LinkedIn ------------------------------------------------------------------
-// Website Leads (email) or LinkedIn Sales at the top picks the channel. Each lead keeps both drafts side by side
-// (email on the lead, LinkedIn under l.li), so switching back and forth never loses anything:
-// it only changes which one the board asks for and shows.
-const hasDraft = (l, ch) => (ch === "linkedin" ? !!l.li?.message : !!(l.email && (l.review?.drafted || l.claudeDraft)));
-// A lead whose draft is in for the other channel only is still waiting for this one.
-const boardStatus = (l, ch) => { const s = l.status || "new"; return s === "to-check" && !hasDraft(l, ch) ? "to-draft" : s; };
-// Who a LinkedIn message goes to: the person behind the email address, else the most senior
-// named person on file. Anything already found for LinkedIn is kept on top of that.
-function liPerson(l) {
-  const people = (l.contacts || []).filter((p) => p.name && String(p.name).trim().split(/\s+/).length > 1);
-  const byEmail = people.find((p) => p.email && p.email === l.emailAddress);
-  const senior = people.find((p) => /owner|founder|managing|director|ceo|marketing|partner|principal/i.test(p.role || "")) || people[0];
-  const p = byEmail || senior || {};
-  const li = l.li || {};
-  return { name: li.person || p.name || "", role: li.role || p.role || "", linkedin: li.profile || (/linkedin\.com\/in\//i.test(p.linkedin || "") ? p.linkedin : ""), headline: li.headline || p.headline || "", roleSince: li.roleSince || p.roleSince || "", history: li.history || p.history || "", email: p.email || "" };
-}
-// LinkedIn's own search, for when no profile has been found yet.
-const liSearch = (l, name) => `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`${name || ""} ${String(l.business || "").replace(/\s+(ltd|limited|llp|plc)\.?$/i, "")}`.trim())}`;
+// A lead's email draft is in once Claude (or you) has written it.
+const hasDraft = (l) => !!(l.email && (l.review?.drafted || l.claudeDraft));
+// "Draft in, check it" with no draft yet is still waiting for Claude.
+const boardStatus = (l) => { const s = l.status || "new"; return s === "to-check" && !hasDraft(l) ? "to-draft" : s; };
 
 // ---- the follow-up sequence ---------------------------------------------------------------
 // After the first message come up to two follow-ups, each written by Claude with the first one
-// and each raising something new. Email: l.followUps and l.chases. LinkedIn: l.li.followUps and
-// l.li.sent (note, message, f0, f1). The next one is due chaseDays after the last touch.
-const touches = (l) => [l.statusAt, l.chasedAt, ...(l.chases || []), ...Object.values(l.li?.sent || {})].filter(Boolean).map((d) => new Date(d).getTime()).filter((n) => !isNaN(n));
+// and each raising something new: l.followUps, with l.chases for the ones sent. The next one is
+// due chaseDays after the last touch.
+const touches = (l) => [l.statusAt, l.chasedAt, ...(l.chases || [])].filter(Boolean).map((d) => new Date(d).getTime()).filter((n) => !isNaN(n));
 const sinceLastTouch = (l) => (Date.now() - Math.max(0, ...touches(l))) / 86400000;
 function nextFollowUp(l) {
-  if (l.contactedVia === "linkedin") {
-    const sent = l.li?.sent || {};
-    if (!sent.message) return null; // waiting for them to accept the connection
-    const i = [0, 1].find((n) => !sent[`f${n}`] && l.li?.followUps?.[n]);
-    return i === undefined ? null : { i, text: l.li.followUps[i], channel: "linkedin" };
-  }
   const done = (l.chases || []).length || (l.chasedAt ? 1 : 0);
   const list = l.followUps?.length ? l.followUps : [""]; // no Claude follow-ups: one, from the template
-  return done < list.length ? { i: done, text: list[done], channel: "email" } : null;
+  return done < list.length ? { i: done, text: list[done] } : null;
 }
 const needsChase = (l, f) => l.status === "contacted" && !l.optedOut && !!nextFollowUp(l) && sinceLastTouch(l) >= f.chaseDays;
 const PLACES = {
@@ -1568,9 +1503,9 @@ const stageOf = (s) => STAGES.find((x) => x.statuses.includes(s)) || STAGES[0];
 const CLOSED = STAGES.find((x) => x.id === "closed").statuses;
 // Dropping a card on a stage: a lead already in it keeps its status; otherwise the stage's first
 // step (a lead with its draft in goes straight to checking it; anything already sent counts as Lost).
-function dropStatus(stage, l, ch) {
-  if (stage.statuses.includes(boardStatus(l, ch))) return null;
-  if (stage.id === "write") return hasDraft(l, ch) ? "to-check" : "to-draft";
+function dropStatus(stage, l) {
+  if (stage.statuses.includes(boardStatus(l))) return null;
+  if (stage.id === "write") return hasDraft(l) ? "to-check" : "to-draft";
   if (stage.id === "closed") return ["contacted", "replied", "meeting", "cold"].includes(l.status) ? "lost" : "not-pursuing";
   return stage.statuses[0];
 }
@@ -1581,12 +1516,11 @@ const SUB = {
   won: ["Won", "bg-emerald-600 text-white"], cold: ["Gone cold", "bg-zinc-200 text-zinc-700"], lost: ["Lost", "bg-zinc-200 text-zinc-700"], "not-pursuing": ["Not pursuing", "bg-red-100 text-red-800"],
 };
 
-function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn, onOpen, onMove, onReview, showClosed = false, onShowClosed, vetting = 0, onVetting, channel = "email" }) {
+function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn, onOpen, onMove, onReview, showClosed = false, onShowClosed, vetting = 0, onVetting }) {
   const [over, setOver] = useState(null);
   const [shown, setShown] = useState({}); // cards rendered per column; big columns page in
-  const li = channel === "linkedin";
   const selecting = selected.size > 0;
-  const all = STAGES.map((s) => ({ ...s, items: sorted(leads.filter((l) => s.statuses.includes(boardStatus(l, channel)))) }));
+  const all = STAGES.map((s) => ({ ...s, items: sorted(leads.filter((l) => s.statuses.includes(boardStatus(l)))) }));
   const closedCount = all.find((s) => s.id === "closed").items.length;
   // While searching or filtering, only columns with a match are shown.
   const cols = all.filter((c) => (c.id !== "closed" || showClosed || filtering) && (!filtering || c.items.length));
@@ -1597,7 +1531,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
       {!cols.length && <p className="text-sm text-zinc-500">No leads match.</p>}
       {cols.map((c) => (
         <div key={c.id} onDragOver={(e) => { e.preventDefault(); setOver(c.id); }} onDragLeave={() => setOver(null)}
-          onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData("text/lead"); const l = leads.find((x) => x.id === id); const to = l && dropStatus(c, l, channel); if (to) onMove(id, to); setOver(null); }}
+          onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData("text/lead"); const l = leads.find((x) => x.id === id); const to = l && dropStatus(c, l); if (to) onMove(id, to); setOver(null); }}
           className={`group/col flex min-w-[15rem] flex-1 flex-col rounded-xl border p-2 ${over === c.id ? "border-blue-400 bg-blue-50" : "border-zinc-200 bg-zinc-100/60"}`}>
           <div className="flex items-center gap-1.5 px-1 text-xs font-semibold text-zinc-700">
             <input type="checkbox" aria-label={`Select everything in ${c.label}`} title="Select everything in this column" checked={c.items.length > 0 && c.items.every((l) => selected.has(l.id))} onChange={(e) => onSelectColumn(c.items.map((l) => l.id), e.target.checked)} disabled={!c.items.length} className={`h-3.5 w-3.5 ${selecting ? "" : "opacity-0 group-hover/col:opacity-100 focus:opacity-100"}`} />
@@ -1609,7 +1543,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
           {["assess", "write"].includes(c.id) && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.statuses[c.statuses.length - 1])} title="Go through these one at a time: look at the site, pick the issue and approach, then check the message" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
           <div className="flex flex-1 flex-col gap-2">
             {c.items.slice(0, shown[c.id] || 60).map((l) => {
-              const st = boardStatus(l, channel);
+              const st = boardStatus(l);
               const sub = c.statuses.length > 1 && SUB[st];
               const value = [shortMoney(l.netAssets), l.maintenance ? "Maintenance" : l.problem, l.likelihood].filter(Boolean).join(" · ");
               return (
@@ -1622,8 +1556,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
                 {/* What it's worth and what to pitch, so the best leads are easy to pick out. */}
                 {value && <div className="mt-0.5 truncate text-[11px] text-zinc-500" title={l.problemDetail || ""}>{value}</div>}
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500 empty:hidden">
-                  {sub && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${sub[1]}`}>{st === "to-draft" && li ? "Claude to write (LinkedIn)" : sub[0]}</span>}
-                  {l.contactedVia === "linkedin" && ["contacted", "cold", "replied", "meeting"].includes(st) && <span className="rounded-full bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-800" title={l.li?.sent?.message ? "Connected: message sent on LinkedIn" : "Connection request sent on LinkedIn, waiting for them to accept"}>{l.li?.sent?.message ? "LinkedIn" : "LinkedIn: request sent"}</span>}
+                  {sub && <span className={`rounded-full px-1.5 py-0.5 font-semibold ${sub[1]}`}>{sub[0]}</span>}
                   {l.review?.step > 2 && !l.review?.done && st === "new" && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="Review in progress">Step 2/2</span>}
                   {cantFind(l) && <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-700" title="No website anywhere, so nothing to pitch">Can’t find them</span>}
                   {l.contactUnverified && !l.emailAddress && <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-semibold text-red-800">Contact not verified</span>}
@@ -1649,7 +1582,7 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
       ))}
       {!showClosed && !filtering && closedCount > 0 && (
         <button onClick={() => onShowClosed(true)} onDragOver={(e) => { e.preventDefault(); setOver("closed"); }} onDragLeave={() => setOver(null)}
-          onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData("text/lead"); const l = leads.find((x) => x.id === id); const to = l && dropStatus(STAGES.find((s) => s.id === "closed"), l, channel); if (to) onMove(id, to); setOver(null); }}
+          onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData("text/lead"); const l = leads.find((x) => x.id === id); const to = l && dropStatus(STAGES.find((s) => s.id === "closed"), l); if (to) onMove(id, to); setOver(null); }}
           title="Won, gone cold, lost and not pursuing. Drop a card here to close it."
           className={`w-10 shrink-0 rounded-xl border text-xs font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 ${over === "closed" ? "border-blue-400 bg-blue-50" : "border-zinc-200"}`}>
           <span className="inline-block whitespace-nowrap [writing-mode:vertical-rl]">Closed ({closedCount}) ›</span>
@@ -1722,7 +1655,7 @@ function Contacts({ l, onChange, onContacts, onHunter, cfgHunter = false, subjec
   const deciders = all.filter(decides);
   const others = all.filter((p) => !decides(p));
   const people = showOthers ? [...deciders, ...others] : deciders;
-  const channels = l.channels || [];
+  const channels = (l.channels || []).filter((c) => c.kind !== "linkedin"); // older leads still carry LinkedIn links
   return (
     <div className="rounded-lg border border-zinc-200 p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -1749,8 +1682,6 @@ function Contacts({ l, onChange, onContacts, onHunter, cfgHunter = false, subjec
                   {p.mobile && <a href={p.whatsapp || `https://wa.me/44${p.mobile.slice(1)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded bg-emerald-600 px-1.5 py-0.5 font-medium text-white hover:bg-emerald-700" title={`WhatsApp ${p.mobile}${p.mobileFrom ? ` · found by ${p.mobileFrom}` : ""}`}>WhatsApp {p.mobile}</a>}
                   {!p.mobile && p.phone && <span className="text-zinc-600">{p.phone}</span>}
                   {p.email && <span className="text-green-800">{p.email} <span className="text-zinc-500">· {p.emailStatus}</span></span>}
-                  {p.linkedin && <a href={/^https?:/.test(p.linkedin) ? p.linkedin : `https://${p.linkedin}`} target="_blank" rel="noreferrer" className="text-blue-700 underline">LinkedIn profile</a>}
-                  <a href={p.linkedinSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Find on LinkedIn</a>
                   <a href={p.googleSearch} target="_blank" rel="noreferrer" className="text-blue-700 underline">Google</a>
                 </div>
               </div>
@@ -1770,7 +1701,6 @@ function Contacts({ l, onChange, onContacts, onHunter, cfgHunter = false, subjec
             <span key={i} className="inline-flex items-center gap-1 rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5">
               <span className="text-zinc-500">{c.label}:</span>
               {c.kind === "whatsapp" ? <a href={c.href || `https://wa.me/44${c.value.slice(1)}`} target="_blank" rel="noreferrer" className="font-medium text-emerald-700 underline">{c.value}</a>
-                : c.kind === "linkedin" ? <a href={c.value} target="_blank" rel="noreferrer" className="text-blue-700 underline">{c.value.replace(/^https?:\/\/(www\.)?/, "")}</a>
                 : c.kind === "email" ? <button onClick={() => onChange({ emailAddress: c.value, emailFrom: c.label || "General inbox from their site" })} className="text-blue-700 underline" title="Use as To">{c.value}</button>
                 : <span>{c.value}</span>}
             </span>
@@ -1816,104 +1746,6 @@ function FollowUp({ l, onChange }) {
       <AutoTextarea value={body} onChange={(e) => onChange({ followUpEmail: e.target.value })} minRows={4} className="mt-1 w-full rounded-md border border-amber-200 bg-white px-2 py-1 text-sm" />
       {(l.followUpEmail || l.followUpSubject) && <button onClick={() => onChange({ followUpEmail: "", followUpSubject: "" })} className="mt-1 text-[11px] text-zinc-500 underline">Back to Claude&apos;s wording</button>}
       {!next.text && <p className="mt-1 text-[11px] text-zinc-500">From the template: this lead was drafted before Claude wrote follow-ups.</p>}
-    </div>
-  );
-}
-
-// ---- LinkedIn --------------------------------------------------------------------------
-const copyText = async (t) => { try { await navigator.clipboard.writeText(t); return true; } catch { return false; } };
-function CopyBtn({ text, label = "Copy" }) {
-  const [done, setDone] = useState(false);
-  return <button onClick={async () => { if (await copyText(text)) { setDone(true); setTimeout(() => setDone(false), 1500); } }} disabled={!text} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] hover:bg-zinc-100 disabled:opacity-40">{done ? <><CheckIcon className="h-3 w-3" /> Copied</> : <><CopyIcon className="h-3 w-3" /> {label}</>}</button>;
-}
-const monthYear = (ym) => { const d = new Date(`${ym}-01T00:00:00`); return isNaN(d) ? ym : d.toLocaleDateString("en-GB", { month: "long", year: "numeric" }); };
-// Everything for writing to them on LinkedIn: who, their profile, the recent thing to open
-// with, and Claude's connection note, message and two follow-ups. All of it lives under l.li,
-// apart from the email, so switching between Website Leads and LinkedIn Sales never loses either.
-function LinkedInPanel({ l, onChange, onFind, brief }) {
-  const li = l.li || {};
-  const p = liPerson(l);
-  const [paste, setPaste] = useState("");
-  const set = (patch) => onChange({ li: { ...li, ...patch } });
-  const prompt = withTitle("LinkedIn messages", l.business, linkedinPrompt([{ l, first: "", ...(brief || briefOf(l)), person: p }]));
-  const noteLen = String(li.note || "").length;
-  const [now] = useState(() => Date.now());
-  const recent = p.roleSince && now - new Date(`${p.roleSince}-01T00:00:00`).getTime() < 365 * 86400000;
-  return (
-    <div className="space-y-3 rounded-lg border border-sky-200 bg-sky-50/40 p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-semibold text-sky-900">LinkedIn</span>
-        <span className="text-xs text-zinc-600">{p.name ? `${p.name}${p.role ? `, ${p.role}` : ""}` : "No named person yet"}</span>
-        <span className="ml-auto flex flex-wrap gap-2">
-          <button onClick={async () => { await copyText(prompt); markSent("linkedin-batch", [l.id]); window.open("https://claude.ai/new", "_blank", "noopener"); }} className="inline-flex items-center gap-1.5 rounded-md bg-sky-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-800"><ExternalIcon className="h-3.5 w-3.5" /> {li.message ? "Rewrite with Claude" : "Write with Claude"}</button>
-          <CopyBtn text={prompt} label="Copy prompt" />
-        </span>
-      </div>
-      <div className="text-xs">
-        {p.linkedin
-          ? <div className="flex flex-wrap items-center gap-2"><a href={p.linkedin} target="_blank" rel="noopener" className="font-medium text-sky-800 underline">Their profile</a>{p.headline && <span className="text-zinc-600">{p.headline}</span>}{p.roleSince && <span className={recent ? "font-medium text-emerald-700" : "text-zinc-500"}>In this role since {monthYear(p.roleSince)}{recent ? ": recent, worth a mention" : ""}</span>}{li.profileFrom && <span className="text-zinc-400">via {li.profileFrom}</span>}</div>
-          : <div className="flex flex-wrap items-center gap-2">
-              <span className="text-zinc-600">No profile found yet.</span>
-              {p.name && <button onClick={onFind} disabled={l.checking} title="Ask the contact finders for their LinkedIn profile. One credit at most, never a mobile." className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100 disabled:opacity-40">{l.checking ? "Looking…" : "Find their profile"}</button>}
-              <a href={liSearch(l, p.name)} target="_blank" rel="noopener" className="text-sky-800 underline">Search LinkedIn</a>
-              <input value={paste} onChange={(e) => setPaste(e.target.value)} onBlur={() => { if (/linkedin\.com\/in\//i.test(paste)) { set({ profile: paste.trim(), profileFrom: "Added by you" }); setPaste(""); } }} placeholder="or paste their profile link" className="w-56 rounded border border-zinc-300 px-2 py-0.5" />
-            </div>}
-      </div>
-      <label className="block text-xs"><span className="text-zinc-500">Something recent about them to open with</span>
-        <input value={li.hook || ""} onChange={(e) => set({ hook: e.target.value })} placeholder="Claude fills this in: a new role, a post, an award…" className="mt-0.5 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm" />
-        {li.hookSource && <a href={li.hookSource} target="_blank" rel="noopener" className="mt-0.5 inline-block text-[11px] text-sky-800 underline">Where Claude found it</a>}
-      </label>
-      <div>
-        <div className="flex items-center gap-2 text-xs"><span className="font-medium text-zinc-700">1. Connection request note</span><span className={noteLen > 300 ? "font-semibold text-red-700" : "text-zinc-400"}>{noteLen}/300</span><span className="ml-auto"><CopyBtn text={li.note || ""} /></span></div>
-        <AutoTextarea value={li.note || ""} onChange={(e) => set({ note: e.target.value })} minRows={2} placeholder="Claude writes this: short and personal, no pitch" className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm" />
-      </div>
-      <div>
-        <div className="flex items-center gap-2 text-xs"><span className="font-medium text-zinc-700">2. Message, once they accept</span><span className="ml-auto"><CopyBtn text={li.message || ""} /></span></div>
-        <AutoTextarea value={li.message || ""} onChange={(e) => set({ message: e.target.value })} minRows={4} placeholder="Claude writes this: thanks for connecting, then the thing on their website" className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm" />
-      </div>
-      {[0, 1].map((n) => (
-        <div key={n}>
-          <div className="flex items-center gap-2 text-xs"><span className="font-medium text-zinc-700">{n + 3}. Follow-up {n + 1}, a week {n ? "after that" : "later"}</span><span className="ml-auto"><CopyBtn text={li.followUps?.[n] || ""} /></span></div>
-          <AutoTextarea value={li.followUps?.[n] || ""} onChange={(e) => { const f = [...(li.followUps || ["", ""])]; f[n] = e.target.value; set({ followUps: f }); }} minRows={2} placeholder="Claude writes this: something new from the site" className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm" />
-        </div>
-      ))}
-      <p className="text-[11px] text-zinc-500">LinkedIn has no way for an app to send messages, so these are copied and pasted. The email draft for this lead is kept as it is.</p>
-    </div>
-  );
-}
-// After the connection request: the message once they accept, then the two follow-ups, each
-// a week after the last thing sent.
-function LinkedInSequence({ l, onChange, followUp }) {
-  const li = l.li || {};
-  const sent = li.sent || {};
-  const p = liPerson(l);
-  const mark = (k) => { const at = new Date().toISOString(); onChange({ li: { ...li, sent: { ...sent, [k]: at } }, notesLog: [...(l.notesLog || []), { at, text: `LinkedIn: ${k === "message" ? "message" : k === "note" ? "connection request" : `follow-up ${Number(k.slice(1)) + 1}`} sent` }] }); };
-  const steps = [
-    ["note", "Connection request", li.note],
-    ["message", "Message, once they accept", li.message],
-    ["f0", "Follow-up 1", li.followUps?.[0]],
-    ["f1", "Follow-up 2", li.followUps?.[1]],
-  ].filter(([, , t], i) => i < 2 || t);
-  const nextKey = steps.find(([k]) => !sent[k])?.[0];
-  const due = nextKey && nextKey !== "message" && sinceLastTouch(l) < followUp.chaseDays;
-  return (
-    <div className="rounded-lg border border-sky-200 bg-sky-50/40 p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-semibold text-sky-900">LinkedIn: {p.name || "their profile"}</span>
-        <a href={p.linkedin || liSearch(l, p.name)} target="_blank" rel="noopener" className="ml-auto inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs hover:bg-zinc-100"><ExternalIcon className="h-3.5 w-3.5" /> {p.linkedin ? "Open their profile" : "Search LinkedIn"}</a>
-      </div>
-      <ol className="mt-2 space-y-2 text-sm">
-        {steps.map(([k, label, text]) => (
-          <li key={k} className={`rounded-md border px-2 py-1.5 ${sent[k] ? "border-zinc-200 bg-white/60 text-zinc-500" : k === nextKey ? "border-sky-300 bg-white" : "border-zinc-200 bg-white/60"}`}>
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="font-medium text-zinc-800">{label}</span>
-              {sent[k] ? <span className="text-emerald-700">✓ Sent {new Date(sent[k]).toLocaleDateString("en-GB")}</span> : k === nextKey ? <span className="text-sky-800">{k === "message" ? "Send once they accept" : due ? `Due a week after the last one` : "Due now"}</span> : null}
-              <span className="ml-auto flex gap-2">{text && <CopyBtn text={text} />}{!sent[k] && k === nextKey && <button onClick={() => mark(k)} className="rounded-md bg-zinc-900 px-2 py-0.5 text-[11px] font-medium text-white">Mark as sent</button>}</span>
-            </div>
-            {text && !sent[k] && k === nextKey && <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">{text}</p>}
-          </li>
-        ))}
-      </ol>
     </div>
   );
 }
@@ -1994,7 +1826,7 @@ function VerifyEmail({ l, onChange }) {
   );
 }
 
-function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjects = {}, onClose, onChange, onRemove, onRecheck, onContacts, onHunter, onLicence, onRefresh, channel = "email", onLinkedin }) {
+function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLLOW_UP_DEFAULTS, hunterOn = false, subjects = {}, onClose, onChange, onRemove, onRecheck, onContacts, onHunter, onLicence, onRefresh }) {
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
   const [optingOut, setOptingOut] = useState(false);
@@ -2103,7 +1935,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
               {[["review", l.review?.done ? "Review ✓" : "Review steps"], ["details", "All details"]].map(([k, label]) => <button key={k} onClick={() => setView(k)} className={`flex-1 rounded-md px-2 py-1 font-medium ${view === k ? "bg-white shadow-sm" : "text-zinc-500 hover:text-zinc-900"}`}>{label}</button>)}
             </div>
           )}
-          {view === "review" && <ReviewSteps channel={channel} onLinkedin={onLinkedin} onHunter={onHunter} l={l} onNoSite={onNoSite} onChange={onChange} issues={issues} person={person} subjects={subjects} commitWebsite={commitWebsite} rejectWebsite={rejectWebsite} onNext={onNext ? (done) => onNext(l.status, done) : null} onRecheck={onRecheck} footerEl={view === "review" ? footerEl : null} />}
+          {view === "review" && <ReviewSteps onHunter={onHunter} l={l} onNoSite={onNoSite} onChange={onChange} issues={issues} person={person} subjects={subjects} commitWebsite={commitWebsite} rejectWebsite={rejectWebsite} onNext={onNext ? (done) => onNext(l.status, done) : null} onRecheck={onRecheck} footerEl={view === "review" ? footerEl : null} />}
           {view === "details" && <>
           {(l.whatTheyDo || l.siteDescription || l.background || l.sics?.length) && (
             <p className="text-sm text-zinc-700">
@@ -2221,9 +2053,8 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             </div>
           )}
           {l.optedOut && <div className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">Do not contact.</span> They asked not to hear from us{l.optedOutAt ? ` on ${new Date(l.optedOutAt).toLocaleDateString("en-GB")}` : ""}. The record is kept so nobody emails them again by accident.</div>}
-          {/* What comes after the first message: LinkedIn's steps, or the email follow-ups when one is due. */}
-          {!l.optedOut && ["contacted", "cold"].includes(l.status) && l.contactedVia === "linkedin" && <LinkedInSequence l={l} onChange={onChange} followUp={followUp} />}
-          {!l.optedOut && l.status === "contacted" && l.contactedVia !== "linkedin" && (needsChase(l, followUp) || (l.chases || []).length > 0 || !!l.chasedAt) && <FollowUp l={l} onChange={onChange} />}
+          {/* What comes after the first message: the email follow-ups, when one is due. */}
+          {!l.optedOut && l.status === "contacted" && (needsChase(l, followUp) || (l.chases || []).length > 0 || !!l.chasedAt) && <FollowUp l={l} onChange={onChange} />}
           {l.autoMoved && <p className="text-xs text-zinc-500">Moved automatically: {l.autoMoved}.</p>}
 
           <Contacts l={l} onChange={onChange} onContacts={onContacts} onHunter={onHunter} cfgHunter={hunterOn} subjects={subjects} />
@@ -2236,11 +2067,6 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             // One obvious next step for where the lead is; everything else is a link underneath.
             const btn = "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-white";
             if (l.optedOut || isFrozen(l)) return null;
-            // LinkedIn: copy the connection note, open their profile, and count it as contacted.
-            if (channel === "linkedin" && l.status === "ready" && l.li?.message) {
-              const p = liPerson(l);
-              return <button onClick={async () => { await copyText(l.li.note || ""); window.open(p.linkedin || liSearch(l, p.name), "_blank", "noopener"); const at = new Date().toISOString(); onChange({ status: "contacted", contactedVia: "linkedin", sentAt: at, li: { ...l.li, sent: { ...(l.li.sent || {}), note: at } } }); }} className={`${btn} bg-sky-700 hover:bg-sky-800`}><ExternalIcon className="h-4 w-4" /> Copy note, open LinkedIn and mark as sent</button>;
-            }
             if (l.status === "ready" && l.email && l.emailAddress && websiteIsVerified(l)) return <a href={outlook} target="_blank" rel="noopener" onClick={() => onChange({ status: "contacted", contactedVia: "email", sentAt: new Date().toISOString() })} className={`${btn} bg-emerald-600 hover:bg-emerald-700`}><MailIcon className="h-4 w-4" /> Open in Outlook and mark as sent</a>;
             if (!["vetting", "new", "find-site", "to-draft", "to-check", "no-contact"].includes(l.status || "new")) return null;
             if (!l.website && siteSearchable(l)) return <button onClick={onFindSite} className={`${btn} bg-amber-600 hover:bg-amber-700`}><SearchIcon className="h-4 w-4" /> Find their website with Claude</button>;
@@ -2375,9 +2201,7 @@ function FindLeadsModal({ area, miles, exclude, onClose }) {
 }
 
 // Step by step: 1 look at the site yourself, 2 pick what to raise and how, 3 Claude drafts it from our templates.
-function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects, commitWebsite, rejectWebsite, onNext, onRecheck, footerEl = null, channel = "email", onLinkedin }) {
-  // On LinkedIn the last step writes LinkedIn messages; the email draft is left exactly as it is.
-  const li = channel === "linkedin";
+function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects, commitWebsite, rejectWebsite, onNext, onRecheck, footerEl = null }) {
   const inFooter = (node) => (footerEl ? createPortal(node, footerEl) : node);
   const r = l.review || {};
   const step = l.maintenance ? 3 : r.step || 1; // maintenance: straight to the email, even before it's saved
@@ -2608,11 +2432,10 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
       </div>}
 
       <div className="rounded-lg border border-zinc-200 p-3">
-        {maint && !li ? <div className="text-sm font-semibold text-zinc-900">Your maintenance email</div> : head(3, li ? "Write the LinkedIn messages" : "Draft the email", !!r.done, 2)}
+        {maint ? <div className="text-sm font-semibold text-zinc-900">Your maintenance email</div> : head(3, "Draft the email", !!r.done, 2)}
         {step === 3 && lead && (
           <div className="mt-3 space-y-3 text-sm">
-            {li && <LinkedInPanel l={l} onChange={onChange} onFind={onLinkedin} brief={brief} />}
-            {li ? null : maint ? <p className="text-xs text-zinc-500">Web maintenance email, ready to go: check it, add the address and name, then Ready to send. Change the wording for everyone in <a href="/settings?section=templates" className="text-blue-700 underline">Settings → Email templates</a>.</p> : <>
+            {maint ? <p className="text-xs text-zinc-500">Web maintenance email, ready to go: check it, add the address and name, then Ready to send. Change the wording for everyone in <a href="/settings?section=templates" className="text-blue-700 underline">Settings → Email templates</a>.</p> : <>
             <p className="text-xs text-zinc-500">Approach: <b className="text-zinc-800">{(REVIEW_PATHS.find((p) => p.id === path) || {}).label}</b>. What it leads with is in step 1 above.</p>
             <div className="flex flex-wrap gap-2">
               <button onClick={() => copy(true)} className="inline-flex items-center gap-1.5 rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium text-white"><ExternalIcon className="h-3.5 w-3.5" /> Copy prompt and open Claude</button>
@@ -2620,7 +2443,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
             </div>
             <p className="text-xs text-zinc-600">Claude replies with just the email text: paste it straight into the email box below.</p> </>}
             {msg && <p className="text-xs text-zinc-600">{msg}</p>}
-            {!li && (() => {
+            {(() => {
               // Paste the address you found right here; it saves when you leave the box, press Enter or paste.
               const valid = (v) => /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(String(v || "").trim());
               // Saves the address only; you check the email and click Ready to send yourself.
@@ -2644,7 +2467,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
                 </div>
               );
             })()}
-            {!li && <div>
+            <div>
               <input value={l.subject || ""} onChange={(e) => onChange({ subject: e.target.value, emailEdited: true })} placeholder="Subject" className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm font-medium" />
               <div className="mt-2 rounded-t-md border border-b-0 border-zinc-200 bg-zinc-50 px-2 py-1 text-sm text-zinc-500">
                 {/* Always "Hi there,": no name to pick, and none to get wrong. */}
@@ -2653,14 +2476,14 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
               </div>
               <AutoTextarea value={draftText} placeholder="Paste Claude’s email here" onChange={(e) => onChange({ email: e.target.value, emailEdited: true, review: { ...r, drafted: r.drafted || new Date().toISOString() } })} onPaste={(e) => { const t = e.clipboardData.getData("text"); if (!t || draftText.trim()) return; e.preventDefault(); const c = cleanPastedEmail(t); onChange({ email: c.body, emailEdited: true, ...(c.subject && !r.subjectTyped ? { subject: c.subject } : {}), review: { ...r, drafted: new Date().toISOString() } }); }} minRows={5} className="w-full rounded-b-md border border-zinc-200 px-2 py-1 text-sm" />
               <pre className="mt-1 whitespace-pre-wrap rounded-md bg-zinc-50 px-2 py-1 font-sans text-xs text-zinc-500" title="Added to the end of every email when it is copied or opened in Outlook">{addedBelow(l.email)}</pre>
-            </div>}
+            </div>
             {/* The buttons live in the window's footer, so they stay in view while the email is checked. */}
             {inFooter(<>
               <button onClick={() => setR({ step: 2 })} className="whitespace-nowrap text-xs text-zinc-500 hover:text-zinc-900">← Back</button>
               <span className="ml-auto" />
                 <button onClick={() => { setR({ done: true, doneAt: new Date().toISOString() }, { status: "not-pursuing", likelihoodWhy: "Reviewed by hand: not worth it" }); onNext?.(true); }} className="whitespace-nowrap rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Not pursuing</button>
               {onNext && <button onClick={() => onNext(false)} className="whitespace-nowrap rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Skip for now →</button>}
-              <button onClick={() => finishReady()} disabled={li ? !l.li?.message?.trim() : !l.emailAddress || !draftText.trim()} className="whitespace-nowrap rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Ready to send ✓{onNext ? " · next" : ""}</button>
+              <button onClick={() => finishReady()} disabled={!l.emailAddress || !draftText.trim()} className="whitespace-nowrap rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Ready to send ✓{onNext ? " · next" : ""}</button>
             </>)}
           </div>
         )}
@@ -2778,9 +2601,8 @@ function allPending(leads) {
   const inSites = new Set(sites.map((l) => l.id));
   const check = leads.filter((l) => (l.status || "new") === "new" && !l.claude && !claudeSkip(l) && !inSites.has(l.id));
   const draft = leads.filter((l) => l.status === "to-draft" && !l.review?.drafted);
-  const linkedin = leads.filter((l) => ["to-draft", "to-check"].includes(l.status) && !l.li?.message);
   const rank = leads.filter((l) => rankable(l) && l.status !== "vetting" && !l.seo?.claudeAt);
-  return { vet, sites, check, draft, linkedin, rank, total: vet.length + sites.length + check.length + draft.length + linkedin.length + rank.length };
+  return { vet, sites, check, draft, rank, total: vet.length + sites.length + check.length + draft.length + rank.length };
 }
 // What the Find websites prompt sends for each lead.
 const siteItem = (l) => ({
@@ -2796,7 +2618,6 @@ function allPrompt(p) {
   if (p.sites.length) parts.push(["sites", "Find these websites, then check each lead", leadCheckPrompt(p.sites.map(siteItem), { findSite: true })]);
   if (p.check.length) parts.push(["check", "Check these leads for the issue to raise", leadCheckPrompt(p.check.map(vetItem))]);
   if (p.draft.length) parts.push(["emails", "Write these emails", draftBatchPrompt(p.draft.map((l) => ({ l, first: greetNames(l.contactName), ...briefOf(l), subject: l.subject || "" })))]);
-  if (p.linkedin.length) parts.push(["linkedin", "Write these LinkedIn messages", linkedinPrompt(p.linkedin.map((l) => ({ l, first: greetNames(l.contactName), ...briefOf(l), subject: l.subject || "", person: liPerson(l) })))]);
   if (p.rank.length) parts.push(["rankings", "Check these Google rankings", rankCheckPrompt(p.rank.map((l) => ({ id: l.id, business: l.business, companyNumber: l.companyNumber, address: l.address || l.area || "", website: l.website, what: l.tradeOverride || l.whatTheyDo || l.trade || "", town: l.searchTown || (l.tradesElsewhere ? "" : l.tradingTown) || "" })))]);
   if (!parts.length) return "";
   return `There are ${parts.length} separate tasks below for ICL Digital. Do every one of them, in full, for every lead listed.
@@ -2813,13 +2634,13 @@ function AllModal({ leads, onClose }) {
   const p = allPending(leads);
   const [copied, setCopied] = useState(false);
   const prompt = p.total ? withTitle("All jobs", `${p.total} items`, allPrompt(p)) : "";
-  async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("vet", p.vet.map((l) => l.id)); markSent("lead-check", p.check.map((l) => l.id)); markSent("draft-batch", p.draft.map((l) => l.id)); markSent("find-sites", p.sites.map((l) => l.id)); markSent("linkedin-batch", p.linkedin.map((l) => l.id)); markSent("rank-check", p.rank.map((l) => l.id)); }
+  async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("vet", p.vet.map((l) => l.id)); markSent("lead-check", p.check.map((l) => l.id)); markSent("draft-batch", p.draft.map((l) => l.id)); markSent("find-sites", p.sites.map((l) => l.id)); markSent("rank-check", p.rank.map((l) => l.id)); }
   const row = (n, label) => <li className={n ? "" : "text-zinc-400"}><b>{n}</b> {label}</li>;
   return (
     <div className="space-y-4 text-sm">
       <div>
         <span className="font-semibold">1. Everything waiting, in one prompt</span>
-        <ul className="mt-1 space-y-0.5 text-xs text-zinc-700">{row(p.vet.length, "to vet (website, contact, Google)")}{row(p.sites.length, "websites to find (and check the lead)")}{row(p.check.length, "in Assess to check for an issue")}{row(p.draft.length, "emails to write")}{row(p.linkedin.length, "LinkedIn messages to write")}{row(p.rank.length, "Google rankings to check on the board")}</ul>
+        <ul className="mt-1 space-y-0.5 text-xs text-zinc-700">{row(p.vet.length, "to vet (website, contact, Google)")}{row(p.sites.length, "websites to find (and check the lead)")}{row(p.check.length, "in Assess to check for an issue")}{row(p.draft.length, "emails to write")}{row(p.rank.length, "Google rankings to check on the board")}</ul>
         <p className="mt-1 text-[11px] text-zinc-500">Big batches take Claude a while; it all comes back as one JSON to paste. Each lead is in one task only, so a lead being vetted isn’t also in Search rankings. Check ideas and Client research belong to Client Ideas and run on their own.</p>
       </div>
       <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">2. Run it in Claude</span>
@@ -2883,32 +2704,30 @@ function briefOf(l) {
   return { leadWith: lead, also: [], notes: l.review?.notes || "", path: suggestPath(lead, l), template: "" };
 }
 // Every lead waiting in Email to draft, written by Claude in one prompt from the brief saved at step 2.
-function DraftBatchModal({ leads, preset, onClose, mode = "email" }) {
-  // The same modal for both channels: emails, or LinkedIn notes and messages.
-  const li = mode === "linkedin";
-  const job = li ? "linkedin-batch" : "draft-batch";
-  const isDone = (l) => (li ? !!l.li?.message : !!l.review?.drafted);
-  const pool = sorted(leads.filter((l) => (li ? ["to-draft", "to-check"].includes(l.status) : l.status === "to-draft")));
+function DraftBatchModal({ leads, preset, onClose }) {
+  const job = "draft-batch";
+  const isDone = (l) => !!l.review?.drafted;
+  const pool = sorted(leads.filter((l) => l.status === "to-draft"));
   const [size, setSize] = useState("all");
   const waitingFor = (done = []) => { const w = sentIds(job); return pool.filter((l) => !isDone(l) && !done.includes(l.id) && !w.has(l.id)); };
   const [picked, setPicked] = useState(() => (preset.length ? preset : waitingFor().map((l) => l.id)));
   const [copied, setCopied] = useState(false);
-  const items = picked.map((id) => leads.find((l) => l.id === id)).filter(Boolean).map((l) => ({ l, first: greetNames(l.contactName), ...briefOf(l), subject: l.subject || "", person: liPerson(l) }));
-  const prompt = !items.length ? "" : li ? withTitle("LinkedIn messages", `${items.length} lead${items.length === 1 ? "" : "s"}`, linkedinPrompt(items)) : withTitle("Email drafts", `${items.length} lead${items.length === 1 ? "" : "s"}`, draftBatchPrompt(items));
+  const items = picked.map((id) => leads.find((l) => l.id === id)).filter(Boolean).map((l) => ({ l, first: greetNames(l.contactName), ...briefOf(l), subject: l.subject || "" }));
+  const prompt = !items.length ? "" : withTitle("Email drafts", `${items.length} lead${items.length === 1 ? "" : "s"}`, draftBatchPrompt(items));
   const nextBatch = (n, done = []) => { setSize(n); setPicked(waitingFor(done).slice(0, n === "all" ? undefined : n).map((l) => l.id)); };
   async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent(job, picked); if (size !== "all") nextBatch(size, picked); }
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   return (
     <div className="space-y-4 text-sm">
       <div>
-        <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">1. Pick leads</span><span className="text-xs text-zinc-500">{li ? "Waiting for a LinkedIn message:" : "Waiting for an email:"}</span>
+        <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">1. Pick leads</span><span className="text-xs text-zinc-500">Waiting for an email:</span>
           {[50, 100].map((n) => <button key={n} onClick={() => nextBatch(n)} className={`rounded-full border px-2 py-0.5 text-xs ${size === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>{n}</button>)}
           <button onClick={() => nextBatch("all")} className={`rounded-full border px-2 py-0.5 text-xs ${size === "all" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>All ({pool.filter((l) => !isDone(l)).length})</button>
         </div>
         {pool.length ? <div className="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
           {pool.map((l) => <button key={l.id} onClick={() => toggle(l.id)} className={`rounded-full border px-2.5 py-1 text-xs ${picked.includes(l.id) ? "border-sky-500 bg-sky-100 text-sky-900" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{l.business}{isDone(l) ? " ✓" : ""}</button>)}
         </div> : <p className="mt-2 text-xs text-zinc-500">Nothing in Email to draft yet. In a lead’s Review, pick the issue and approach, then “add to the email batch”.</p>}
-        <p className="mt-1 text-[11px] text-zinc-500">{picked.length} picked · ✓ drafted already. {li ? "Claude looks each person up first for something recent to open with, then writes the connection note, the message and two follow-ups." : "Each email uses the issue, extras, notes and approach you picked at step 2, and comes with two follow-ups."}</p>
+        <p className="mt-1 text-[11px] text-zinc-500">{picked.length} picked · ✓ drafted already. {"Each email uses the issue, extras, notes and approach you picked at step 2, and comes with two follow-ups."}</p>
       </div>
       <div>
         <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">2. Run it in Claude</span>

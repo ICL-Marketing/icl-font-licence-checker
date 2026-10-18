@@ -38,17 +38,6 @@ export async function POST(request) {
       applyTradingAddress(patch, ct.tradingAddress, null);
       return Response.json({ ...ct, tradingPostcode: patch.tradingPostcode || "", tradingAddressText: patch.tradingAddress || "", tradesElsewhere: !!patch.tradesElsewhere, caveats: patch.caveats });
     }
-    // Their LinkedIn profile, for LinkedIn outreach: the person you are writing to, else the
-    // most senior person on file. One credit at most, never a mobile.
-    if (b.step === "profile") {
-      const { findProfile, newBudget } = await import("@/lib/enrich");
-      const l = b.lead || {};
-      const host = String(l.website || "").replace(/^https?:\/\//i, "").replace(/^www\./, "").replace(/\/.*$/, "");
-      const name = String(b.name || "").trim();
-      if (!name) return Response.json({ error: "No named person to look up yet." }, { status: 400 });
-      const r = await findProfile({ name, host, company: l.business, email: b.email || "", budget: newBudget(4) });
-      return Response.json({ found: r.found, trail: r.trail });
-    }
     // Is this address real? One verification credit, from whichever account has the most left.
     if (b.step === "verify-email") {
       const { verifyEmail, freeEmailCheck, verifyCreditsLeft } = await import("@/lib/enrich");
