@@ -1520,7 +1520,9 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
   const [over, setOver] = useState(null);
   const [shown, setShown] = useState({}); // cards rendered per column; big columns page in
   const selecting = selected.size > 0;
-  const all = STAGES.map((s) => ({ ...s, items: sorted(leads.filter((l) => s.statuses.includes(boardStatus(l)))) }));
+  // In Write, drafts that are in come first (they can go out today), then the ones Claude still has to write.
+  const draftsFirst = (list) => list.slice().sort((a, b) => (boardStatus(a) === "to-check" ? 0 : 1) - (boardStatus(b) === "to-check" ? 0 : 1));
+  const all = STAGES.map((s) => ({ ...s, items: (s.id === "write" ? draftsFirst : (x) => x)(sorted(leads.filter((l) => s.statuses.includes(boardStatus(l))))) }));
   const closedCount = all.find((s) => s.id === "closed").items.length;
   // While searching or filtering, only columns with a match are shown.
   const cols = all.filter((c) => (c.id !== "closed" || showClosed || filtering) && (!filtering || c.items.length));
