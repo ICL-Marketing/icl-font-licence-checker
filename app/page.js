@@ -361,7 +361,7 @@ export default function Home() {
       <header className="flex flex-wrap items-center gap-x-6 gap-y-2">
         <h1 className="text-2xl font-semibold">Website Checker</h1>
         <nav className="ml-auto flex flex-wrap items-center justify-end gap-x-5 gap-y-1" aria-label="Sections">
-          <ClaudeInbox />
+          <ClaudeInbox button={false} /> {/* the window opens from the Claude buttons in each area */}
           {(() => {
             const tabs = [["leads", "Website Leads", leadsCount || null], ["ideas", "Client Ideas", ideasCount || null],
               ["design", "Design Checks", designCount || null],

@@ -2,9 +2,9 @@
 // Proposal deck for one client, step by step: assess the ideas, add your own, Claude writes the copy,
 // then review it, add screenshots and download the ICL-branded .pptx.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon } from "@/app/icons";
+import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon } from "@/app/icons";
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
-import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, withTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
+import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, lineValue, quarter, rateOf, DAY_RATE, withTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
 import Link from "next/link";
 import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY, ANCHORS } from "@/lib/deckTemplate";
 import { PACKAGE_GROUPS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER } from "@/lib/packages";
@@ -17,7 +17,7 @@ function Grow({ value, className = "", ...rest }) {
 }
 const STEPS = ["Ideas", "Packages & retainer", "Claude writes it", "Review & download"];
 const input = "w-full rounded-md border border-zinc-300 px-2 py-1 text-sm";
-const num = "w-14 rounded-md border border-zinc-300 px-1.5 py-0.5 text-right text-sm";
+const num = "w-[4.5rem] rounded-md border border-zinc-300 px-1.5 py-0.5 text-right text-sm";
 
 // Each client's proposal is saved straight away in this browser, and to the shared store (one record per client).
 const LOCAL = "flc-proposals-v1";
@@ -54,8 +54,9 @@ function Hours({ line, onChange, picked = [] }) {
   const th = teamHours(line), total = Object.values(th).reduce((a, b) => a + b, 0);
   return (
     <span className="inline-flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-      {Object.entries(th).map(([k, h]) => <label key={k} className="inline-flex items-center gap-1"><span className="font-medium text-zinc-700">{TEAMS.find(([x]) => x === k)?.[2] || k}</span><input type="number" min={0.5} step={0.5} value={h} onChange={(e) => onChange(withHours(line, k, Number(e.target.value) || 0.5))} className={num} aria-label={`${TEAMS.find(([x]) => x === k)?.[1]} hours`} /></label>)}
+      {Object.entries(th).map(([k, h]) => <label key={k} className="inline-flex items-center gap-1"><span className="font-medium text-zinc-700">{TEAMS.find(([x]) => x === k)?.[2] || k}</span><input type="number" min={0.25} step={0.25} value={h} onChange={(e) => onChange(withHours(line, k, Number(e.target.value) || 0.25))} className={num} aria-label={`${TEAMS.find(([x]) => x === k)?.[1]} hours`} /></label>)}
       <span>{Object.keys(th).length > 1 ? `= ${total} ${total === 1 ? "hr" : "hrs"}` : "hrs"}</span>
+      <button type="button" onClick={() => onChange({ free: !line.free })} title="Free of charge: shown in the deck as a goodwill extra, left out of the totals and listed last" className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${line.free ? "border-emerald-600 bg-emerald-600 text-white" : "border-zinc-300 bg-white text-zinc-500 hover:bg-zinc-100"}`}>{line.free ? "Free ✓" : "Free"}</button>
     </span>
   );
 }
@@ -87,6 +88,8 @@ function Bullets({ items, onChange }) {
               if (e.key === "Backspace" && !b && list.length > 1) { e.preventDefault(); onChange(list.filter((_, j) => j !== i)); focus(Math.max(0, i - 1)); }
             }}
             className="min-w-0 flex-1 rounded px-1 py-0.5 outline-none focus:bg-zinc-50" />
+          <button type="button" disabled={i === 0} onClick={() => { const n = [...list]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; onChange(n); }} aria-label="Move bullet up" title="Move up" className="rounded p-0.5 text-zinc-400 hover:text-zinc-900 disabled:invisible"><ChevronUpIcon className="h-3.5 w-3.5" /></button>
+          <button type="button" disabled={i === list.length - 1} onClick={() => { const n = [...list]; [n[i + 1], n[i]] = [n[i], n[i + 1]]; onChange(n); }} aria-label="Move bullet down" title="Move down" className="rounded p-0.5 text-zinc-400 hover:text-zinc-900 disabled:invisible"><ChevronDownIcon className="h-3.5 w-3.5" /></button>
           <button type="button" onClick={() => onChange(list.filter((_, j) => j !== i))} aria-label="Remove bullet" className="rounded p-0.5 text-zinc-300 hover:text-red-700"><TrashIcon className="h-3.5 w-3.5" /></button>
         </li>
       ))}
@@ -153,6 +156,8 @@ export function ProposalModal({ group, onClose }) {
   const [tplExtras, setTplExtras] = useState([]); // extra slides from the uploaded template, so they can be left out of this deck
   useEffect(() => { templateMeta().then((m) => setTplExtras(m?.extras || [])).catch(() => {}); }, []);
   useEffect(() => { fetch("/api/settings?key=retainer-points").then((r) => r.json()).then((j) => { if (j.shared && j.value?.items) setPoints(normalisePoints(j.value)); }).catch(() => {}); }, []);
+  const [dayRate, setDayRate] = useState(DAY_RATE);
+  useEffect(() => { fetch("/api/settings?key=day-rate").then((r) => r.json()).then((j) => setDayRate(rateOf(j.value))).catch(() => {}); }, []);
 
   useEffect(() => {
     let live = true;
@@ -177,16 +182,21 @@ export function ProposalModal({ group, onClose }) {
     saveT.current = setTimeout(flush, 300);
     return next;
   });
-  const lines = (doc ? [...pool.filter((i) => doc.picked[i.key]).map((i) => doc.picked[i.key]), ...Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key) && !l.custom), ...doc.own] : []).map((l) => (l.min === l.max ? l : { ...l, min: l.max })) // one set figure (older drafts had a range)
-    // Biggest first: most hours at the top, package-priced ideas (SEO, PPC, video) after the hourly work.
-    .sort((a, b) => (isPackageLine(a) - isPackageLine(b)) || b.max - a.max);
+  const allLines = (doc ? [...pool.filter((i) => doc.picked[i.key]).map((i) => doc.picked[i.key]), ...Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key) && !l.custom), ...doc.own] : []).map((l) => (l.min === l.max ? l : { ...l, min: l.max })) // one set figure (older drafts had a range)
+;
   // Take an idea out of this proposal (yours are deleted; Client Ideas ones are just unticked).
   const removeLine = (key) => change((d) => { const picked = { ...d.picked }; delete picked[key]; return { ...d, picked, own: d.own.filter((x) => x.key !== key) }; });
   const setLine = (key, fields) => change((d) => (d.own.some((l) => l.key === key) ? { ...d, own: d.own.map((l) => (l.key === key ? { ...l, ...fields, max: Math.max(fields.max ?? l.max, fields.min ?? l.min) } : l)) } : { ...d, picked: { ...d.picked, [key]: { ...d.picked[key], ...fields, max: Math.max(fields.max ?? d.picked[key].max, fields.min ?? d.picked[key].min) } } }));
   const chosenIds = doc?.points || points.filter((x) => x.always).map((x) => x.id);
   const chosen = points.filter((x) => chosenIds.includes(x.id));
-  const pkgIds = effectivePackages(doc?.packages || [], lines);
+  const pkgIds = effectivePackages(doc?.packages || [], allLines);
   const picked = pickedPackages(pkgIds);
+  // Biggest first by value (hours at the day rate, packages at their price), free work last.
+  // While you're typing in a field the order stays put, so the card doesn't jump away; it re-sorts when you leave the field.
+  const [frozen, setFrozen] = useState(null);
+  const sorted = [...allLines].sort((a, b) => lineValue(b, picked, dayRate) - lineValue(a, picked, dayRate));
+  const lines = frozen ? [...allLines].sort((a, b) => ((frozen.indexOf(a.key) + 1 || 1e9) - (frozen.indexOf(b.key) + 1 || 1e9))) : sorted;
+  const freeze = { onFocusCapture: (e) => { if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName) && !frozen) setFrozen(sorted.map((l) => l.key)); }, onBlurCapture: (e) => { if (!(e.relatedTarget && /^(INPUT|TEXTAREA)$/.test(e.relatedTarget.tagName) && e.currentTarget.contains(e.relatedTarget))) setFrozen(null); } };
   const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines, notes: doc.notes, points: chosen, packages: picked, manager: group.manager })) : "";
 
   function applyReply(text) {
@@ -214,7 +224,7 @@ export function ProposalModal({ group, onClose }) {
     try {
       const { buildDeck } = await import("@/app/proposalDeck");
       const template = await loadTemplate().catch(() => null);
-      await buildDeck({ client: group.name, website, lines, copy: doc.copy, images, packages: pkgIds, template });
+      await buildDeck({ client: group.name, website, lines, copy: doc.copy, images, packages: pkgIds, template, dayRate });
     }
     catch (e) { setErr(`Couldn't build the deck: ${e.message}`); }
     setBusy(false);
@@ -314,7 +324,7 @@ export function ProposalModal({ group, onClose }) {
                 </div>
                 <BlockList label="Background" items={doc.copy.background} onChange={(background) => setCopy({ background })} {...toggle("background")} />
                 <BlockList label="Where the biggest wins are" items={doc.copy.wins} onChange={(wins) => setCopy({ wins })} {...toggle("wins")} />
-                <div className="space-y-2"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Idea slides</div>
+                <div {...freeze} className="space-y-2"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Idea slides</div>
                   {lines.map((l, n) => { const c = doc.copy.ideas.find((x) => x.key === l.key); return (
                     <div key={l.key} className="relative flex flex-wrap gap-3 rounded-lg border border-zinc-200 p-3 pr-10">
                       <button onClick={() => { if (window.confirm(`Take “${c?.title || l.title}” out of this proposal?`)) removeLine(l.key); }} aria-label="Remove from deck" title="Remove this idea from the deck" className="absolute right-2 top-2 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button>
@@ -326,7 +336,7 @@ export function ProposalModal({ group, onClose }) {
                           <input value={c.closing} onChange={(e) => setIdeaCopy(l.key, { closing: e.target.value })} placeholder="Closing benefit (optional)" className={input} />
                         </>}
                         <div className="flex flex-wrap items-center gap-2 pt-1"><Hours picked={picked} line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, withTeam(l, team))} />
-                          {c?.max && c.max !== l.max && <button onClick={() => { const th = teamHours(l), tot = Object.values(th).reduce((x, y) => x + y, 0) || 1, hrs = Object.fromEntries(Object.entries(th).map(([k, h]) => [k, Math.max(0.5, Math.round((h * c.max * 2) / tot) / 2)])); const t = Object.values(hrs).reduce((x, y) => x + y, 0); setLine(l.key, { hrs, min: t, max: t }); }} title={c.hoursNote} className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-200">Claude suggests {c.max} hrs{c.hoursNote ? `: ${c.hoursNote}` : ""} · use</button>}</div>
+                          {c?.max && c.max !== l.max && <button onClick={() => { const th = teamHours(l), tot = Object.values(th).reduce((x, y) => x + y, 0) || 1, hrs = Object.fromEntries(Object.entries(th).map(([k, h]) => [k, quarter((h * c.max) / tot)])); const t = Object.values(hrs).reduce((x, y) => x + y, 0); setLine(l.key, { hrs, min: t, max: t }); }} title={c.hoursNote} className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-200">Claude suggests {c.max} hrs{c.hoursNote ? `: ${c.hoursNote}` : ""} · use</button>}</div>
                       </div>
                       <ImageDrop value={images[l.key]} status={shotState[l.key]} onShot={c?.shot ? () => { setIdeaCopy(l.key, { noImage: false }); getShot(l.key, c.shot); } : null} onChange={(v) => { setImages((o) => ({ ...o, [l.key]: v })); if (!v && c) setIdeaCopy(l.key, { noImage: true }); }} label={c?.shot ? "No picture on this slide" : "Screenshot (optional)"} />
                     </div>); })}
@@ -347,6 +357,27 @@ export function ProposalModal({ group, onClose }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Settings → Proposals: the day rate that prices the hours on each idea slide and orders the ideas.
+export function DayRateEditor() {
+  const [rate, setRate] = useState("");
+  const [state, setState] = useState("");
+  useEffect(() => { fetch("/api/settings?key=day-rate").then((r) => r.json()).then((j) => setRate(String(rateOf(j.value)))).catch(() => setRate(String(DAY_RATE))); }, []);
+  async function save() {
+    const n = Number(rate);
+    if (!(n > 0)) { setState("Enter a number above 0"); return; }
+    setState("Saving…");
+    const r = await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "day-rate", value: { rate: n } }) }).then((x) => x.json()).catch(() => ({}));
+    setState(r.shared ? "Saved" : "Couldn't save to the shared store");
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-zinc-600">£</span><input type="number" min={1} step={25} value={rate} onChange={(e) => setRate(e.target.value)} onBlur={save} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} className="w-28 rounded-md border border-zinc-300 px-2 py-1 text-sm" aria-label="Day rate in pounds" />
+      <span className="text-zinc-500">per 7.5-hour day{rate > 0 ? ` (£${Math.round(Number(rate) / 7.5)} an hour)` : ""}</span>
+      {state && <span className="text-xs text-zinc-500">{state}</span>}
     </div>
   );
 }

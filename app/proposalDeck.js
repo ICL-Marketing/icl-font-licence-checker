@@ -1,6 +1,6 @@
 // Builds the ICL proposal deck (.pptx) in the browser with pptxgenjs, in the house style:
 // dark gradient slides with the white logo, white slides with navy titles, teal accents, Obviously.
-import { TEAMS, range, split, totals } from "@/lib/proposal";
+import { TEAMS, range, split, totals, priceFor, DAY_RATE } from "@/lib/proposal";
 import { pickedPackages, packageFor, packagesOf, hourTeams } from "@/lib/packages";
 
 const W = 19.44, H = 12.5;
@@ -23,7 +23,7 @@ const teamName = (k) => TEAMS.find(([x]) => x === k)?.[1] || k;
 const hrs = (a, b) => `${range(a, b)}\u00A0hr${a === b && a === 1 ? "" : "s"}`;
 const fileSafe = (s) => String(s).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "Client";
 
-export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null }) {
+export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null, dayRate = DAY_RATE }) {
   const { default: PptxGenJS } = await import("pptxgenjs");
   const pres = new PptxGenJS();
   // Where each slide goes: null for one built here, or a slot name for a slide copied from the uploaded template.
@@ -164,7 +164,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const teamText = teamBits.length > 1 ? teamBits.join(", ") : l.team.map(teamName).join(" + ");
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: W - 1.8, h: 1.25, rectRadius: 0.2, fill: { color: PALE }, line: { color: PALE } });
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: 0.18, h: 1.25, rectRadius: 0.05, fill: { color: TEAL }, line: { color: TEAL } });
-    const runs = [{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, bold: true } }, { text: (pkg ? priceOf(pkg) : hrs(l.min, l.max)).toUpperCase(), options: { color: NAVY, bold: true } }, { text: "      TEAM:  ", options: { color: GREY, bold: true } }, { text: teamText.toUpperCase(), options: { color: NAVY, bold: true } }];
+    const runs = [{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, bold: true } }, { text: (pkg ? priceOf(pkg) : `${hrs(l.min, l.max)} · ${l.free ? "FREE OF CHARGE" : priceFor(l, dayRate)}`).toUpperCase(), options: { color: NAVY, bold: true } }, { text: "      TEAM:  ", options: { color: GREY, bold: true } }, { text: teamText.toUpperCase(), options: { color: NAVY, bold: true } }];
     const chars = runs.reduce((n, r) => n + r.text.length, 0), fs = Math.max(11, Math.min(20, Math.floor(((W - 2.9) * 72) / (chars * 0.7))));
     s.addText(runs, { x: 1.4, y: 9.6, w: W - 2.9, h: 1.15, fontFace: FONT, fontSize: fs, valign: "middle", wrap: false, isTextBox: true, margin: 0 });
     for (const g of packagesOf(l, picked)) packageSlide(g);
@@ -180,7 +180,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const many = used.length > 4, fixedW = many ? [4.8, 3.2] : [5.8, 3.6], TW = W - 1.8, EW = 2.4;
     const pad = { margin: [0.08, 0.1, 0.08, 0.35] }; // breathing room on the left of the first column
     const rows = [[{ ...hd("Improvement", "left"), options: { ...hd("Improvement", "left").options, ...pad } }, hd("Team"), ...used.map(([, , short]) => hd(short)), hd("Estimate")]];
-    for (const l of hourLines) { const sp = split(l); rows.push([cell((byKey[l.key]?.title || l.title).toUpperCase(), { align: "left", bold: true, color: NAVY, ...pad }), cell(l.team.map(teamName).join(" + ")), ...used.map(([k]) => cell(sp[k] ? range(...sp[k]) : "–")), cell(hrs(l.min, l.max), { bold: true })]); }
+    for (const l of hourLines) { const sp = split(l); rows.push([cell((byKey[l.key]?.title || l.title).toUpperCase(), { align: "left", bold: true, color: NAVY, ...pad }), cell(l.team.map(teamName).join(" + ")), ...used.map(([k]) => cell(sp[k] && !l.free ? range(...sp[k]) : "–")), cell(l.free ? `FREE (${hrs(l.min, l.max)})` : hrs(l.min, l.max), { bold: true, ...(l.free ? { color: TEAL } : {}) })]); }
     rows.push([cell("TOTAL HANDS-ON WORK", { align: "left", bold: true, color: NAVY, fill: { color: PALE }, ...pad }), cell("", { fill: { color: PALE } }), ...used.map(([k]) => cell(t[k][1] ? range(t[k][0], t[k][1]) : "–", { bold: true, fill: { color: PALE } })), cell(`${range(t.min, t.max)} hrs`, { bold: true, color: NAVY, fill: { color: PALE } })]);
     const rh = Math.min(1, 7.6 / rows.length);
     s.addTable(rows, { x: 0.9, y: 2.3, w: TW, colW: [...fixedW, ...used.map(() => (TW - fixedW[0] - fixedW[1] - EW) / used.length), EW], rowH: rh, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" }, margin: 0.08 });

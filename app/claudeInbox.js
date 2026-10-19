@@ -109,7 +109,7 @@ export function PasteHint({ className = "" }) {
   return <p className={`text-xs text-zinc-600 ${className}`}>When Claude answers, paste its reply in <button onClick={openInbox} className="font-semibold text-orange-700 underline">Paste a reply</button>. Any reply, any order: it knows where each one goes. Copying moves on to the next batch, so you can run several chats at once.</p>;
 }
 
-export function ClaudeInbox() {
+export function ClaudeInbox({ button = true }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("prompt");
   const [job, setJob] = useState({ id: "", opts: {}, n: 0 });
@@ -159,7 +159,7 @@ export function ClaudeInbox() {
   }
   return (
     <>
-      <button onClick={() => setOpen(true)} title={waiting ? `${waiting} job${waiting === 1 ? "" : "s"} waiting for Claude: get a prompt, or paste a reply` : "Get a prompt for Claude, or paste a reply"} className="whitespace-nowrap rounded-md bg-orange-600 px-3 py-1 text-sm font-medium text-white hover:bg-orange-700">Claude{waiting > 0 && <span className="ml-1.5 rounded-full bg-white/25 px-1.5 text-xs">{waiting}</span>}{active.some(([, j]) => j.done < j.total) && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-white align-middle" />}</button>
+      {button && <button onClick={() => setOpen(true)} title={waiting ? `${waiting} job${waiting === 1 ? "" : "s"} waiting for Claude: get a prompt, or paste a reply` : "Get a prompt for Claude, or paste a reply"} className="whitespace-nowrap rounded-md bg-orange-600 px-3 py-1 text-sm font-medium text-white hover:bg-orange-700">Claude{waiting > 0 && <span className="ml-1.5 rounded-full bg-white/25 px-1.5 text-xs">{waiting}</span>}{active.some(([, j]) => j.done < j.total) && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-white align-middle" />}</button>}
       {open && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={() => setOpen(false)}>
           <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>

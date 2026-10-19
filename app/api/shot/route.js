@@ -8,7 +8,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export async function GET(request) {
   const url = new URL(request.url).searchParams.get("url") || "";
   if (!/^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(url)) return Response.json({ error: "url required" }, { status: 400 });
-  const shot = `https://s0.wp.com/mshots/v1/${encodeURIComponent(url)}?w=1440&h=1000`;
+  const shot = `https://s0.wp.com/mshots/v1/${encodeURIComponent(url)}?vpw=1440&vph=900&w=1440&h=900`; // a full desktop-width viewport, not mShots' narrower default
   for (let i = 0; i < 8; i++) {
     try {
       const r = await fetch(shot, { cache: "no-store", redirect: "follow" });
