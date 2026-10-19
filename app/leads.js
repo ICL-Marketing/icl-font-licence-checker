@@ -1062,7 +1062,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   // The prompts this page can write, all reached from the one Claude button at the top.
   useClaudeJob("lead-check", { label: "Check leads", order: 1, count: () => list.filter((l) => (l.status || "new") === "new" && !l.claude).length, render: (o, close) => <LeadCheckModal leads={list} preset={o.preset || []} column={o.column || "new"} onClose={close} onApply={applyLeadCheck} /> });
   useClaudeJob("find-sites", { label: "Find websites", order: 2, count: () => list.filter((l) => !l.website && siteSearchable(l) && !l.sitesCheckedAt).length, render: (o, close) => <FindSitesModal leads={list} preset={o.preset || []} onClose={close} onApply={applySites} /> });
-  useClaudeJob("draft-batch", { label: "Draft emails", order: 1.5, count: () => list.filter((l) => l.status === "to-draft" && !l.review?.drafted).length, render: (o, close) => <DraftBatchModal leads={list} preset={o.preset || []} onClose={close} /> });
+  useClaudeJob("draft-batch", { label: "Draft emails", order: 1.5, count: () => list.filter(needsWriting).length, render: (o, close) => <DraftBatchModal leads={list} preset={o.preset || []} onClose={close} /> });
   const handleDraftBatch = (text) => {
     const items = parseDraftBatch(text);
     if (!items.length) throw new Error("No emails in that reply. Make sure Claude kept the lead_id values.");
@@ -1458,6 +1458,8 @@ const daysSince = (l) => (Date.now() - new Date(l.statusAt || l.updatedAt || l.a
 const hasDraft = (l) => !!(l.email && (l.review?.drafted || l.claudeDraft));
 // "Draft in, check it" with no draft yet is still waiting for Claude.
 const boardStatus = (l) => { const s = l.status || "new"; return s === "to-check" && !hasDraft(l) ? "to-draft" : s; };
+// Everything the Write column shows as "Claude to write", so the job counts match the board.
+const needsWriting = (l) => boardStatus(l) === "to-draft" && !l.optedOut;
 
 // ---- the follow-up sequence ---------------------------------------------------------------
 // After the first message come up to two follow-ups, each written by Claude with the first one
@@ -2120,6 +2122,7 @@ function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
     issue: [l.problem, l.problemDetail].filter(Boolean).join(": "),
     contacts: (l.contacts || []).slice(0, 5).map((p) => `${p.name} (${p.role}${p.email ? `, ${p.email}` : ""})`).join("; "),
     parked: l.status === "not-pursuing" ? parkExplain(l) : l.status === "no-contact" ? "No verified email address found yet" : "",
+    avoid: (l.avoidFindings || []).join(" | "),
   }));
   const prompt = items.length ? withTitle("Check leads", `${items.length} lead${items.length === 1 ? "" : "s"}`, leadCheckPrompt(items)) : "";
   async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("lead-check", picked); setSent(sentIds("lead-check")); if (size !== "all" && size !== "recheck") nextBatch(size, picked); }
@@ -2315,6 +2318,14 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   // The email box only holds Claude's draft (or your own typing), never the app's automatic template.
   const draftText = r.drafted || maint ? l.email || "" : "";
   // Address and email text both in: Ready to send, and on to the next lead.
+  // Redraft email: back to Assess, so Claude looks at the site again for different things to raise
+  // (the ones in this draft are listed in its prompt to avoid) and then writes a new email.
+  const redraft = () => {
+    const raised = [...(l.findings || []).map((f) => [f.label, f.note].filter(Boolean).join(": ")), (draftText.split(/\n\s*\n/).find((p) => p.trim()) || "").trim().slice(0, 200)].filter(Boolean);
+    onChange({ avoidFindings: [...new Set([...(l.avoidFindings || []), ...raised])].slice(-8), emailPrevious: l.email || l.emailPrevious || "", maintenance: false, claude: null, claudeFields: [], findings: null, email: "", pitch: "", emailEdited: false, draftBrief: null, issueId: "", claudeDraft: false,
+      review: { ...r, step: 1, lead: "", also: [], dropped: [], drafted: "", done: false }, status: "new", statusBy: "you", statusAt: new Date().toISOString() });
+    onNext?.(true);
+  };
   const finishReady = (extra = {}) => { setR({ done: true, doneAt: new Date().toISOString(), drafted: r.drafted || new Date().toISOString() }, { status: "ready", statusBy: "you", ...extra }); onNext?.(true); };
   return (
     <div className="space-y-3">
@@ -2493,6 +2504,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
               <button onClick={() => setR({ step: 2 })} className="whitespace-nowrap text-xs text-zinc-500 hover:text-zinc-900">← Back</button>
               <span className="ml-auto" />
                 <button onClick={() => { setR({ done: true, doneAt: new Date().toISOString() }, { status: "not-pursuing", likelihoodWhy: "Reviewed by hand: not worth it" }); onNext?.(true); }} className="whitespace-nowrap rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Not pursuing</button>
+              <button onClick={redraft} title="Back to Assess: Claude checks the site again for different issues (not the ones in this email) and writes a new email" className="whitespace-nowrap rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Redraft email</button>
               {onNext && <button onClick={() => onNext(false)} className="whitespace-nowrap rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs hover:bg-zinc-100">Skip for now →</button>}
               <button onClick={() => finishReady()} disabled={!l.emailAddress || !draftText.trim()} className="whitespace-nowrap rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Ready to send ✓{onNext ? " · next" : ""}</button>
             </>)}
@@ -2611,7 +2623,7 @@ function allPending(leads) {
   const sites = leads.filter((l) => l.status !== "vetting" && !l.website && siteSearchable(l) && !l.sitesCheckedAt);
   const inSites = new Set(sites.map((l) => l.id));
   const check = leads.filter((l) => (l.status || "new") === "new" && !l.claude && !claudeSkip(l) && !inSites.has(l.id));
-  const draft = leads.filter((l) => l.status === "to-draft" && !l.review?.drafted);
+  const draft = leads.filter(needsWriting);
   const rank = leads.filter((l) => rankable(l) && l.status !== "vetting" && !l.seo?.claudeAt);
   return { vet, sites, check, draft, rank, total: vet.length + sites.length + check.length + draft.length + rank.length };
 }
@@ -2718,7 +2730,7 @@ function briefOf(l) {
 function DraftBatchModal({ leads, preset, onClose }) {
   const job = "draft-batch";
   const isDone = (l) => !!l.review?.drafted;
-  const pool = sorted(leads.filter((l) => l.status === "to-draft"));
+  const pool = sorted(leads.filter(needsWriting));
   const [size, setSize] = useState("all");
   const waitingFor = (done = []) => { const w = sentIds(job); return pool.filter((l) => !isDone(l) && !done.includes(l.id) && !w.has(l.id)); };
   const [picked, setPicked] = useState(() => (preset.length ? preset : waitingFor().map((l) => l.id)));
