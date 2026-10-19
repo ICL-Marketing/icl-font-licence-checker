@@ -156,8 +156,8 @@ export function ProposalModal({ group, onClose }) {
   const [tplExtras, setTplExtras] = useState([]); // extra slides from the uploaded template, so they can be left out of this deck
   useEffect(() => { templateMeta().then((m) => setTplExtras(m?.extras || [])).catch(() => {}); }, []);
   useEffect(() => { fetch("/api/settings?key=retainer-points").then((r) => r.json()).then((j) => { if (j.shared && j.value?.items) setPoints(normalisePoints(j.value)); }).catch(() => {}); }, []);
-  const [dayRate, setDayRate] = useState(DAY_RATE);
-  useEffect(() => { fetch("/api/settings?key=day-rate").then((r) => r.json()).then((j) => setDayRate(rateOf(j.value))).catch(() => {}); }, []);
+  const [defaultRate, setDefaultRate] = useState(DAY_RATE); // Settings → Proposals; each client can have its own
+  useEffect(() => { fetch("/api/settings?key=day-rate").then((r) => r.json()).then((j) => setDefaultRate(rateOf(j.value))).catch(() => {}); }, []);
 
   useEffect(() => {
     let live = true;
@@ -194,6 +194,7 @@ export function ProposalModal({ group, onClose }) {
   // Biggest first by value (hours at the day rate, packages at their price), free work last.
   // While you're typing in a field the order stays put, so the card doesn't jump away; it re-sorts when you leave the field.
   const [frozen, setFrozen] = useState(null);
+  const dayRate = Number(doc?.dayRate) > 0 ? Number(doc.dayRate) : defaultRate;
   const sorted = [...allLines].sort((a, b) => lineValue(b, picked, dayRate) - lineValue(a, picked, dayRate));
   const lines = frozen ? [...allLines].sort((a, b) => ((frozen.indexOf(a.key) + 1 || 1e9) - (frozen.indexOf(b.key) + 1 || 1e9))) : sorted;
   const freeze = { onFocusCapture: (e) => { if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName) && !frozen) setFrozen(sorted.map((l) => l.key)); }, onBlurCapture: (e) => { if (!(e.relatedTarget && /^(INPUT|TEXTAREA)$/.test(e.relatedTarget.tagName) && e.currentTarget.contains(e.relatedTarget))) setFrozen(null); } };
@@ -244,6 +245,7 @@ export function ProposalModal({ group, onClose }) {
           <div className="space-y-4 px-5 py-4">
             <ol className="flex flex-wrap gap-1.5">{STEPS.map((s, n) => (
               <li key={s}><button onClick={() => canGo(n) && change((d) => ({ ...d, step: n }))} disabled={!canGo(n)} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium disabled:opacity-40 ${step === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{n < step ? <CheckIcon className="h-3.5 w-3.5 text-emerald-500" /> : <span className="opacity-60">{n + 1}</span>}{s}</button></li>))}
+              <li className="ml-auto"><label className="inline-flex items-center gap-1 text-xs text-zinc-600" title={`This client's day rate: prices the hours on each slide. Empty uses the default (£${defaultRate}) from Settings → Proposals`}>Day rate £<input type="number" min={1} step={25} value={doc.dayRate ?? ""} placeholder={String(defaultRate)} onChange={(e) => change((d) => ({ ...d, dayRate: e.target.value === "" ? undefined : Number(e.target.value) }))} className={num} aria-label="Day rate for this client" /></label></li>
             </ol>
 
             {step === 0 && (

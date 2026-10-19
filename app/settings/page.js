@@ -135,8 +135,8 @@ export default function Settings() {
       {section === "templates" && <TemplatesEditor />}
       {section === "proposals" && (<>
         <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
-          <h2 className="font-semibold">Day rate</h2>
-          <p className="mb-3 text-sm text-zinc-500">Prices the hours on each idea slide, and puts the ideas in order of value alongside the packages (free work always goes last).</p>
+          <h2 className="font-semibold">Default day rate</h2>
+          <p className="mb-3 text-sm text-zinc-500">Used for every client unless you set their own in the proposal window (top right). Prices the hours on each idea slide, and puts the ideas in order of value alongside the packages (free work always goes last).</p>
           <DayRateEditor />
         </section>
         <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">

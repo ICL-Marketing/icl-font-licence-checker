@@ -1277,7 +1277,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const skippedRef = useRef(new Set());
   function reviewNext(status, afterId = null) {
     if (afterId) skippedRef.current.add(afterId);
-    const sts = stageOf(status).statuses;
+    const sts = status === "to-check" ? ["to-check"] : stageOf(status).statuses; // in Write, only drafts that are in
     const col = sorted(Object.values(leadsRef.current).filter((x) => sts.includes(boardStatus(x)) && !x.review?.done && !x.optedOut && x.id !== afterId));
     const next = col.find((x) => !skippedRef.current.has(x.id)) || null;
     if (!next) skippedRef.current = new Set();
@@ -1540,7 +1540,16 @@ function Board({ leads, followUp, filtering, selected, onToggle, onSelectColumn,
           </div>
           <div className="pb-2" />
           {c.id === "assess" && vetting > 0 && <button onClick={onVetting} title="Leads still being vetted: website, contact and Google ranking. They join Assess by themselves." className="mb-2 rounded-md border border-dashed border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50">{vetting} being vetted ›</button>}
-          {["assess", "write"].includes(c.id) && c.items.some((l) => !l.review?.done) && <button onClick={() => onReview(c.statuses[c.statuses.length - 1])} title="Go through these one at a time: look at the site, pick the issue and approach, then check the message" className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">Review one by one ({c.items.filter((l) => !l.review?.done).length})</button>}
+          {(() => {
+            // Write holds two kinds of lead: ones Claude still has to write, and drafts that are in. Only drafts can be checked.
+            if (!["assess", "write"].includes(c.id)) return null;
+            const todo = c.items.filter((l) => !l.review?.done && !l.optedOut && (c.id !== "write" || boardStatus(l) === "to-check"));
+            const waiting = c.id === "write" ? c.items.filter((l) => boardStatus(l) === "to-draft").length : 0;
+            return <>
+              {c.id === "write" && <p className="mb-1.5 px-1 text-[11px] text-zinc-500">{waiting} waiting for Claude · {c.items.length - waiting} draft{c.items.length - waiting === 1 ? "" : "s"} in</p>}
+              {todo.length > 0 && <button onClick={() => onReview(c.statuses[c.statuses.length - 1])} title={c.id === "write" ? "Go through the drafts that are in, one at a time, and check each message" : "Go through these one at a time: look at the site, pick the issue and approach"} className="mb-2 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-900 hover:bg-violet-100">{c.id === "write" ? `Check drafts one by one (${todo.length})` : `Review one by one (${todo.length})`}</button>}
+            </>;
+          })()}
           <div className="flex flex-1 flex-col gap-2">
             {c.items.slice(0, shown[c.id] || 60).map((l) => {
               const st = boardStatus(l);
