@@ -9,6 +9,7 @@ import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ChevronDownIc
 import DesignArea from "@/app/design";
 import LeadsArea from "@/app/leads";
 import IdeasArea from "@/app/ideas";
+import ConsentArea from "@/app/consent";
 import { DEFAULT_SITES } from "@/data/sites";
 import { loadClients, saveClients } from "@/app/clients";
 import { ClaudeInbox } from "@/app/claudeInbox";
@@ -72,9 +73,11 @@ export default function Home() {
   const [leadsRunning, setLeadsRunning] = useState(false);
   const [ideasCount, setIdeasCount] = useState(0);
   const [ideasRunning, setIdeasRunning] = useState(false);
-  const anyRunning = !!running || launchRunning || postRunning || designRunning || leadsRunning || ideasRunning;
+  const [consentCount, setConsentCount] = useState(null);
+  const [consentRunning, setConsentRunning] = useState(false);
+  const anyRunning = !!running || launchRunning || postRunning || designRunning || leadsRunning || ideasRunning || consentRunning;
   const [area, setAreaState] = useState("leads"); // "leads" | "design" | "launch" | "post" | "fonts" | "images"; opens on the first tab
-  const TAB_SLUG = { design: "design", fonts: "fonts", images: "images", launch: "launch", post: "post-launch", leads: "leads", ideas: "client-ideas" };
+  const TAB_SLUG = { design: "design", fonts: "fonts", images: "images", launch: "launch", post: "post-launch", leads: "leads", ideas: "client-ideas", consent: "cookie-consent" };
   const setArea = (id) => {
     setAreaState(id);
     try { const u = new URL(window.location.href); u.searchParams.set("tab", TAB_SLUG[id]); u.searchParams.delete("lead"); u.searchParams.delete("idea"); const sel = selected[id]; if (sel) u.searchParams.set("site", sel); else u.searchParams.delete("site"); window.history.replaceState(null, "", u.search); } catch {}
@@ -367,8 +370,9 @@ export default function Home() {
             const tabs = [["leads", "Website Leads", leadsCount || null], ["ideas", "Client Ideas", ideasCount || null],
               ["design", "Design Checks", designCount || null],
               ["fonts", "Font Licenses", fontRows.length ? fontCounts.PROBLEM + fontCounts.CHECK : null],
-              ["images", "Image Licenses", imgRows.length ? imgPaidSites : null]];
-            const busy = (id) => running === id || (id === "launch" && launchRunning) || (id === "post" && postRunning) || (id === "design" && designRunning) || (id === "leads" && leadsRunning) || (id === "ideas" && ideasRunning);
+              ["images", "Image Licenses", imgRows.length ? imgPaidSites : null],
+              ["consent", "Cookie Consent", consentCount]];
+            const busy = (id) => running === id || (id === "launch" && launchRunning) || (id === "post" && postRunning) || (id === "design" && designRunning) || (id === "leads" && leadsRunning) || (id === "ideas" && ideasRunning) || (id === "consent" && consentRunning);
             const tab = ([id, label, n]) => (
               <button key={id} onClick={(e) => { setArea(id); e.currentTarget.closest("details")?.removeAttribute("open"); }} aria-current={area === id ? "page" : undefined}
                 className={`whitespace-nowrap py-1 text-left text-sm ${area === id ? "font-semibold text-zinc-900 underline decoration-2 underline-offset-[6px]" : "text-zinc-500 hover:text-zinc-900"}`}>
@@ -402,6 +406,7 @@ export default function Home() {
 
 
       {/* All areas stay mounted so a running scan carries on when you switch tabs. */}
+      <section className={`mt-5 ${area === "consent" ? "" : "hidden"}`}><ConsentArea clients={clients} onRunning={setConsentRunning} onCount={setConsentCount} /></section>
       <section className={`mt-5 ${area === "design" ? "" : "hidden"}`}><DesignArea onRunning={setDesignRunning} onCount={setDesignCount} /></section>
       <section className={`mt-5 ${area === "leads" ? "" : "hidden"}`}><LeadsArea onRunning={setLeadsRunning} onCount={setLeadsCount} clients={clients} /></section>
       <section className={`mt-5 ${area === "ideas" ? "" : "hidden"}`}><IdeasArea onRunning={setIdeasRunning} onCount={setIdeasCount} clients={clients} onClientsChange={(next) => { const list = normaliseClients(next); setClients(list); saveClients(list); fetch("/api/clients", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clients: list }) }).catch(() => {}); }} /></section>
@@ -413,7 +418,7 @@ export default function Home() {
         </section>
       )}
 
-      <div className={area !== "launch" && area !== "post" && area !== "design" && area !== "leads" && area !== "ideas" ? "" : "hidden"}>
+      <div className={area !== "launch" && area !== "post" && area !== "design" && area !== "leads" && area !== "ideas" && area !== "consent" ? "" : "hidden"}>
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
         <button onClick={() => setShowList((v) => !v)} className="flex w-full items-center justify-between text-left text-sm font-medium">
           <span>Sites to check ({sites.length})</span>
