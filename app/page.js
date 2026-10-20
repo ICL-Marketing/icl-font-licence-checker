@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { pullSetting, pushSetting } from "@/app/shared";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon } from "@/app/icons";
-import LaunchArea from "@/app/launch";
 import DesignArea from "@/app/design";
 import LeadsArea from "@/app/leads";
 import IdeasArea from "@/app/ideas";
@@ -55,6 +54,8 @@ function effectiveFontStatus(r) {
   if ((r.status === "PROBLEM" || r.status === "CHECK") && (r.fonts || []).some(needsWork) && !fontTodo(r).length) return "OK";
   return r.status;
 }
+
+const LAUNCH_HOME = "https://content.icltest.net/admin";
 
 export default function Home() {
   const [text, setText] = useState(DEFAULT_SITES.join("\n"));
@@ -365,8 +366,6 @@ export default function Home() {
           {(() => {
             const tabs = [["leads", "Website Leads", leadsCount || null], ["ideas", "Client Ideas", ideasCount || null],
               ["design", "Design Checks", designCount || null],
-              ["launch", "Launch Checks", launchCount || null],
-              ["post", "Post Launch Checks", postCount || null],
               ["fonts", "Font Licenses", fontRows.length ? fontCounts.PROBLEM + fontCounts.CHECK : null],
               ["images", "Image Licenses", imgRows.length ? imgPaidSites : null]];
             const busy = (id) => running === id || (id === "launch" && launchRunning) || (id === "post" && postRunning) || (id === "design" && designRunning) || (id === "leads" && leadsRunning) || (id === "ideas" && ideasRunning);
@@ -383,7 +382,9 @@ export default function Home() {
               {main.map(tab)}
               <details className="relative">
                 <summary className={`cursor-pointer list-none whitespace-nowrap py-1 text-sm ${inMore ? "font-semibold text-zinc-900" : "text-zinc-500 hover:text-zinc-900"}`}>{inMore ? inMore[1] : "More tools"} ▾{more.some((t) => busy(t[0])) && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500 align-middle" />}</summary>
-                <div className="absolute right-0 z-30 mt-1 flex w-52 flex-col gap-1 rounded-lg border border-zinc-200 bg-white p-3 shadow-lg">{more.map(tab)}</div>
+                <div className="absolute right-0 z-30 mt-1 flex w-52 flex-col gap-1 rounded-lg border border-zinc-200 bg-white p-3 shadow-lg">{more.map(tab)}
+                  <a href={LAUNCH_HOME} target="_blank" rel="noopener" className="whitespace-nowrap py-1 text-left text-sm text-zinc-500 hover:text-zinc-900">Launch Checks ↗</a>
+                </div>
               </details>
             </>;
           })()}
@@ -404,8 +405,13 @@ export default function Home() {
       <section className={`mt-5 ${area === "design" ? "" : "hidden"}`}><DesignArea onRunning={setDesignRunning} onCount={setDesignCount} /></section>
       <section className={`mt-5 ${area === "leads" ? "" : "hidden"}`}><LeadsArea onRunning={setLeadsRunning} onCount={setLeadsCount} clients={clients} /></section>
       <section className={`mt-5 ${area === "ideas" ? "" : "hidden"}`}><IdeasArea onRunning={setIdeasRunning} onCount={setIdeasCount} clients={clients} onClientsChange={(next) => { const list = normaliseClients(next); setClients(list); saveClients(list); fetch("/api/clients", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clients: list }) }).catch(() => {}); }} /></section>
-      <section className={`mt-5 ${area === "launch" ? "" : "hidden"}`}><LaunchArea post={post} mode="launch" onRunning={setLaunchRunning} onCount={setLaunchCount} onSiteResult={patch} siteResults={results} /></section>
-      <section className={`mt-5 ${area === "post" ? "" : "hidden"}`}><LaunchArea post={post} mode="post" onRunning={setPostRunning} onCount={setPostCount} onSiteResult={patch} siteResults={results} /></section>
+      {/* Launch and post-launch checks moved to the Content Collector, one page per project. */}
+      {(area === "launch" || area === "post") && (
+        <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4 text-sm">
+          Launch and post-launch checks now live in the Content Collector: open the project, then Launch Checks in the Content Loader.{" "}
+          <a href={LAUNCH_HOME} className="font-medium text-blue-700 underline">Go to the Content Collector</a>
+        </section>
+      )}
 
       <div className={area !== "launch" && area !== "post" && area !== "design" && area !== "leads" && area !== "ideas" ? "" : "hidden"}>
       <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
