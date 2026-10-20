@@ -1,4 +1,5 @@
 import { CONSENT_RE } from "@/lib/leadsShared";
+import { trackingConsent } from "@/lib/consent";
 import { researchClient, researchConfigured, researchCost, RESEARCH_CAP } from "@/lib/clientResearch";
 import { builtSignals, checkWebsite, fetchPage, licenceRisks, seoCheck, siteAddress, townFromAddress, tradeFromSite, applyTradingAddress } from "@/lib/leads";
 
@@ -34,6 +35,8 @@ async function signals(host) {
     form,
     analytics: /gtag\(|googletagmanager\.com|google-analytics\.com|plausible\.io|matomo|clarity\.ms|usefathom|hotjar|connect\.facebook\.net|fbq\(|snap\.licdn\.com|analytics\.tiktok\.com|bat\.bing\.com/i.test(html),
     consent: CONSENT_RE.test(html),
+    // A banner is there, but tracking (often via Tag Manager) doesn't wait for it.
+    consentGap: await trackingConsent(html).then((v) => (v.gap ? { summary: v.summary, ticket: v.ticket } : null)).catch(() => null),
     metaDescription: /<meta[^>]+name=["']description["'][^>]+content=["'][^"']{10,}/i.test(html) || /<meta[^>]+content=["'][^"']{10,}["'][^>]+name=["']description["']/i.test(html),
     ogImage: /<meta[^>]+property=["']og:image["']/i.test(html) || /<meta[^>]+content=["'][^"']+["'][^>]+property=["']og:image["']/i.test(html),
     viewport: /<meta[^>]+name=["']viewport["']/i.test(html),

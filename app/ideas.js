@@ -487,6 +487,11 @@ function IdeaBoard({ cards, filtering, onOpen, onMove }) {
   );
 }
 
+// A ready-to-send brief for the developer (e.g. tracking that doesn't wait for the cookie banner).
+function BriefButton({ text }) {
+  const [done, setDone] = useState(false);
+  return <button onClick={() => { navigator.clipboard?.writeText(text).catch(() => {}); setDone(true); setTimeout(() => setDone(false), 2500); }} title={text} className="mt-1 mr-3 inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100">{done ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy developer brief</>}</button>;
+}
 function IdeaDrawer({ r, idea, onClose, onIdea, onRec, onBad }) {
   const [copied, setCopied] = useState(false);
   const [to, setTo] = useState((r.emails || [])[0] || "");
@@ -529,6 +534,7 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onRec, onBad }) {
             <div className="font-semibold">{idea.title}</div>
             <p className="mt-0.5 text-sm text-zinc-600">{idea.why}</p>
             {idea.resolved && <p className="mt-1 text-xs text-emerald-700">No longer found on the site at the last check.</p>}
+            {idea.brief && <BriefButton text={idea.brief} />}
             {idea.evidenceUrl && <a href={idea.evidenceUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-blue-700 underline">{/google\.[a-z.]+\/search/.test(idea.evidenceUrl) ? "Check this search on Google" : "See what we found"} <ExternalIcon /></a>}
           </div>
           <div className="rounded-lg border border-zinc-200 p-3">

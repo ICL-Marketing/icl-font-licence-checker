@@ -2123,6 +2123,7 @@ function LeadCheckModal({ leads, preset, column = "new", onClose, onApply }) {
     contacts: (l.contacts || []).slice(0, 5).map((p) => `${p.name} (${p.role}${p.email ? `, ${p.email}` : ""})`).join("; "),
     parked: l.status === "not-pursuing" ? parkExplain(l) : l.status === "no-contact" ? "No verified email address found yet" : "",
     avoid: (l.avoidFindings || []).join(" | "),
+    tracking: l.trackingGap || "",
   }));
   const prompt = items.length ? withTitle("Check leads", `${items.length} lead${items.length === 1 ? "" : "s"}`, leadCheckPrompt(items)) : "";
   async function copy(open) { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} if (open) window.open("https://claude.ai/new", "_blank", "noopener"); markSent("lead-check", picked); setSent(sentIds("lead-check")); if (size !== "all" && size !== "recheck") nextBatch(size, picked); }
@@ -2615,7 +2616,7 @@ function VettingList({ leads, onOpen, onVet, onSend, onPark, onSite, onNoSite, o
 }
 
 // What each Claude job would take right now, for the All prompt.
-const vetItem = (l) => ({ id: l.id, business: l.business, companyNumber: l.companyNumber, address: l.address || l.area, sic: sicDescription(l.sics || []), website: l.website || "", issue: [l.problem, l.problemDetail].filter(Boolean).join(": "), contacts: (l.contacts || []).slice(0, 5).map((p) => `${p.name} (${p.role}${p.email ? `, ${p.email}` : ""})`).join("; "), rejected: (l.rejectedSites || []).join(", ") });
+const vetItem = (l) => ({ tracking: l.trackingGap || "", id: l.id, business: l.business, companyNumber: l.companyNumber, address: l.address || l.area, sic: sicDescription(l.sics || []), website: l.website || "", issue: [l.problem, l.problemDetail].filter(Boolean).join(": "), contacts: (l.contacts || []).slice(0, 5).map((p) => `${p.name} (${p.role}${p.email ? `, ${p.email}` : ""})`).join("; "), rejected: (l.rejectedSites || []).join(", ") });
 // Every Website Leads job, each lead in one task only: vetting already covers the website and
 // Google ranking, and finding a website already runs the full lead check.
 function allPending(leads) {

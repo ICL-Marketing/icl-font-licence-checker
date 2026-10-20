@@ -8,7 +8,7 @@ import { isEmbeddedIconFont, isFreeFontAwesome, issueLabel, mergeImageSizes, fix
 import { isFreeLib } from "@/lib/email";
 import { clientForSite, normaliseClients, teamMemberForManager } from "@/lib/clients";
 import { evaluateLaunch, CHECK_STAGES } from "@/lib/launchChecks";
-import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, ChevronDownIcon, ChevronUpIcon, ExternalIcon, FlagIcon, CheckIcon, SpinnerIcon, InfoIcon, ArchiveIcon } from "@/app/icons";
+import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, ChevronDownIcon, ChevronUpIcon, ExternalIcon, FlagIcon, CheckIcon, SpinnerIcon, InfoIcon, ArchiveIcon, CopyIcon } from "@/app/icons";
 import { pullSetting, pushSetting } from "@/app/shared";
 
 // Launch and post-launch checks keep separate results and sign-offs.
@@ -435,7 +435,7 @@ function LaunchCard({ k, r, mode, client, signed, log, shared, team, open, toggl
     setExporting(kind);
     try {
       const word = kind === "word";
-      const slim = checks.map(({ id, section, owner, title, state, summary, items }) => ({ id, section, owner, title, state, summary, items: items.slice(0, 15) }));
+      const slim = checks.map(({ id, section, owner, title, state, summary, items, ticket }) => ({ id, section, owner, title, state, summary, items: items.slice(0, 15), ...(ticket ? { ticket } : {}) }));
       const res = await fetch(word ? "/api/signoff-log" : "/api/export", { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify(word
           ? { site: k, url: r.start?.finalUrl, scannedAt: r.scannedAt, checks: slim, signed, log, mode }
@@ -628,6 +628,11 @@ function CheckRow({ c, s, team, client, onSign, site }) {
               : <span aria-hidden className={`flex w-4 shrink-0 justify-center pt-0.5 ${c.state === "fail" ? "text-red-600" : c.state === "review" ? "text-amber-600" : "text-zinc-500"}`}><InfoIcon /></span>}
             <span>{c.summary}</span>
           </p>
+        )}
+        {c.ticket && (
+          <button onClick={() => { navigator.clipboard?.writeText(c.ticket).catch(() => {}); setCopiedIdx(98); setTimeout(() => setCopiedIdx(-1), 2500); }} title={c.ticket} className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700 hover:bg-zinc-100">
+            {copiedIdx === 98 ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy developer brief</>}
+          </button>
         )}
         {c.items.length > 0 && (
           <button onClick={() => setShowList((v) => !v)} aria-expanded={showList} className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700 hover:bg-zinc-100">

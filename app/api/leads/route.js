@@ -126,7 +126,7 @@ export async function POST(request) {
       const lead = { ...b.lead };
       if (!lead.website) return Response.json({ error: "No website on this lead." }, { status: 400 });
       const w = await checkWebsite(lead.website);
-      Object.assign(lead, { problem: w.problem, problemDetail: w.detail, platform: w.platform || "", year: w.year || 0, title: w.title || "", siteUrl: w.siteUrl || "" });
+      Object.assign(lead, { problem: w.problem, problemDetail: w.detail, platform: w.platform || "", year: w.year || 0, title: w.title || "", siteUrl: w.siteUrl || "", trackingGap: w.trackingGap || "", trackingBrief: w.trackingBrief || "" });
       if (!lead.emailAddress) { const f = await findEmailAt(lead.website, "").catch(() => ({})); lead.emailAddress = f.email || ""; lead.emailFrom = emailFromPage(f.page); }
       if (lead.problem) { Object.assign(lead, scoreLead(lead)); if (!lead.email || b.redraft) { const d = draftOutreach({ ...lead, links }); Object.assign(lead, { subject: d.subject, pitch: d.pitch, email: d.email, draftVersion: d.draftVersion }); } }
       else { lead.likelihood = "Low"; lead.likelihoodWhy = "Site is current; no outreach planned"; }
