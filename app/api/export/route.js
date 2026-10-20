@@ -284,8 +284,47 @@ export async function POST(request) {
     ] });
   }
 
+  if (kind === "consent") {
+  // ---- Cookie consent: sites whose tracking doesn't wait for the banner (or has no banner), one row each.
+  const ISSUE = { GAP: "Fires before consent", NO_BANNER: "No cookie banner", UNREACHABLE: "Couldn't check" };
+  const ISSUE_COLOUR = { GAP: "FFF8D7DA", NO_BANNER: "FFFFF3CD", UNREACHABLE: "FFE8DAEF" };
+  const rows = results.filter((r) => ISSUE[r.status]).sort((a, b) => Object.keys(ISSUE).indexOf(a.status) - Object.keys(ISSUE).indexOf(b.status) || a.site.localeCompare(b.site))
+    .map((r) => ({ site: r.site, code: r.status, issue: ISSUE[r.status], client: r.client || "", manager: r.manager || "", found: r.summary || "", banner: r.bannerName || "",
+      ga4: (r.ga4 || []).join(", "), gtm: (r.gtm || []).join(", "), others: (r.others || []).join(", "),
+      fix: r.status === "GAP" ? "Make tracking wait for consent: see the developer brief" : r.status === "NO_BANNER" ? "Add a cookie banner (free: CookieYes, Complianz) and make tracking wait for it" : "Check the site by hand",
+      claude: r.claude ? `${{ fires_before_consent: "Confirmed: fires before consent", waits_for_consent: "Waits for consent", no_banner: "No banner", unsure: "Unsure" }[r.claude.verdict] || r.claude.verdict}${r.claude.confidence ? ` (${r.claude.confidence})` : ""}${r.claude.evidence ? `: ${r.claude.evidence}` : ""}` : "Not checked by Claude yet",
+      brief: r.ticket || "", checked: r.checkedAt ? r.checkedAt.slice(0, 10) : "", task: r.fixed ? "Done" : "To do", owner: r.manager || "" }));
+  const ws = sheet(wb, "Cookie consent to fix", [
+    { header: "Site", key: "site", width: 30 },
+    { header: "Issue", key: "issue", width: 22 },
+    { header: "Client", key: "client", width: 24 },
+    { header: "What we found", key: "found", width: 60 },
+    { header: "Claude's check", key: "claude", width: 50 },
+    { header: "Banner", key: "banner", width: 26 },
+    { header: "GA4", key: "ga4", width: 16 },
+    { header: "Tag Manager", key: "gtm", width: 16 },
+    { header: "Other tags", key: "others", width: 30 },
+    { header: "Next action", key: "fix", width: 40 },
+    { header: "Developer brief", key: "brief", width: 70 },
+    { header: "Checked", key: "checked", width: 12 },
+    { header: "Task status", key: "task", width: 14 },
+    { header: "Owner", key: "owner", width: 14 },
+  ], rows);
+  addTaskDropdown(ws, "task", rows.length);
+  ws.eachRow((row, i) => {
+    if (i === 1) return;
+    const r = rows[i - 2];
+    if (!r) return;
+    const c = row.getCell("issue");
+    c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: ISSUE_COLOUR[r.code] } };
+    c.font = { bold: true };
+    row.getCell("site").value = { text: r.site, hyperlink: `https://${r.site}` };
+    row.getCell("site").font = { color: { argb: "FF1F4E79" }, underline: true };
+  });
+  }
+
   const buf = await wb.xlsx.writeBuffer();
-  const file = kind === "leads" ? `website-leads-${today}.xlsx` : kind === "client-images" ? `stock-images-${String(results[0]?.site || "site").replace(/[^a-z0-9.-]/gi, "")}-${today}.xlsx` : kind === "launch" ? `launch-checklist-${String(launch?.site || "site").replace(/[^a-z0-9.-]/gi, "")}-${today}.xlsx` : kind === "images" ? `stock-image-licence-tasks-${today}.xlsx` : `font-licence-tasks-${today}.xlsx`;
+  const file = kind === "leads" ? `website-leads-${today}.xlsx` : kind === "client-images" ? `stock-images-${String(results[0]?.site || "site").replace(/[^a-z0-9.-]/gi, "")}-${today}.xlsx` : kind === "launch" ? `launch-checklist-${String(launch?.site || "site").replace(/[^a-z0-9.-]/gi, "")}-${today}.xlsx` : kind === "images" ? `stock-image-licence-tasks-${today}.xlsx` : kind === "consent" ? `cookie-consent-tasks-${today}.xlsx` : `font-licence-tasks-${today}.xlsx`;
   return new Response(buf, {
     headers: {
       "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
