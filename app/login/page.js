@@ -23,7 +23,7 @@ export default function LoginPage() {
     const r = await fetch("/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
     setBusy(false);
-    if (r.ok) { router.push("/?tab=leads"); router.refresh(); return; }
+    if (r.ok) { const next = new URLSearchParams(window.location.search).get("next") || ""; router.push(next.startsWith("/") && !next.startsWith("//") ? next : "/?tab=leads"); router.refresh(); return; }
     if (j.needsSetup) { setSetup(true); setPw(""); setErr(""); return; }
     setErr(j.error || "Couldn't sign in.");
   }
