@@ -118,7 +118,7 @@ function BlockList({ label, items, onChange, hidden, onToggle }) {
   );
 }
 
-export function ProposalModal({ group, onClose }) {
+export function ProposalModal({ group, onClose, onLink }) {
   const id = group.clientId || group.name;
   const website = (group.recs.find((x) => x.website) || {}).website || "";
   // Ideas worth pitching: not declined or done, not our own internal jobs.
@@ -140,6 +140,9 @@ export function ProposalModal({ group, onClose }) {
   }
   const [copied, setCopied] = useState(false);
   const [textCopied, setTextCopied] = useState(false);
+  // Where the finished deck lives once it's uploaded (e.g. SharePoint), kept on the client for the whole team.
+  const [deckUrl, setDeckUrl] = useState(group.client?.proposalUrl || "");
+  const saveLink = (v) => { const u = String(v || "").trim(); if (u && !/^https?:\/\//i.test(u)) return; setDeckUrl(u); onLink?.(u); };
   const [reply, setReply] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -186,7 +189,7 @@ export function ProposalModal({ group, onClose }) {
     saveT.current = setTimeout(flush, 300);
     return next;
   });
-  const allLines = (doc ? [...pool.filter((i) => doc.picked[i.key]).map((i) => doc.picked[i.key]), ...Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key) && !l.custom), ...doc.own] : []).filter((l) => l.custom || (!supportKeys.has(l.key) && l.service !== "Support")).map((l) => (l.min === l.max ? l : { ...l, min: l.max })) // one set figure (older drafts had a range); support jobs never
+  const allLines = (doc ? [...pool.filter((i) => doc.picked[i.key]).map((i) => doc.picked[i.key]), ...Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key) && !l.custom), ...doc.own] : []).filter((l) => l.custom || (!supportKeys.has(l.key) && l.service !== "Support")).map((l) => (l.min === l.max ? l : { ...l, min: l.max })).map((l) => (l.team?.includes("dev") && !l.team.includes("design") ? { ...l, ...withTeam(l, l.team) } : l)) // one set figure (older drafts had a range); support jobs never
 ;
   // Take an idea out of this proposal (yours are deleted; Client Ideas ones are just unticked).
   const removeLine = (key) => change((d) => { const picked = { ...d.picked }; delete picked[key]; return { ...d, picked, own: d.own.filter((x) => x.key !== key) }; });
@@ -244,7 +247,7 @@ export function ProposalModal({ group, onClose }) {
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
       <div className="w-full max-w-4xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3"><h3 className="text-lg font-semibold">Proposal deck: {group.name}</h3>{website && <a href={`https://${website}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-700 hover:underline">{website} <ExternalIcon /></a>}<span className="ml-auto text-xs text-zinc-400">{saved}</span><button onClick={onClose} aria-label="Close" className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button></div>
+        <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3"><h3 className="text-lg font-semibold">Proposal deck: {group.name}</h3>{website && <a href={`https://${website}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-700 hover:underline">{website} <ExternalIcon /></a>}{deckUrl && <a href={deckUrl} target="_blank" rel="noopener" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100" title="The finished deck on SharePoint">Saved deck <ExternalIcon /></a>}<span className="ml-auto text-xs text-zinc-400">{saved}</span><button onClick={onClose} aria-label="Close" className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button></div>
         {!doc ? <div className="flex items-center gap-2 p-6 text-sm text-zinc-500"><SpinnerIcon className="h-4 w-4 animate-spin" /> Loading…</div> : (
           <div className="space-y-4 px-5 py-4">
             <ol className="flex flex-wrap gap-1.5">{STEPS.map((s, n) => (
@@ -347,7 +350,7 @@ export function ProposalModal({ group, onClose }) {
                       <ImageDrop value={images[l.key]} status={shotState[l.key]} onShot={c?.shot ? () => { setIdeaCopy(l.key, { noImage: false }); getShot(l.key, c.shot); } : null} onChange={(v) => { setImages((o) => ({ ...o, [l.key]: v })); if (!v && c) setIdeaCopy(l.key, { noImage: true }); }} label={c?.shot ? "No picture on this slide" : "Screenshot (optional)"} />
                     </div>); })}
                 </div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Support retainer slide title<input value={doc.copy.retainerTitle || ""} onChange={(e) => setCopy({ retainerTitle: e.target.value })} placeholder="Next: a support retainer" className={`${input} mt-0.5 font-normal normal-case tracking-normal`} /></label>
+                <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Roadmap slide title<input value={doc.copy.roadmapTitle || ""} onChange={(e) => setCopy({ roadmapTitle: e.target.value })} placeholder="Too much in one go? Roadmap it over N months with a support retainer (N is worked out for you)" className={`${input} mt-0.5 font-normal normal-case tracking-normal`} /></label>
                 <BlockList label="Support retainer" items={doc.copy.retainer} onChange={(retainer) => setCopy({ retainer })} {...toggle("retainer")} />
                 <div><div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Standard slides</div>
                   <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["effort", "Investment summary table"], ["roadmap", "Month-by-month roadmap"], ["costs", "Monthly / one-off costs table"], ["services", "Our service retainer offering"], ["support", "Support packages (Bronze, Silver, Gold)"], ["packages", "SEO / PPC package slides"], ...tplExtras.map((e, i) => [`extra:${i}`, `Your slide: ${e.title.slice(0, 50)}`])].map(([k, name]) => (
@@ -355,6 +358,10 @@ export function ProposalModal({ group, onClose }) {
                   </ul>
                 </div>
                 {err && <p className="text-sm text-red-700">{err}</p>}
+                <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Link to the saved deck (SharePoint)
+                  <span className="mt-0.5 flex gap-2"><input defaultValue={deckUrl} key={deckUrl} onBlur={(e) => saveLink(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder="Paste the SharePoint link after you upload the deck" className={`${input} font-normal normal-case tracking-normal`} />
+                    {deckUrl && <a href={deckUrl} target="_blank" rel="noopener" className="inline-flex shrink-0 items-center gap-1 rounded-md border border-zinc-300 px-3 text-sm font-normal normal-case tracking-normal text-zinc-700 hover:bg-zinc-100">Open <ExternalIcon /></a>}</span>
+                  <span className="mt-1 block font-normal normal-case tracking-normal text-zinc-500">Shows as a Deck link on the client in Client Ideas, for everyone.</span></label>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 pt-3">
                   <button onClick={() => change((d) => ({ ...d, step: 2 }))} className="rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100">Back: ask Claude again</button>
                   <button onClick={async () => { await navigator.clipboard.writeText(ideasText({ lines, copy: doc.copy })).catch(() => {}); setTextCopied(true); setTimeout(() => setTextCopied(false), 2500); }} title="Every idea from the deck as text (title, intro, bullet points, hours; no prices), ready to paste into the written proposal. Headings and bullets are kept in Word and Google Docs." className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100">{textCopied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy changes as text</>}</button>

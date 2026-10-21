@@ -20,6 +20,8 @@ async function dataUrl(src) {
 const sizeOf = (src) => new Promise((ok) => { const i = new Image(); i.onload = () => ok({ w: i.naturalWidth, h: i.naturalHeight }); i.onerror = () => ok({ w: 16, h: 10 }); i.src = src; });
 const fit = (s, bw, bh) => { const k = Math.min(bw / s.w, bh / s.h); return { w: s.w * k, h: s.h * k }; };
 const teamName = (k) => TEAMS.find(([x]) => x === k)?.[1] || k;
+// Teams in one fixed order (Design, Development, SEO…), e.g. "Design, Development".
+const teamList = (team = []) => TEAMS.filter(([k]) => team.includes(k)).map(([, name]) => name).join(", ");
 const hrs = (a, b) => `${range(a, b)}\u00A0hr${a === b && a === 1 ? "" : "s"}`;
 const fileSafe = (s) => String(s).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "Client";
 
@@ -85,8 +87,16 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     s.addShape(pres.shapes.RECTANGLE, { x: 0.9, y: 3.2, w: 1.6, h: 0.14, fill: { color: TEAL }, line: { color: TEAL } });
     // As big as fits: sized so the longest word stays on one line (shrink-to-fit isn't applied until the deck is edited).
     const longest = Math.max(...client.split(/\s+/).map((w) => w.length), 1);
-    const nameSize = Math.max(40, Math.min(110, Math.floor((tw * 72) / (longest * 0.82))));
-    const nameLines = Math.min(3, Math.ceil((client.length * 0.82 * nameSize) / 72 / tw)), nameH = (nameLines * nameSize * 1.1) / 72, subY = 3.6 + nameH + 0.35;
+    // Sized from the heading font's real letter widths (Obviously Bold, in ems), so the longest word stays on one line.
+    const EM = { A: 0.83, B: 0.81, C: 0.81, D: 0.82, E: 0.72, F: 0.68, G: 0.82, H: 0.86, I: 0.38, J: 0.51, K: 0.81, L: 0.57, M: 1.02, N: 0.85, O: 0.85, P: 0.78, Q: 0.86, R: 0.82, S: 0.75, T: 0.63, U: 0.85, V: 0.77, W: 1.08, X: 0.79, Y: 0.74, Z: 0.76, "&": 0.83, "-": 0.44, ".": 0.25, "'": 0.25, " ": 0.26 };
+    const ems = (t) => [...String(t).toUpperCase()].reduce((n, c) => n + (EM[c] ?? (/[0-9]/.test(c) ? 0.75 : 0.85)), 0) * 1.06; // 6% spare
+    const words = client.split(/\s+/).filter(Boolean);
+    const nameSize = Math.max(36, Math.min(110, Math.floor((tw * 72) / Math.max(...words.map(ems), 1))));
+    // Lines after wrapping at that size, to place the subtitle below the name.
+    let nameLines = 1, lineW = 0;
+    for (const w of words) { const wW = (ems(w) * nameSize) / 72, sp = (0.26 * nameSize) / 72; if (lineW && lineW + sp + wW > tw) { nameLines++; lineW = wW; } else lineW += (lineW ? sp : 0) + wW; }
+    nameLines = Math.min(3, nameLines);
+    const nameH = (nameLines * nameSize * 1.1) / 72, subY = 3.6 + nameH + 0.35;
     s.addText(client.toUpperCase(), { x: 0.9, y: 3.6, w: tw, h: nameH, fontFace: FONT, fontSize: nameSize, bold: true, color: WHITE, valign: "top", fit: "shrink", isTextBox: true, margin: 0 });
     s.addText(copy.deckTitle || "WEBSITE PROPOSAL", { x: 0.9, y: subY, w: tw, h: 1.6, valign: "top", fontFace: FONT, fontSize: 50, bold: true, color: TEAL, isTextBox: true, margin: 0 });
     s.addText([website, new Date().toLocaleDateString("en-GB")].filter(Boolean).join("  ·  "), { x: 0.9, y: subY + 1.9, w: tw, h: 0.8, fontFace: FONT, fontSize: 26, color: "CFCFF0", isTextBox: true, margin: 0 });
@@ -161,7 +171,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     // One line: ESTIMATE 14 HRS   TEAM: CONTENT (4 HOURS), DESIGN (8 HOURS), DEVELOPMENT (2 HOURS). Package work is named, not timed.
     const sp = split(l), hoursOf = (h) => `${h} ${h === 1 ? "HOUR" : "HOURS"}`;
     const teamBits = [...TEAMS.filter(([k]) => sp[k]).map(([k, name]) => `${name} (${hoursOf(sp[k][1])})`), ...packagesOf(l, picked).map((g) => `${g.name} (package)`)];
-    const teamText = teamBits.length > 1 ? teamBits.join(", ") : l.team.map(teamName).join(" + ");
+    const teamText = teamBits.length > 1 ? teamBits.join(", ") : teamList(l.team);
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: W - 1.8, h: 1.25, rectRadius: 0.2, fill: { color: PALE }, line: { color: PALE } });
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: 0.18, h: 1.25, rectRadius: 0.05, fill: { color: TEAL }, line: { color: TEAL } });
     const runs = [{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, bold: true } }, { text: (pkg ? priceOf(pkg) : `${hrs(l.min, l.max)} · ${l.free ? "FREE OF CHARGE" : priceFor(l, dayRate)}`).toUpperCase(), options: { color: NAVY, bold: true } }, { text: "      TEAM:  ", options: { color: GREY, bold: true } }, { text: teamText.toUpperCase(), options: { color: NAVY, bold: true } }];
@@ -183,9 +193,9 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const money = (n) => `£${Math.round(n).toLocaleString("en-GB")}`, costOf = (l) => (l.free ? 0 : (l.max * dayRate) / DAY_HOURS);
     const pad = { margin: [0.08, 0.1, 0.08, 0.35] }; // breathing room on the left of the first column
     const rows = [[{ ...hd("Improvement", "left"), options: { ...hd("Improvement", "left").options, ...pad } }, hd("Team"), ...used.map(([, , short]) => hd(short)), hd("Estimate"), hd("Cost")]];
-    for (const l of hourLines) { const sp = split(l); rows.push([cell((byKey[l.key]?.title || l.title).toUpperCase(), { align: "left", bold: true, color: NAVY, ...pad }), cell(l.team.map(teamName).join(" + ")), ...used.map(([k]) => cell(sp[k] && !l.free ? range(...sp[k]) : "–")), cell(l.free ? `FREE (${hrs(l.min, l.max)})` : hrs(l.min, l.max), { bold: true, ...(l.free ? { color: TEAL } : {}) }), cell(l.free ? "FREE" : money(costOf(l)), { bold: true, ...(l.free ? { color: TEAL } : {}) })]); }
+    for (const l of hourLines) { const sp = split(l); rows.push([cell((byKey[l.key]?.title || l.title).toUpperCase(), { align: "left", bold: true, color: NAVY, ...pad }), cell(teamList(l.team)), ...used.map(([k]) => cell(sp[k] && !l.free ? range(...sp[k]) : "–")), cell(l.free ? `FREE (${hrs(l.min, l.max)})` : hrs(l.min, l.max), { bold: true, ...(l.free ? { color: TEAL } : {}) }), cell(l.free ? "FREE" : money(costOf(l)), { bold: true, ...(l.free ? { color: TEAL } : {}) })]); }
     const tierOf = (g) => g.tiers.find((x) => g.picked.includes(x.id)) || g.tiers[0];
-    for (const l of fixedLines) { const g = pkgOf(l), tr = tierOf(g); rows.push([cell((byKey[l.key]?.title || l.title).toUpperCase(), { align: "left", bold: true, color: NAVY, ...pad }), cell(l.team.map(teamName).join(" + ")), ...used.map(() => cell("–")), cell(String(tr.period || "").replace(/^for an? /i, "").replace(/^./, (c) => c.toUpperCase())), cell(tr.price, { bold: true })]); }
+    for (const l of fixedLines) { const g = pkgOf(l), tr = tierOf(g); rows.push([cell((byKey[l.key]?.title || l.title).toUpperCase(), { align: "left", bold: true, color: NAVY, ...pad }), cell(teamList(l.team)), ...used.map(() => cell("–")), cell(String(tr.period || "").replace(/^for an? /i, "").replace(/^./, (c) => c.toUpperCase())), cell(tr.price, { bold: true })]); }
     const fixedCost = fixedLines.reduce((n, l) => n + (Number(String(tierOf(pkgOf(l)).price).replace(/[^0-9.]/g, "")) || 0), 0), fromPrice = fixedLines.some((l) => /^from/i.test(tierOf(pkgOf(l)).price));
     rows.push([cell("TOTAL HANDS-ON WORK", { align: "left", bold: true, color: NAVY, fill: { color: PALE }, ...pad }), cell("", { fill: { color: PALE } }), ...used.map(([k]) => cell(t[k][1] ? range(t[k][0], t[k][1]) : "–", { bold: true, fill: { color: PALE } })), cell(`${range(t.min, t.max)} hrs`, { bold: true, color: NAVY, fill: { color: PALE } }), cell(`${fromPrice ? "From " : ""}${money(hourLines.reduce((n, l) => n + costOf(l), 0) + fixedCost)}`, { bold: true, color: NAVY, fill: { color: PALE } })]);
     const rh = Math.min(1, 7.6 / rows.length);
@@ -216,33 +226,30 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const items = [...lines].sort((a, b) => valueOf(b) - valueOf(a));
     const n = Math.min(6, items.length), months = Array.from({ length: n }, () => []);
     if (items.length <= 6) items.forEach((l, i) => months[i].push(l));
-    else { const target = items.reduce((t, l) => t + Math.max(0, valueOf(l)), 0) / n; let m = 0, sum = 0; for (const l of items) { if (m < n - 1 && sum >= target && months[m].length) { m++; sum = 0; } months[m].push(l); sum += Math.max(0, valueOf(l)); } }
+    else { const target = items.reduce((t, l) => t + Math.max(0, valueOf(l)), 0) / n; let m = 0, sum = 0; items.forEach((l, k) => { const left = items.length - k; if (m < n - 1 && months[m].length && (sum >= target || left <= n - 1 - m)) { m++; sum = 0; } months[m].push(l); sum += Math.max(0, valueOf(l)); }); } // every month gets something
     const monthly = picked.filter((g) => !g.fixed);
-    const monthlyCost = monthly.reduce((t, g) => t + Math.max(0, ...g.tiers.filter((x) => g.picked.includes(x.id)).map((x) => Number(String(x.price).replace(/[^0-9.]/g, "")) || 0)), 0);
-    const costOfLine = (l) => { if (l.free) return 0; const g = pkgOf(l); if (g?.fixed) return Number(String((g.tiers.find((x) => g.picked.includes(x.id)) || {}).price || "").replace(/[^0-9.]/g, "")) || 0; return g ? 0 : (l.max * dayRate) / DAY_HOURS; };
     const s = dark();
-    s.addText([{ text: "YOUR ", options: { color: WHITE } }, { text: "ROADMAP", options: { color: TEAL } }], { x: 0.9, y: 0.6, w: W - 1.8, h: 1.1, fontFace: FONT, fontSize: 54, bold: true, isTextBox: true, margin: 0 });
-    const left = 0.9, colW = (W - 0.9 - left) / n, fs = n <= 3 ? 26 : n <= 4 ? 22 : 18;
-    // The teal arrow running under the month titles.
-    s.addShape(pres.shapes.RECTANGLE, { x: 0, y: 3.3, w: W - 0.75, h: 1.0, fill: { color: TEAL }, line: { color: TEAL } });
-    s.addShape(pres.shapes.ISOSCELES_TRIANGLE, { x: W - 1.25, y: 3.55, w: 1.0, h: 0.5, rotate: 90, fill: { color: TEAL }, line: { color: TEAL } });
+    const title = copy.roadmapTitle || `Too much in one go? Roadmap it over ${n} month${n === 1 ? "" : "s"} with a support retainer`;
+    const q = title.indexOf("?") + 1;
+    s.addText([{ text: title.slice(0, q).toUpperCase() + " ", options: { color: WHITE } }, { text: title.slice(q).trim().toUpperCase(), options: { color: TEAL } }], { x: 0.9, y: 0.6, w: W - 1.8, h: 1.4, fontFace: FONT, fontSize: 36, bold: true, valign: "top", isTextBox: true, margin: 0 });
+    // The template's process timeline, over two rows when there are more than three months: big number, a teal
+    // arrow band with MONTH n, then what's done that month (monthly packages run through every month).
+    const rows = n > 3 ? 2 : 1, per = Math.ceil(n / rows), left = 0.9, colW = (W - 0.9 - left) / per, fs = 22, rowH = rows === 2 ? 4.4 : 6.5;
     months.forEach((list, i) => {
-      const x = left + i * colW, w = colW - 0.35;
-      s.addText(String(i + 1), { x, y: 1.95, w, h: 1.2, fontFace: FONT, fontSize: 72, bold: true, color: WHITE, isTextBox: true, margin: 0 });
-      s.addText(`MONTH ${i + 1}`, { x, y: 3.3, w, h: 1.0, fontFace: FONT, fontSize: n <= 4 ? 30 : 24, bold: true, color: NAVY, valign: "middle", isTextBox: true, margin: 0 });
-      const cost = list.reduce((t, l) => t + costOfLine(l), 0) + monthlyCost;
+      const r = Math.floor(i / per), c = i % per, top = 2.3 + r * rowH, x = left + c * colW, w = colW - 0.4;
+      if (c === 0) s.addShape(pres.shapes.PENTAGON, { x: 0, y: top + 1.05, w: left + Math.min(per, n - r * per) * colW + 0.2, h: 0.9, fill: { color: TEAL }, line: { color: TEAL } });
+      s.addText(String(i + 1), { x, y: top, w, h: 1.0, fontFace: FONT, fontSize: 64, bold: true, color: WHITE, isTextBox: true, margin: 0 });
+      s.addText(`MONTH ${i + 1}`, { x, y: top + 1.05, w, h: 0.9, fontFace: FONT, fontSize: 28, bold: true, color: NAVY, valign: "middle", isTextBox: true, margin: 0 });
       const runs = [
-        ...list.map((l) => ({ text: (byKey[l.key]?.title || l.title) + (l.free ? " (free)" : ""), options: { color: WHITE, bullet: { indent: 18 }, breakLine: true, paraSpaceAfter: 6 } })),
-        ...monthly.map((g) => ({ text: `${g.name} ${String((g.tiers.find((x) => g.picked.includes(x.id)) || {}).name || "").split(":")[0].replace(new RegExp(`^${g.name}\\s*`, "i"), "")} (ongoing)`.replace(/\s+\(/, " ("), options: { color: "CFCFF0", italic: true, bullet: { indent: 18 }, breakLine: true, paraSpaceAfter: 6 } })),
-        { text: `£${Math.round(cost).toLocaleString("en-GB")} this month`, options: { color: TEAL, bold: true } },
+        ...list.map((l) => ({ text: (byKey[l.key]?.title || l.title) + (l.free ? " (free)" : ""), options: { color: WHITE, bullet: { indent: 20 }, breakLine: true, paraSpaceAfter: 6 } })),
+        ...monthly.map((g) => ({ text: `${g.name} ${String((g.tiers.find((x) => g.picked.includes(x.id)) || {}).name || "").split(":")[0].replace(new RegExp(`^${g.name}\\s*`, "i"), "")} (ongoing)`.replace(/\s+\(/, " ("), options: { color: "CFCFF0", italic: true, bullet: { indent: 20 }, breakLine: true, paraSpaceAfter: 6 } })),
       ];
-      s.addText(runs, { x, y: 4.65, w, h: H - 4.65 - 1.6, fontFace: FONT, fontSize: fs, valign: "top", isTextBox: true, margin: 0 });
+      s.addText(runs, { x, y: top + 2.2, w, h: rowH - 2.5, fontFace: FONT, fontSize: fs, valign: "top", isTextBox: true, margin: 0 });
     });
-    s.addText("Prices exclude VAT. Hourly work at your day rate; packages at their set price.", { x: 0.9, y: H - 1.55, w: W - 1.8, h: 0.4, fontFace: FONT, fontSize: 12, italic: true, color: "CFCFF0", isTextBox: true, margin: 0 });
   }
   // 7. Retainer
   if (copy.retainer?.length && !hide.retainer) {
-    const s = light(copy.retainerTitle || "Next: a support retainer");
+    const s = light("Next: a support retainer");
     blockGrid(s, copy.retainer);
   }
   // 8. Support packages: the template's page 11 (tier headings in their colours, open table with rules)
@@ -264,7 +271,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       [lab("Min time included (with flex):"), val("1 Hour"), val("Half a day"), val("One day")],
       [lab("Out of Hours Support Available:"), val("Additional Cost £80 per hour"), val("Included as needed."), val("Included as needed.")],
       [lab("On-Going Rate:"), val("£80 per hour"), val("£80 per hour"), val("£80 per hour")],
-      [lab(""), val("n/a"), val("Yes 10%"), val("Yes 15%")],
+      [lab("Discount?"), val("n/a"), val("Yes 10% Discount"), val("Yes 15% Discount")],
       [lab("Monthly Cost"), ...["£100.00 ex vat", "£375.00 ex vat", "£750.00 ex vat"].map((t) => ({ text: t, options: { bold: true, color: INK } }))],
     ];
     // Rules under the headings and above the monthly cost, as in the template; no other borders.
@@ -295,7 +302,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   extrasAt("services");
   // 10. Packages: one slide per package group picked, otherwise the standard support packages
   // 10. Packages not tied to an idea slide
-  for (const g of picked) packageSlide(g);
+  for (const g of picked) if (!g.fixed) packageSlide(g); // never a videography slide: the idea slide covers it
   extrasAt("packages");
   // 11. Closing: the template's last slide (logo with strapline, web address, copyright, confidentiality)
   if (!fixedSlide("closing")) {
