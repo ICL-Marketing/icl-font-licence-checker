@@ -52,7 +52,7 @@ export async function POST(request) {
   });
 
   const doc = new Document({
-    creator: "ICL Website Checker",
+    creator: "ICL Sales",
     title: `${b.mode === "post" ? "Post-launch" : "Launch"} sign-off log – ${b.site || ""}`,
     styles: { default: { document: { run: { font: "Calibri", size: 20 } } } },
     sections: [{

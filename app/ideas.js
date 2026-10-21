@@ -36,7 +36,7 @@ async function post(body) {
 // A job for the support team: an email to support@ with the client, the site and what needs fixing.
 function supportHref(r, it) {
   const site = r?.website ? `https://${r.website}` : "";
-  const body = [`Client: ${r?.name || ""}`, site && `Website: ${site}`, r?.manager && `Account manager: ${r.manager}`, "", `What needs fixing: ${it.title}`, it.why && `Details: ${it.why}`, it.page && `Page: ${it.page}`, "", "Found by the Website Checker's client checks."].filter((x) => x !== false && x !== undefined && x !== null).join("\n");
+  const body = [`Client: ${r?.name || ""}`, site && `Website: ${site}`, r?.manager && `Account manager: ${r.manager}`, "", `What needs fixing: ${it.title}`, it.why && `Details: ${it.why}`, it.page && `Page: ${it.page}`, "", "Found by ICL Sales client checks."].filter((x) => x !== false && x !== undefined && x !== null).join("\n");
   return mailHref("support@icldigital.com", `${r?.name || "Client"}: ${it.title}`, body);
 }
 // Who the idea came from: Claude or the automatic checks ("AI"), or ICL's own list and your team ("ICL").

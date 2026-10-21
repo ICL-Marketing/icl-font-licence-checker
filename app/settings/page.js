@@ -82,7 +82,7 @@ export default function Settings() {
   const allGood = status && status.login && st.configured && st.ok;
   return (
     <main className="mx-auto w-full max-w-6xl p-4 sm:p-6">
-      <Link href="/" className="text-sm text-zinc-500 hover:text-zinc-900">← Back to Website Checker</Link>
+      <Link href="/" className="text-sm text-zinc-500 hover:text-zinc-900">← Back to ICL Sales</Link>
       <h1 className="mt-3 text-2xl font-semibold">Settings</h1>
       <nav className="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-zinc-200/70 p-1 sm:inline-grid sm:w-auto sm:grid-cols-4" aria-label="Settings sections">
         {SECTIONS.map(([id, label]) => (
@@ -193,7 +193,7 @@ export default function Settings() {
                   <StatusRow ok={false} label="API key not set" detail="Website Leads can't search yet" />
                   <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-700">
                     <li>Go to <a href="https://developer.company-information.service.gov.uk/" target="_blank" rel="noreferrer" className="text-blue-700 underline">developer.company-information.service.gov.uk</a> and sign in (or register, it is free).</li>
-                    <li><b>Your applications</b> → <b>Create an application</b> (name: ICL Website Checker, environment: Live) → <b>Create new key</b> → type <b>REST</b>. Copy the key.</li>
+                    <li><b>Your applications</b> → <b>Create an application</b> (name: ICL Sales, environment: Live) → <b>Create new key</b> → type <b>REST</b>. Copy the key.</li>
                     <li>In Vercel: project → Settings → Environment Variables → add <code>COMPANIES_HOUSE_API_KEY</code>.</li>
                     <li>Deployments → <b>Redeploy</b>, then reload this page.</li>
                   </ol>

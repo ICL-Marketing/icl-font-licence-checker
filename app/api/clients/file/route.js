@@ -39,7 +39,7 @@ export async function PUT(request) {
   const b = await request.json().catch(() => ({}));
   const clients = normaliseClients(b.clients || []);
   const wb = new ExcelJS.Workbook();
-  wb.creator = "ICL Website Checker";
+  wb.creator = "ICL Sales";
   const ws = wb.addWorksheet("Clients", { views: [{ state: "frozen", ySplit: 1 }] });
   ws.columns = CLIENT_FIELDS.map((k) => ({ header: HEADERS[k], key: k, width: k === "emails" ? 44 : k === "websites" ? 30 : k === "notes" ? 30 : 20 }));
   ws.getRow(1).font = { bold: true };
