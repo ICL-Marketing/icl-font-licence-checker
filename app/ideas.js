@@ -367,7 +367,13 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
         <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search clients or ideas" className="w-56 rounded-md border border-zinc-300 px-3 py-1.5 text-sm" />
         {managers.length > 0 && <select value={manager} onChange={(e) => setManager(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm"><option value="">All account managers</option>{managers.map((m) => <option key={m}>{m}</option>)}</select>}
         <select value={size} onChange={(e) => setSize(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm"><option value="">All ideas</option><option value="large">Big ideas</option><option value="medium">Medium ideas</option><option value="small">Small ideas</option></select>
-        {clients.some((c) => c.ideasHidden) && <button onClick={() => setShowHidden((v) => !v)} className={`rounded-md border px-2 py-1.5 text-sm ${showHidden ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-100"}`}>{showHidden ? "Back to all clients" : `Removed clients (${clients.filter((c) => c.ideasHidden).length})`}</button>}
+        {clients.some((c) => c.ideasHidden) && (() => { const n = clients.filter((c) => c.ideasHidden).length, label = showHidden ? "Hide removed clients" : `Show ${n} removed client${n === 1 ? "" : "s"}`; return (
+          <button onClick={() => setShowHidden((v) => !v)} aria-label={label} aria-pressed={showHidden} title={label} className={`inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-sm ${showHidden ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"}`}>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true">{showHidden
+              ? <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>
+              : <><path d="M10.7 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-2.2 3.2M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /><path d="M2 2l20 20" /></>}</svg>
+            <span className="text-xs">{n}</span>
+          </button>); })()}
         {manager && (() => {
           // One email to the account manager with every idea (as filtered) for each of their clients.
           const mine = groups.filter((g) => g.manager === manager && g.top.length);
