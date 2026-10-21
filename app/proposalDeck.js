@@ -222,7 +222,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   }
   extrasAt("costs");
   // 6b. Options: Bronze / Silver / Gold built from the ideas (only when switched on in the review step).
-  const plan = tiers ? tierPlan(lines, picked, dayRate) : null;
+  const plan = tiers ? tierPlan(lines, picked, dayRate, typeof tiers === "object" ? tiers : {}) : null;
   if (plan) {
     const s = light("Choose your package");
     const money = (n) => `£${Math.round(n).toLocaleString("en-GB")}`, name = (l) => byKey[l.key]?.title || l.title;
