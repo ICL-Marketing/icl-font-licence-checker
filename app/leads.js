@@ -8,7 +8,7 @@ import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon,
 import { LEAD_STATUSES, PROBLEMS, to100, businessLabel, subjectForText, draftBatchPrompt, parseDraftBatch, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, sortFindings, presetSubject, stripFlagLine, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck, footerOnly } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 import { mergeDoc } from "@/lib/merge";
-import { useClaudeHandler, useClaudeJob, openClaude, markSent, unmarkSent, sentIds, PasteHint, reportProgress, withTitle } from "@/app/claudeInbox";
+import { useClaudeHandler, useClaudeJob, openClaude, markSent, unmarkSent, sentIds, PasteHint, reportProgress, withTitle, ClaudeText } from "@/app/claudeInbox";
 
 // Website leads: local businesses whose site is letting them down, found
 // through Companies House and worked through a pipeline board.
@@ -1631,7 +1631,7 @@ function Field({ label, title, children }) {
 function TextField({ label, value, onChange, rows = 2, mono = false, ai = false }) {
   return (
     <label className="block"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{label}{ai && <span className="ml-1 normal-case tracking-normal text-orange-600">· from Claude</span>}</div>
-      <AutoTextarea value={value || ""} onChange={(e) => onChange(e.target.value)} minRows={rows} className={`mt-0.5 w-full rounded-md border px-2 py-1 text-sm ${ai ? "border-orange-300 bg-orange-50/60" : "border-zinc-300"} ${mono ? "font-mono text-xs" : ""}`} />
+      <AutoTextarea value={value || ""} onChange={(e) => onChange(e.target.value)} minRows={rows} className={`mt-0.5 w-full rounded-md border px-2 py-1 text-sm ${ai ? "border-orange-300 bg-orange-50/60 text-orange-800" : "border-zinc-300"} ${mono ? "font-mono text-xs" : ""}`} />
     </label>
   );
 }
@@ -1969,7 +1969,7 @@ function LeadDrawer({ onNoSite, onFindSite, onNext, onClaude, l, followUp = FOLL
             <div className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900"><span className="font-semibold">Not worth pursuing.</span> {parkExplain(l)} <span className="text-red-700">Change the status above if you still want to go for it.</span>
               {l.claude && (() => { const c = l.claude; return (
                 <details className="mt-1 text-xs text-red-800"><summary className="cursor-pointer">What Claude found</summary>
-                  <div className="mt-1 space-y-0.5">
+                  <div className="mt-1 space-y-0.5 text-orange-700">
                     {c.what_they_do && <div><span className="opacity-70">Does </span>{oneLine(c.what_they_do)}{c.location ? ` · ${oneLine(c.location)}` : ""}</div>}
                     <div><span className="opacity-70">Issue </span>{c.issue_confirmed ? "confirmed" : "not confirmed"}{c.issue_note ? `: ${oneLine(c.issue_note)}` : ""}</div>
                     {c.contact?.name && <div><span className="opacity-70">Contact </span>{c.contact.name}{c.contact.role ? `, ${oneLine(c.contact.role)}` : ""}{c.contact.email ? ` · ${c.contact.email}` : " · no published email"}</div>}
@@ -2402,7 +2402,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
 <button onClick={() => { const np = r.pathSet ? r.path : suggestPath(c.issue?.id || c.label, l); setR({ lead: c.key, subjectTyped: false, path: np, ...(c.key.startsWith("you:") && !(r.seen || []).includes(c.key.slice(4)) ? { seen: [...(r.seen || []), c.key.slice(4)] } : {}), ...(l.email && !l.emailEdited && !cands.find((x) => x.key === c.key)?.issue ? { drafted: "" } : {}) }, { subject: subjectOf(c), ...(redraftFor(c.key, np) || {}) }); }} title="Star it: this is what the email leads with, and it sets the subject"
                     className="flex min-w-0 flex-1 items-center gap-2 text-left">
                     <span className={`shrink-0 text-base leading-none ${mainKey === c.key ? "text-amber-500" : "text-zinc-300"}`} aria-hidden>★</span>
-                    <span className="min-w-0 flex-1">{sentence(c.label)}{mainKey === c.key && <span className="ml-2 rounded-full bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">Leads with this</span>}</span>
+                    <span className="min-w-0 flex-1">{c.from === "Claude" ? <ClaudeText confirmed>{sentence(c.label)}</ClaudeText> : sentence(c.label)}{mainKey === c.key && <span className="ml-2 rounded-full bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">Leads with this</span>}</span>
                   </button>
                   {(() => { const q = searchIn(c.label); return q && <a href={googleUk(q)} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} title={`Check “${q}” on Google yourself (UK, not personalised)`} className="shrink-0 text-blue-700 hover:text-blue-900"><ExternalIcon /></a>; })()}
                   {c.grade && <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${c.grade === "High" ? "bg-emerald-100 text-emerald-800" : c.grade === "Medium" ? "bg-amber-100 text-amber-800" : "bg-zinc-200 text-zinc-700"}`} title={c.grade === "High" ? "A quick fix: the kind of thing you'd want someone to tell you about" : c.grade === "Medium" ? "Worth checking, it could cost them" : "A bigger recommendation, a piece of work rather than a fix"}>{c.grade}</span>}

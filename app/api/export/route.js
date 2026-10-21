@@ -291,9 +291,9 @@ export async function POST(request) {
   const rows = results.filter((r) => ISSUE[r.status]).sort((a, b) => Object.keys(ISSUE).indexOf(a.status) - Object.keys(ISSUE).indexOf(b.status) || a.site.localeCompare(b.site))
     .map((r) => ({ site: r.site, code: r.status, issue: ISSUE[r.status], client: r.client || "", manager: r.manager || "", found: r.summary || "", banner: r.bannerName || "",
       ga4: (r.ga4 || []).join(", "), gtm: (r.gtm || []).join(", "), others: (r.others || []).join(", "),
-      fix: r.status === "GAP" ? "Make tracking wait for consent: see the developer brief" : r.status === "NO_BANNER" ? "Add a cookie banner (free: CookieYes, Complianz) and make tracking wait for it" : "Check the site by hand",
+      fix: r.status === "GAP" ? "Make tracking wait for consent (see the brief)" : r.status === "NO_BANNER" ? "Add a cookie banner (free: CookieYes, Complianz) and make tracking wait for it" : "Check the site by hand",
       claude: r.claude ? `${{ fires_before_consent: "Confirmed: fires before consent", waits_for_consent: "Waits for consent", no_banner: "No banner", unsure: "Unsure" }[r.claude.verdict] || r.claude.verdict}${r.claude.confidence ? ` (${r.claude.confidence})` : ""}${r.claude.evidence ? `: ${r.claude.evidence}` : ""}` : "Not checked by Claude yet",
-      brief: r.ticket || "", checked: r.checkedAt ? r.checkedAt.slice(0, 10) : "", task: r.fixed ? "Done" : "To do", owner: r.manager || "" }));
+      checked: r.checkedAt ? r.checkedAt.slice(0, 10) : "", task: r.fixed ? "Done" : "To do", owner: r.manager || "" }));
   const ws = sheet(wb, "Cookie consent to fix", [
     { header: "Site", key: "site", width: 30 },
     { header: "Issue", key: "issue", width: 22 },
@@ -305,10 +305,9 @@ export async function POST(request) {
     { header: "Tag Manager", key: "gtm", width: 16 },
     { header: "Other tags", key: "others", width: 30 },
     { header: "Next action", key: "fix", width: 40 },
-    { header: "Developer brief", key: "brief", width: 70 },
     { header: "Checked", key: "checked", width: 12 },
     { header: "Task status", key: "task", width: 14 },
-    { header: "Owner", key: "owner", width: 14 },
+    { header: "AM", key: "owner", width: 14 },
   ], rows);
   addTaskDropdown(ws, "task", rows.length);
   ws.eachRow((row, i) => {

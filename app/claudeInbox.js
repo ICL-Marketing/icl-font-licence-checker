@@ -3,7 +3,7 @@
 // which job it belongs to (lead check, website search, new leads, an email draft, client research)
 // and hands it to the part of the app that registered for it.
 import { Component, useEffect, useRef, useState } from "react";
-import { CloseIcon } from "@/app/icons";
+import { CloseIcon, CheckIcon } from "@/app/icons";
 
 const handlers = new Map(); // kind -> (text) => summary string (or a promise of one)
 export function useClaudeHandler(kind, fn) {
@@ -27,6 +27,10 @@ export function useClaudeJob(id, job) {
     window.dispatchEvent(new Event("claude-jobs"));
     return () => { if (promptJobs.get(id) === j) promptJobs.delete(id); };
   }, [id]);
+}
+// Anything Claude wrote is orange across the app; a check mark at the start means Claude confirmed it.
+export function ClaudeText({ children, confirmed = false, className = "" }) {
+  return <span className={`text-orange-700 ${className}`}>{confirmed && <><CheckIcon className="mr-1 inline h-3.5 w-3.5 align-[-2px] text-orange-600" /><span className="sr-only">Confirmed by Claude: </span></>}{children}</span>;
 }
 // Open the Claude window: { tab: "prompt" | "paste", job, preset: [ids], column }.
 export const openClaude = (detail = {}) => window.dispatchEvent(new CustomEvent("open-claude-inbox", { detail }));

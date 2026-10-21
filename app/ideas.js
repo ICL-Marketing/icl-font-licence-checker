@@ -4,7 +4,7 @@ import { mailHref } from "@/app/mail";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon, TrashIcon } from "@/app/icons";
-import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, withTitle } from "@/app/claudeInbox";
+import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, withTitle, ClaudeText } from "@/app/claudeInbox";
 import { ProposalModal } from "@/app/proposal";
 import { iclFooter, setEmailTemplates } from "@/lib/leadsShared";
 import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, ideaType, supportEmail, PLANS, checkIdeasPrompt } from "@/lib/clientIdeas";
@@ -139,6 +139,24 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     recsRef.current = next; save(next); setRecs(next);
     if (sharedRef.current) fetch("/api/results", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "ideas", site: id, data: r }) }).catch(() => {});
   };
+  // A Cookie Consent scan of a client site feeds its ideas: a consent fix, a banner, or analytics to set up.
+  useEffect(() => {
+    const on = (e) => {
+      const { site, status, summary, ticket } = e.detail || {};
+      const SIG = { GAP: { analytics: true, consent: true, consentGap: { summary, ticket } }, NO_BANNER: { analytics: true, consent: false, consentGap: null }, NO_TRACKING: { analytics: false, consentGap: null }, OK: { analytics: true, consent: true, consentGap: null } }[status];
+      if (!SIG) return;
+      const bare = (w) => String(w || "").toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "");
+      for (const r of Object.values(recsRef.current)) {
+        // Only sites already checked here: the other idea rules need the rest of the homepage signals.
+        if (bare(r.website) !== site || !r.signals) continue;
+        const signals = { ...r.signals, ...SIG };
+        if (JSON.stringify(signals) === JSON.stringify(r.signals)) continue;
+        update(r.id, { signals, ideas: ideasFor({ ...r, signals }, r.ideas || []) });
+      }
+    };
+    window.addEventListener("consent-result", on);
+    return () => window.removeEventListener("consent-result", on);
+  });
   const updateIdea = (id, key, fields) => {
     const r = recsRef.current[id]; if (!r) return;
     update(id, { ideas: (r.ideas || []).map((i) => (i.key === key ? { ...i, ...fields, ...(fields.status && fields.status !== i.status ? { statusAt: new Date().toISOString() } : {}) } : i)) });
@@ -509,7 +527,7 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onRec, onBad }) {
             <h3 className="text-lg font-semibold">{r.name}</h3>
             {(() => { const first = (t) => { const x = String(t || "").replace(/\s*\([^)]*\)/g, "").replace(/\s+/g, " ").trim(); const m = x.match(/^(.+?[.!?])(\s|$)/); const y = m ? m[1] : x; return y.length > 180 ? `${y.slice(0, 177).replace(/\s+\S*$/, "")}…` : y; };
               const line = first(r.ai?.business_summary) || [r.ai?.what_they_do, r.ai?.location].filter(Boolean).join(", ") || first(r.siteDescription) || first(r.title);
-              return line ? <p className="mt-0.5 text-sm text-zinc-600">{line}</p> : null; })()}
+              return line ? <p className="mt-0.5 text-sm text-zinc-600">{r.ai?.business_summary || r.ai?.what_they_do ? <ClaudeText>{line}</ClaudeText> : line}</p> : null; })()}
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
               <span className={`rounded-full px-2 py-0.5 font-semibold ${ideaType(idea) === "fix" || idea.internal ? "bg-red-600 text-white" : ideaSource(idea) === "AI" ? "bg-violet-100 text-violet-800" : "bg-zinc-100 text-zinc-700"}`}>{ideaSource(idea)} Idea</span>
               {(() => { const sv = idea.service || serviceFor(idea.title); return <span className={`rounded-full px-2 py-0.5 font-semibold text-white ${IDEA_SERVICES[sv] || "bg-zinc-500"}`}>{sv}</span>; })()}
@@ -532,7 +550,7 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onRec, onBad }) {
         <div className="min-h-0 flex-1 overflow-y-auto"><div className="space-y-4 px-5 py-4">
           <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
             <div className="font-semibold">{idea.title}</div>
-            <p className="mt-0.5 text-sm text-zinc-600">{idea.why}</p>
+            <p className="mt-0.5 text-sm text-zinc-600">{idea.ai ? <ClaudeText>{idea.why}</ClaudeText> : idea.why}</p>
             {idea.resolved && <p className="mt-1 text-xs text-emerald-700">No longer found on the site at the last check.</p>}
             {idea.brief && <BriefButton text={idea.brief} />}
             {idea.evidenceUrl && <a href={idea.evidenceUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-blue-700 underline">{/google\.[a-z.]+\/search/.test(idea.evidenceUrl) ? "Check this search on Google" : "See what we found"} <ExternalIcon /></a>}
