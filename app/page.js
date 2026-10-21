@@ -58,6 +58,14 @@ function effectiveFontStatus(r) {
 
 const LAUNCH_HOME = "https://content.icltest.net/admin";
 
+// Who's signed in, and a way out.
+function SignedIn() {
+  const [email, setEmail] = useState("");
+  useEffect(() => { fetch("/api/login").then((r) => r.json()).then((j) => setEmail(j.email || "")).catch(() => {}); }, []);
+  if (!email) return null;
+  return <span className="whitespace-nowrap text-xs text-zinc-500">{email.split("@")[0]} · <button onClick={async () => { await fetch("/api/login", { method: "DELETE" }); window.location.href = "/login"; }} className="hover:text-zinc-900 hover:underline">Sign out</button></span>;
+}
+
 export default function Home() {
   const [text, setText] = useState(DEFAULT_SITES.join("\n"));
   const [parallel, setParallel] = useState(4);
@@ -391,6 +399,7 @@ export default function Home() {
             </>;
           })()}
         </nav>
+        <SignedIn />
         <Link href="/settings" aria-label="Settings" title={anyRunning ? "A scan is running: Settings opens in a new tab so it carries on" : "Settings"}
           target={anyRunning ? "_blank" : undefined}
           onClick={(e) => { if (anyRunning && !window.confirm("A scan is still running. Settings will open in a new tab so the scan carries on here.\n\nOK opens the new tab. Cancel stays put.")) e.preventDefault(); }}
