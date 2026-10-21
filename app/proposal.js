@@ -8,7 +8,7 @@ import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parsePropos
 import Link from "next/link";
 import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY, ANCHORS } from "@/lib/deckTemplate";
 import { PACKAGE_GROUPS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER } from "@/lib/packages";
-import { ideaType } from "@/lib/clientIdeas";
+import { ideaType, serviceFor } from "@/lib/clientIdeas";
 
 function Grow({ value, className = "", ...rest }) {
   const ref = useRef(null);
@@ -122,7 +122,10 @@ export function ProposalModal({ group, onClose }) {
   const id = group.clientId || group.name;
   const website = (group.recs.find((x) => x.website) || {}).website || "";
   // Ideas worth pitching: not declined or done, not our own internal jobs.
-  const pool = group.queue.filter((i) => !["declined", "done"].includes(i.status) && !i.internal);
+  // Support jobs (fixes, cookie banners, footer years, alt text…) go to support, never into a proposal.
+  const isSupport = (i) => ideaType(i) === "fix" || (i.service || serviceFor(i.title)) === "Support";
+  const supportKeys = new Set(group.queue.filter(isSupport).map((i) => i.key));
+  const pool = group.queue.filter((i) => !["declined", "done"].includes(i.status) && !i.internal && !isSupport(i));
   const [doc, setDoc] = useState(null); // { step, picked: {key: line}, own: [line], notes, copy }
   const [images, setImages] = useState({});
   // Screenshots of the client's pages (the ones Claude picked), taken for you in the review step. Kept in this browser only.
@@ -183,7 +186,7 @@ export function ProposalModal({ group, onClose }) {
     saveT.current = setTimeout(flush, 300);
     return next;
   });
-  const allLines = (doc ? [...pool.filter((i) => doc.picked[i.key]).map((i) => doc.picked[i.key]), ...Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key) && !l.custom), ...doc.own] : []).map((l) => (l.min === l.max ? l : { ...l, min: l.max })) // one set figure (older drafts had a range)
+  const allLines = (doc ? [...pool.filter((i) => doc.picked[i.key]).map((i) => doc.picked[i.key]), ...Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key) && !l.custom), ...doc.own] : []).filter((l) => l.custom || (!supportKeys.has(l.key) && l.service !== "Support")).map((l) => (l.min === l.max ? l : { ...l, min: l.max })) // one set figure (older drafts had a range); support jobs never
 ;
   // Take an idea out of this proposal (yours are deleted; Client Ideas ones are just unticked).
   const removeLine = (key) => change((d) => { const picked = { ...d.picked }; delete picked[key]; return { ...d, picked, own: d.own.filter((x) => x.key !== key) }; });
