@@ -7,7 +7,7 @@ import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, 
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, withTitle, ClaudeText } from "@/app/claudeInbox";
 import { ProposalModal } from "@/app/proposal";
 import { setEmailTemplates, staleFooterYear } from "@/lib/leadsShared";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, ideaType, supportEmail, PLANS, checkIdeasPrompt, slug, parseIdeaCheck } from "@/lib/clientIdeas";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, ideaType, supportEmail, PLANS, checkIdeasPrompt, slug, parseIdeaCheck, altTextPrompt } from "@/lib/clientIdeas";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
 // Each client site is checked for free (site health, licences, homepage gaps) plus one search
@@ -39,11 +39,17 @@ function supportHref(r, it) {
   const body = [`Client: ${r?.name || ""}`, site && `Website: ${site}`, r?.manager && `Account manager: ${r.manager}`, "", `What needs fixing: ${it.title}`, it.why && `Details: ${it.why}`, it.page && `Page: ${it.page}`].filter((x) => x !== false && x !== undefined && x !== null).join("\n");
   return mailHref("support@icldigital.com", `${r?.name || "Client"}: ${it.title}`, body);
 }
-// Every support job for one client in one email.
+// Who does each kind of support job, for the sections of the combined email.
+const DEPT_OF = { cookies: "Development", index: "Development", ssl: "Development", links: "Development", speed: "Development", meta: "Content", footer: "Content", alt: "Content", fonts: "Design", images: "Design", a11y: "Design" };
+const DEPTS = ["Development", "Design", "Content"];
+// Every support job for one client in one email, in a section per department.
 function supportBundleHref(r, items) {
   const site = r?.website ? `https://${r.website}` : "";
-  const list = items.map((it, n) => [`${n + 1}. ${it.title}`, it.claudeCheck?.fix && `   Fix: ${it.claudeCheck.fix}`, it.why && `   Details: ${it.why}`, (it.page || it.claudeCheck?.page) && `   Page: ${it.page || it.claudeCheck.page}`].filter(Boolean).join("\n"));
-  const body = [`Client: ${r?.name || ""}`, site && `Website: ${site}`, r?.manager && `Account manager: ${r.manager}`, "", "What needs fixing:", ...list].filter((x) => x !== false && x !== undefined && x !== null).join("\n");
+  const line = (it, n) => [`${n}. ${it.title}`, it.claudeCheck?.fix && `   Fix: ${it.claudeCheck.fix}`, it.why && `   Details: ${it.why}`, (it.page || it.claudeCheck?.page) && `   Page: ${it.page || it.claudeCheck.page}`, supportTopic(it) === "alt" && "   Write them with Claude: prompt at the end of this email"].filter(Boolean).join("\n");
+  let n = 0;
+  const sections = DEPTS.map((d) => { const mine = items.filter((it) => (DEPT_OF[supportTopic(it)] || "Development") === d); return mine.length ? [`${d.toUpperCase()}`, ...mine.map((it) => line(it, ++n)), ""].join("\n") : ""; }).filter(Boolean);
+  const alt = items.some((it) => supportTopic(it) === "alt") ? ["", "ALT TEXT PROMPT (paste into Claude)", altTextPrompt(r?.website, r?.name)] : [];
+  const body = [`Client: ${r?.name || ""}`, site && `Website: ${site}`, r?.manager && `Account manager: ${r.manager}`, "", ...sections, ...alt].filter((x) => x !== false && x !== undefined && x !== null).join("\n");
   return mailHref("support@icldigital.com", `${r?.name || "Client"}: ${items.length} support fixes`, body);
 }
 // The issue a support job is about, so the same one worded differently counts once.
@@ -475,6 +481,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
                         <div className="mt-1 font-medium leading-snug">{it.title}</div>
                         <ul className="mt-1 space-y-0.5 text-xs text-zinc-700">{it.items.map((i) => (
                           <li key={i.key} className="flex items-start gap-1"><button onClick={() => setOpen({ id: i.recId, key: i.key })} className="min-w-0 flex-1 text-left hover:underline">• {i.title}</button>
+                            {supportTopic(i) === "alt" && <CopyPrompt text={altTextPrompt(r?.website, r?.name)} />}
                             <button onClick={() => { if (window.confirm(`Delete “${i.title}”?`)) for (const d of i.dups || [i]) updateIdea(d.recId, d.key, { status: "declined", badReason: "", statusAt: new Date().toISOString() }); }} aria-label={`Delete ${i.title}`} title="Delete this one" className="shrink-0 rounded text-zinc-300 hover:text-red-700"><TrashIcon className="h-3 w-3" /></button></li>))}</ul>
                         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
                           <a href={supportBundleHref(r, it.items)} target="_blank" rel="noopener" title="One email to support@icldigital.com with everything on this list" className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100">Send to Support</a>
@@ -502,6 +509,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
                             : it.status === "queued"
                             ? <><a href={to ? href : undefined} aria-disabled={!to} onClick={(e) => { if (!to) e.preventDefault(); }} target="_blank" rel="noopener" title={to ? `Opens Outlook with the email to ${to}` : "No email for this client in Settings"} className={`inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100 ${to ? "" : "cursor-not-allowed opacity-40"}`}><MailIcon className="h-3 w-3" /> Outlook</a><button onClick={() => markSent(it.recId, it.key)} className="rounded-md bg-emerald-700 px-2 py-0.5 font-medium text-white hover:bg-emerald-800">Mark sent</button>{g.ours && ideaType(it) === "fix" && <a href={supportHref(r, it)} target="_blank" rel="noopener" title="Opens an email to support@icldigital.com with what needs fixing" className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100">Send to Support</a>}</>
                             : <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700">{IDEA_STATUSES.find(([id]) => id === it.status)?.[1]}{it.sentAt ? ` ${new Date(it.sentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : ""}</span>}
+                          {supportTopic(it) === "alt" && <CopyPrompt text={altTextPrompt(r?.website, r?.name)} label="Alt text prompt" />}
                           {/* Delete: off the client's list for good, without teaching the research anything (use Bad idea in the card for that). */}
                           <button onClick={() => { if (window.confirm(`Delete “${it.title}” for ${it.client || "this client"}?`)) updateIdea(it.recId, it.key, { status: "declined", badReason: "", statusAt: new Date().toISOString() }); }} aria-label={`Delete ${it.title}`} title="Delete this idea" className="ml-auto rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-3.5 w-3.5" /></button>
                         </div>
@@ -596,6 +604,11 @@ function IdeaBoard({ cards, filtering, onOpen, onMove }) {
 function BriefButton({ text }) {
   const [done, setDone] = useState(false);
   return <button onClick={() => { navigator.clipboard?.writeText(text).catch(() => {}); setDone(true); setTimeout(() => setDone(false), 2500); }} title={text} className="mt-1 mr-3 inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100">{done ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy developer brief</>}</button>;
+}
+// Copies a ready-made Claude prompt (e.g. writing alt text for every image on the site).
+function CopyPrompt({ text, label = "Claude prompt" }) {
+  const [done, setDone] = useState(false);
+  return <button onClick={(e) => { e.stopPropagation(); navigator.clipboard?.writeText(text).catch(() => {}); setDone(true); setTimeout(() => setDone(false), 2500); }} title={text} className="shrink-0 whitespace-nowrap rounded bg-orange-600 px-1.5 text-[10px] font-medium text-white hover:bg-orange-700">{done ? "Copied" : label}</button>;
 }
 // A pushpin: outline when not pinned, filled when the client is pinned to the top.
 function PinIcon({ filled = false }) {

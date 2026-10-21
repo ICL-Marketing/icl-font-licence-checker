@@ -380,8 +380,15 @@ export default function Home() {
                 {busy(id) && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500 align-middle" />}
               </button>
             );
-            // Every tool sits in the top menu: no dropdown.
-            return <>{tabs.map(tab)}</>;
+            // Sales tools in the top menu; the website checks sit under a Checks dropdown.
+            const main = tabs.slice(0, 2), more = tabs.slice(2), inMore = more.find((t) => t[0] === area);
+            return <>
+              {main.map(tab)}
+              <details className="relative">
+                <summary className={`cursor-pointer list-none whitespace-nowrap py-1 text-sm ${inMore ? "font-semibold text-zinc-900" : "text-zinc-500 hover:text-zinc-900"}`}>{inMore ? inMore[1] : "Checks"} ▾{more.some((t) => busy(t[0])) && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500 align-middle" />}</summary>
+                <div className="absolute right-0 z-30 mt-1 flex w-52 flex-col gap-1 rounded-lg border border-zinc-200 bg-white p-3 shadow-lg">{more.map(tab)}</div>
+              </details>
+            </>;
           })()}
         </nav>
         <Link href="/settings" aria-label="Settings" title={anyRunning ? "A scan is running: Settings opens in a new tab so it carries on" : "Settings"}
