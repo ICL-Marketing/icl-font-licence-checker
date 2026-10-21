@@ -161,7 +161,7 @@ export function ProposalModal({ group, onClose, onLink }) {
   useEffect(() => { const f = () => flushRef.current(); window.addEventListener("pagehide", f); return () => { window.removeEventListener("pagehide", f); f(); }; }, []);
   const [points, setPoints] = useState(RETAINER_DEFAULTS);
   const [tplExtras, setTplExtras] = useState([]); // extra slides from the uploaded template, so they can be left out of this deck
-  useEffect(() => { templateMeta().then((m) => setTplExtras(m?.extras || [])).catch(() => {}); }, []);
+  useEffect(() => { templateMeta().then((m) => setTplExtras((m?.extras || []).map((e, i) => ({ ...e, i })).filter((e) => !/^\s*our clients\b/i.test(e.title || "")))).catch(() => {}); }, []);
   useEffect(() => { fetch("/api/settings?key=retainer-points").then((r) => r.json()).then((j) => { if (j.shared && j.value?.items) setPoints(normalisePoints(j.value)); }).catch(() => {}); }, []);
   const [defaultRate, setDefaultRate] = useState(DAY_RATE); // Settings → Proposals; each client can have its own
   useEffect(() => { fetch("/api/settings?key=day-rate").then((r) => r.json()).then((j) => setDefaultRate(rateOf(j.value))).catch(() => {}); }, []);
@@ -353,7 +353,7 @@ export function ProposalModal({ group, onClose, onLink }) {
                 <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Roadmap slide title<input value={doc.copy.roadmapTitle || ""} onChange={(e) => setCopy({ roadmapTitle: e.target.value })} placeholder="Too much in one go? Roadmap it over N months with a support retainer (N is worked out for you)" className={`${input} mt-0.5 font-normal normal-case tracking-normal`} /></label>
                 <BlockList label="Support retainer" items={doc.copy.retainer} onChange={(retainer) => setCopy({ retainer })} {...toggle("retainer")} />
                 <div><div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Standard slides</div>
-                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["effort", "Investment summary table"], ["roadmap", "Month-by-month roadmap"], ["costs", "Monthly / one-off costs table"], ["services", "Our service retainer offering"], ["support", "Support packages (Bronze, Silver, Gold)"], ["packages", "SEO / PPC package slides"], ...tplExtras.map((e, i) => [`extra:${i}`, `Your slide: ${e.title.slice(0, 50)}`])].map(([k, name]) => (
+                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["effort", "Investment summary table"], ["roadmap", "Month-by-month roadmap"], ["costs", "Monthly / one-off costs table"], ["services", "Our service retainer offering"], ["support", "Support packages (Bronze, Silver, Gold)"], ["packages", "SEO / PPC package slides"], ...tplExtras.map((e) => [`extra:${e.i}`, `Your slide: ${e.title.slice(0, 50)}`])].map(([k, name]) => (
                     <li key={k} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className={hidden[k] ? "text-zinc-400 line-through" : ""}>{name}</span><span className="ml-auto"><SlideToggle {...toggle(k)} /></span></li>))}
                   </ul>
                 </div>

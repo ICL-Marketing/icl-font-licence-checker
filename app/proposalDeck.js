@@ -19,6 +19,8 @@ async function dataUrl(src) {
 // Natural size of an image, so it can be fitted without stretching.
 const sizeOf = (src) => new Promise((ok) => { const i = new Image(); i.onload = () => ok({ w: i.naturalWidth, h: i.naturalHeight }); i.onerror = () => ok({ w: 16, h: 10 }); i.src = src; });
 const fit = (s, bw, bh) => { const k = Math.min(bw / s.w, bh / s.h); return { w: s.w * k, h: s.h * k }; };
+// Template slides never used in client proposal decks (an existing client already knows who else we work for).
+export const NOT_IN_CLIENT_DECKS = /^\s*our clients\b/i; // the slide titled "Our clients", not any slide that mentions them
 const teamName = (k) => TEAMS.find(([x]) => x === k)?.[1] || k;
 // Teams in one fixed order (Design, Development, SEO…), e.g. "Design, Development".
 const teamList = (team = []) => TEAMS.filter(([k]) => team.includes(k)).map(([, name]) => name).join(", ");
@@ -48,7 +50,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   // A slide you designed yourself (Settings → Proposals) takes the place of the built-in one.
   const fixedSlide = (slot) => { if (!template?.slots?.[slot]) return false; order.push(slot); return true; };
   // Extra slides from your template, at the point in the deck you chose for them (unless taken out in the review step).
-  const extrasAt = (anchor) => { (template?.extras || []).forEach((e, i) => { if (e.after === anchor && !hide[`extra:${i}`] && template.slots[`extra:${i}`]) order.push(`extra:${i}`); }); };
+  const extrasAt = (anchor) => { (template?.extras || []).forEach((e, i) => { if (e.after === anchor && !NOT_IN_CLIENT_DECKS.test(e.title || "") && !hide[`extra:${i}`] && template.slots[`extra:${i}`]) order.push(`extra:${i}`); }); };
   const byKey = Object.fromEntries((copy.ideas || []).map((i) => [i.key, i]));
   const dark = () => { const s = pres.addSlide(); s.background = { data: bg }; s.addImage({ data: logoW, x: 0.9, y: H - 1.15, w: 2.3, h: 2.3 * (183 / 786) }); return s; };
   const light = (title) => {
@@ -250,7 +252,8 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   // 7. Retainer
   if (copy.retainer?.length && !hide.retainer) {
     const s = light("Next: a support retainer");
-    blockGrid(s, copy.retainer);
+    // The roadmap slide is the plan; a roadmap block in older copy would disagree with it, so it's left out.
+    blockGrid(s, copy.retainer.filter((b) => !/roadmap|\bmonths?\b/i.test(b.title)));
   }
   // 8. Support packages: the template's page 11 (tier headings in their colours, open table with rules)
   if (!hide.support && !fixedSlide("support")) {
