@@ -46,6 +46,9 @@ function supportBundleHref(r, items) {
   const body = [`Client: ${r?.name || ""}`, site && `Website: ${site}`, r?.manager && `Account manager: ${r.manager}`, "", "What needs fixing:", ...list].filter((x) => x !== false && x !== undefined && x !== null).join("\n");
   return mailHref("support@icldigital.com", `${r?.name || "Client"}: ${items.length} support fixes`, body);
 }
+// The issue a support job is about, so the same one worded differently counts once.
+const SUPPORT_TOPICS = [[/cookie|consent/i, "cookies"], [/alt text|alt tag|without alt/i, "alt"], [/footer|©|copyright/i, "footer"], [/google|index|search engines|noindex/i, "index"], [/ssl|https|certificate|secure/i, "ssl"], [/font/i, "fonts"], [/stock|image licen/i, "images"], [/accessib|contrast/i, "a11y"], [/broken link|dead link|404/i, "links"], [/meta|description|preview image/i, "meta"], [/speed|slow|load time/i, "speed"]];
+const supportTopic = (i) => (SUPPORT_TOPICS.find(([re]) => re.test(i.title || "")) || [null, String(i.title || "").toLowerCase().replace(/^(add|set up|fix|check|update)\s+(an?|the)?\s*/, "").replace(/[^a-z0-9]+/g, " ").trim()])[1];
 // Things we'd normally sort at go-live: anything broken, and Support work (cookie banner, footer year, accessibility, alt text…).
 const isSupportJob = (i) => i.status === "queued" && !i.internal && (ideaType(i) === "fix" || (i.service || serviceFor(i.title)) === "Support");
 // Who the idea came from: Claude or the automatic checks ("AI"), or ICL's own list and your team ("ICL").
@@ -334,7 +337,15 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     .filter((g) => g.queue.length && (!manager || g.manager === manager) && (!q || g.top.length))
     .filter((g) => !service || g.top.length)
     // Support jobs on sites we built (cookie banner, footer year, accessibility, alt text…) show as one card with one email.
-    .map((g) => { const sup = g.ours ? g.top.filter(isSupportJob) : []; return { ...g, cards: sup.length > 1 ? [{ bundle: true, key: "support-bundle", recId: sup[0].recId, title: `Support fixes (${sup.length})`, items: sup, status: "queued" }, ...g.top.filter((i) => !sup.includes(i))] : g.top }; })
+    .map((g) => {
+      const sup = g.ours ? g.top.filter(isSupportJob) : [];
+      // One line per issue: the same job on several of the client's sites, or worded twice
+      // (the checker's "Cookie consent banner" and Claude's "Add a cookie consent banner"), is one job.
+      const byTopic = new Map();
+      for (const i of sup) { const k = supportTopic(i); if (byTopic.has(k)) byTopic.get(k).dups.push(i); else byTopic.set(k, { ...i, dups: [i] }); }
+      const items = [...byTopic.values()];
+      return { ...g, cards: items.length > 1 ? [{ bundle: true, key: "support-bundle", recId: items[0].recId, title: `Support fixes (${items.length})`, items, status: "queued" }, ...g.top.filter((i) => !sup.includes(i))] : g.top };
+    })
     // Pinned clients first, then ones first checked in the last week (newest first), then A to Z.
     .sort((a, b) => (b.client?.ideasPinned ? 1 : 0) - (a.client?.ideasPinned ? 1 : 0) || String(newSince(b)).localeCompare(String(newSince(a))) || a.name.localeCompare(b.name));
   const starCount = [...byClient.values()].reduce((n, g) => n + clientQueue(g.recs).filter((i) => i.starred && !["declined", "done"].includes(i.status)).length, 0);
@@ -464,10 +475,10 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
                         <div className="mt-1 font-medium leading-snug">{it.title}</div>
                         <ul className="mt-1 space-y-0.5 text-xs text-zinc-700">{it.items.map((i) => (
                           <li key={i.key} className="flex items-start gap-1"><button onClick={() => setOpen({ id: i.recId, key: i.key })} className="min-w-0 flex-1 text-left hover:underline">• {i.title}</button>
-                            <button onClick={() => { if (window.confirm(`Delete “${i.title}”?`)) updateIdea(i.recId, i.key, { status: "declined", badReason: "", statusAt: new Date().toISOString() }); }} aria-label={`Delete ${i.title}`} title="Delete this one" className="shrink-0 rounded text-zinc-300 hover:text-red-700"><TrashIcon className="h-3 w-3" /></button></li>))}</ul>
+                            <button onClick={() => { if (window.confirm(`Delete “${i.title}”?`)) for (const d of i.dups || [i]) updateIdea(d.recId, d.key, { status: "declined", badReason: "", statusAt: new Date().toISOString() }); }} aria-label={`Delete ${i.title}`} title="Delete this one" className="shrink-0 rounded text-zinc-300 hover:text-red-700"><TrashIcon className="h-3 w-3" /></button></li>))}</ul>
                         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
                           <a href={supportBundleHref(r, it.items)} target="_blank" rel="noopener" title="One email to support@icldigital.com with everything on this list" className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100">Send to Support</a>
-                          <button onClick={() => { const at = new Date().toISOString(); for (const i of it.items) updateIdea(i.recId, i.key, { status: "done", statusAt: at }); }} title="All fixed: take them off the list" className="rounded-md bg-emerald-700 px-2 py-0.5 font-medium text-white hover:bg-emerald-800">Mark all done</button>
+                          <button onClick={() => { const at = new Date().toISOString(); for (const i of it.items) for (const d of i.dups || [i]) updateIdea(d.recId, d.key, { status: "done", statusAt: at }); }} title="All fixed: take them off the list" className="rounded-md bg-emerald-700 px-2 py-0.5 font-medium text-white hover:bg-emerald-800">Mark all done</button>
                         </div>
                       </div>
                     );
