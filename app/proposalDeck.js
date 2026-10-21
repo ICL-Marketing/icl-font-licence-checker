@@ -1,6 +1,6 @@
 // Builds the ICL proposal deck (.pptx) in the browser with pptxgenjs, in the house style:
 // dark gradient slides with the white logo, white slides with navy titles, teal accents, Obviously.
-import { TEAMS, range, split, totals, priceFor, DAY_RATE, DAY_HOURS, lineValue } from "@/lib/proposal";
+import { TEAMS, range, split, totals, priceFor, DAY_RATE, DAY_HOURS, lineValue, tierPlan } from "@/lib/proposal";
 import { pickedPackages, packageFor, packagesOf, hourTeams } from "@/lib/packages";
 
 const W = 19.44, H = 12.5;
@@ -221,6 +221,36 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     s.addText(["All prices exclude VAT.", picked.some((g) => g.id === "ppc") && "PPC is our monthly management fee plus your Google ad spend, paid to Google."].filter(Boolean).join(" "), { x: 0.9, y: Math.min(9.9, 2.6 + rows.length * 0.95), w: W - 1.8, h: 0.6, fontFace: FONT, fontSize: 15, italic: true, color: GREY, isTextBox: true, margin: 0 });
   }
   extrasAt("costs");
+  // 6b. Options: Bronze / Silver / Gold built from the ideas (only when switched on in the review step).
+  const plan = hide.tiers === false ? tierPlan(lines, picked, dayRate) : null;
+  if (plan) {
+    const s = light("Choose your package");
+    const money = (n) => `£${Math.round(n).toLocaleString("en-GB")}`, name = (l) => byKey[l.key]?.title || l.title;
+    const tiers = [
+      { id: "bronze", label: "Bronze", best: "The essentials", items: plan.bronze.lines.map(name), t: plan.bronze },
+      { id: "silver", label: "Silver", best: "Most popular: more for a little extra", items: ["Everything in Bronze", ...plan.silver.lines.slice(plan.bronze.lines.length).map(name)], t: plan.silver },
+      { id: "gold", label: "Gold", best: "Everything in this proposal", items: ["Everything in Silver", ...plan.gold.lines.slice(plan.silver.lines.length).map(name)], t: plan.gold },
+    ];
+    s.addText("Three ways to get started. Silver gives you the most for your budget.", { x: 0.9, y: 1.95, w: W - 1.8, h: 0.8, fontFace: FONT, fontSize: 20, color: GREY, isTextBox: true, margin: 0 });
+    const gap = 0.35, cw = (W - 1.8 - gap * 2) / 3;
+    tiers.forEach((x, i) => {
+      const on = x.id === "silver", cx = 0.9 + i * (cw + gap), fg = on ? WHITE : INK, metal = METAL[x.id];
+      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx, y: 3.3, w: cw, h: 6.4, rectRadius: 0.25, fill: { color: on ? NAVY : PALE }, line: { color: on ? metal : PALE, width: on ? 2.5 : 1 } });
+      if (on) {
+        s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, rectRadius: 0.25, fill: { color: TEAL }, line: { color: TEAL } });
+        s.addText("RECOMMENDED", { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, fontFace: FONT, fontSize: 13, bold: true, color: NAVY, align: "center", valign: "middle", charSpacing: 1, isTextBox: true, margin: 0 });
+      }
+      const save = x.t.full - x.t.price;
+      s.addText([
+        { text: x.label.toUpperCase(), options: { fontSize: 22, bold: true, color: on ? metal : METAL_DARK[x.id], breakLine: true } },
+        { text: money(x.t.price), options: { fontSize: 50, bold: true, color: fg, breakLine: true } },
+        { text: save > 0 ? `one-off · save ${money(save)}` : "one-off", options: { fontSize: 16, bold: save > 0, color: on ? TEAL : GREY, breakLine: true, paraSpaceAfter: 10 } },
+        { text: x.best, options: { fontSize: 17, italic: true, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 12 } },
+        ...[...x.items, ...plan.free.map((l) => `${name(l)} (free)`)].map((it, k, all) => ({ text: it, options: { fontSize: 17, color: fg, bullet: { indent: 18 }, paraSpaceAfter: 8, ...(k < all.length - 1 ? { breakLine: true } : {}) } })),
+      ], { x: cx + 0.45, y: 3.8, w: cw - 0.9, h: 5.7, fontFace: FONT, valign: "top", fit: "shrink", isTextBox: true, margin: 0 });
+    });
+    s.addText("Prices exclude VAT. Monthly packages, such as SEO, are on top.", { x: 0.9, y: 9.95, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 14, italic: true, color: GREY, isTextBox: true, margin: 0 });
+  }
   // 6c. Roadmap (the template's process timeline): the ideas spread over the months, most expensive
   // first, one-off packages included, monthly packages running all the way through, a cost per month.
   if (!hide.roadmap && lines.length > 1) {

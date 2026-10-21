@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon } from "@/app/icons";
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
-import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, lineValue, ideasText, quarter, rateOf, DAY_RATE, withTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
+import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, lineValue, ideasText, tierPlan, quarter, rateOf, DAY_RATE, withTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
 import Link from "next/link";
 import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY, ANCHORS } from "@/lib/deckTemplate";
 import { PACKAGE_GROUPS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER } from "@/lib/packages";
@@ -240,6 +240,10 @@ export function ProposalModal({ group, onClose, onLink }) {
   const setCopy = (fields) => change((d) => ({ ...d, copy: { ...d.copy, ...fields } }));
   const hidden = doc?.copy?.hide || {};
   const toggle = (k) => ({ hidden: !!hidden[k], onToggle: () => setCopy({ hide: { ...hidden, [k]: !hidden[k] } }) });
+  // The Bronze / Silver / Gold slide is off unless switched on (hide.tiers === false).
+  const tiersToggle = { hidden: hidden.tiers !== false, onToggle: () => setCopy({ hide: { ...hidden, tiers: hidden.tiers === false } }) };
+  const plan = doc?.copy && hidden.tiers === false ? tierPlan(lines, picked, dayRate) : null;
+  const tierPreview = !plan ? "needs at least three paid ideas" : ["bronze", "silver", "gold"].map((t) => `${t[0].toUpperCase()}${t.slice(1)} £${plan[t].price.toLocaleString("en-GB")} (${plan[t].lines.length})`).join(" · ");
   const setIdeaCopy = (key, fields) => setCopy({ ideas: doc.copy.ideas.map((x) => (x.key === key ? { ...x, ...fields } : x)) });
   const step = doc?.step || 0;
   const canGo = (n) => n === 0 || (n <= 2 ? lines.length > 0 : !!doc?.copy);
@@ -353,8 +357,8 @@ export function ProposalModal({ group, onClose, onLink }) {
                 <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Roadmap slide title<input value={doc.copy.roadmapTitle || ""} onChange={(e) => setCopy({ roadmapTitle: e.target.value })} placeholder="Too much in one go? Roadmap it over N months with a support retainer (N is worked out for you)" className={`${input} mt-0.5 font-normal normal-case tracking-normal`} /></label>
                 <BlockList label="Support retainer" items={doc.copy.retainer} onChange={(retainer) => setCopy({ retainer })} {...toggle("retainer")} />
                 <div><div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Standard slides</div>
-                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["effort", "Investment summary table"], ["roadmap", "Month-by-month roadmap"], ["costs", "Monthly / one-off costs table"], ["services", "Our service retainer offering"], ["support", "Support packages (Bronze, Silver, Gold)"], ["packages", "SEO / PPC package slides"], ...tplExtras.map((e) => [`extra:${e.i}`, `Your slide: ${e.title.slice(0, 50)}`])].map(([k, name]) => (
-                    <li key={k} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className={hidden[k] ? "text-zinc-400 line-through" : ""}>{name}</span><span className="ml-auto"><SlideToggle {...toggle(k)} /></span></li>))}
+                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["effort", "Investment summary table"], ["tiers", "Bronze / Silver / Gold options (switch on to add)"], ["roadmap", "Month-by-month roadmap"], ["costs", "Monthly / one-off costs table"], ["services", "Our service retainer offering"], ["support", "Support packages (Bronze, Silver, Gold)"], ["packages", "SEO / PPC package slides"], ...tplExtras.map((e) => [`extra:${e.i}`, `Your slide: ${e.title.slice(0, 50)}`])].map(([k, name]) => (
+                    <li key={k} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className={(k === "tiers" ? tiersToggle.hidden : hidden[k]) ? "text-zinc-400 line-through" : ""}>{name}{k === "tiers" && !tiersToggle.hidden && <span className="ml-2 text-xs text-zinc-500">{tierPreview}</span>}</span><span className="ml-auto"><SlideToggle {...(k === "tiers" ? tiersToggle : toggle(k))} /></span></li>))}
                   </ul>
                 </div>
                 {err && <p className="text-sm text-red-700">{err}</p>}
