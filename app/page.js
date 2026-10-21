@@ -63,7 +63,16 @@ function SignedIn() {
   const [email, setEmail] = useState("");
   useEffect(() => { fetch("/api/login").then((r) => r.json()).then((j) => setEmail(j.email || "")).catch(() => {}); }, []);
   if (!email) return null;
-  return <span className="whitespace-nowrap text-xs text-zinc-500">{email.split("@")[0]} · <button onClick={async () => { await fetch("/api/login", { method: "DELETE" }); window.location.href = "/login"; }} className="hover:text-zinc-900 hover:underline">Sign out</button></span>;
+  const name = email.split("@")[0].split(/[._-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(" "); // chris.seal → Chris Seal
+  return (
+    <span className="inline-flex items-center gap-4 whitespace-nowrap py-1 text-sm text-zinc-500">
+      <span className="inline-flex items-center gap-1.5" title={email}>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>
+        {name}
+      </span>
+      <button onClick={async () => { await fetch("/api/login", { method: "DELETE" }); window.location.href = "/login"; }} className="hover:text-zinc-900">Sign out</button>
+    </span>
+  );
 }
 
 export default function Home() {
