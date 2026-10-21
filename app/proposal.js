@@ -131,10 +131,10 @@ export function ProposalModal({ group, onClose, onLink }) {
   // Screenshots of the client's pages (the ones Claude picked), taken for you in the review step. Kept in this browser only.
   const [shotState, setShotState] = useState({}); // key -> "loading" | "failed"
   const asked = useRef(new Set());
-  function getShot(key, url) {
+  function getShot(key, url, sel = "") {
     asked.current.add(key);
     setShotState((o) => ({ ...o, [key]: "loading" }));
-    fetch(`/api/shot?url=${encodeURIComponent(url)}`).then((r) => (r.ok ? r.blob() : Promise.reject())).then(shrink)
+    fetch(`/api/shot?url=${encodeURIComponent(url)}${sel ? `&sel=${encodeURIComponent(sel)}` : ""}`).then((r) => (r.ok ? r.blob() : Promise.reject())).then(shrink)
       .then((data) => { setImages((o) => ({ ...o, [key]: data })); setShotState((o) => ({ ...o, [key]: "" })); })
       .catch(() => setShotState((o) => ({ ...o, [key]: "failed" })));
   }
@@ -219,7 +219,7 @@ export function ProposalModal({ group, onClose, onLink }) {
     if (doc?.step !== 3 || !doc.copy) return;
     const t = setTimeout(() => {
       if (website && !doc.copy.noCover && !images.cover && !asked.current.has("cover")) getShot("cover", `https://${website}`);
-      for (const c of doc.copy.ideas || []) if (c.shot && !c.noImage && !images[c.key] && !asked.current.has(c.key)) getShot(c.key, c.shot);
+      for (const c of doc.copy.ideas || []) if (c.shot && !c.noImage && !images[c.key] && !asked.current.has(c.key)) getShot(c.key, c.shot, c.shotSel);
     }, 0);
     return () => clearTimeout(t);
   });
@@ -347,7 +347,7 @@ export function ProposalModal({ group, onClose, onLink }) {
                         <div className="flex flex-wrap items-center gap-2 pt-1"><Hours picked={picked} line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, withTeam(l, team))} />
                           {c?.max && c.max !== l.max && <button onClick={() => { const th = teamHours(l), tot = Object.values(th).reduce((x, y) => x + y, 0) || 1, hrs = Object.fromEntries(Object.entries(th).map(([k, h]) => [k, quarter((h * c.max) / tot)])); const t = Object.values(hrs).reduce((x, y) => x + y, 0); setLine(l.key, { hrs, min: t, max: t }); }} title={c.hoursNote} className="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-semibold text-orange-800 hover:bg-orange-200">Claude suggests {c.max} hrs{c.hoursNote ? `: ${c.hoursNote}` : ""} · use</button>}</div>
                       </div>
-                      <ImageDrop value={images[l.key]} status={shotState[l.key]} onShot={c?.shot ? () => { setIdeaCopy(l.key, { noImage: false }); getShot(l.key, c.shot); } : null} onChange={(v) => { setImages((o) => ({ ...o, [l.key]: v })); if (!v && c) setIdeaCopy(l.key, { noImage: true }); }} label={c?.shot ? "No picture on this slide" : "Screenshot (optional)"} />
+                      <ImageDrop value={images[l.key]} status={shotState[l.key]} onShot={c?.shot ? () => { setIdeaCopy(l.key, { noImage: false }); getShot(l.key, c.shot, c.shotSel); } : null} onChange={(v) => { setImages((o) => ({ ...o, [l.key]: v })); if (!v && c) setIdeaCopy(l.key, { noImage: true }); }} label={c?.shot ? "No picture on this slide" : "Screenshot (optional)"} />
                     </div>); })}
                 </div>
                 <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Roadmap slide title<input value={doc.copy.roadmapTitle || ""} onChange={(e) => setCopy({ roadmapTitle: e.target.value })} placeholder="Too much in one go? Roadmap it over N months with a support retainer (N is worked out for you)" className={`${input} mt-0.5 font-normal normal-case tracking-normal`} /></label>
