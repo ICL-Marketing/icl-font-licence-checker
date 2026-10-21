@@ -58,6 +58,7 @@ export default function ConsentArea({ clients = [], onRunning, onCount }) {
   const [results, setResults] = useState({});
   const [running, setRunning] = useState(false);
   const [filter, setFilter] = useState("ALL");
+  const [q, setQ] = useState("");
   const [one, setOne] = useState("");
   const [exporting, setExporting] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -147,8 +148,10 @@ export default function ConsentArea({ clients = [], onRunning, onCount }) {
     const sites = new Set([...clientSites.keys(), ...shown.map((r) => r.site)]);
     return [...sites].filter((s) => results[s]?.status !== "DELETED").map((s) => ({ site: s, ...(clientSites.get(s) || {}), r: results[s] }))
       .filter((x) => filter === "ALL" || x.r?.status === filter)
+      // Search: website, client, AM, what we found, and what Claude said.
+      .filter((x) => !q.trim() || `${x.site} ${x.client || ""} ${x.manager || ""} ${x.r?.summary || ""} ${x.r?.bannerName || ""} ${x.r?.claude?.evidence || ""} ${(x.r?.claude?.tags || []).join(" ")}`.toLowerCase().includes(q.trim().toLowerCase()))
       .sort((a, b) => (STATUS[a.r?.status]?.[2] ?? 6) - (STATUS[b.r?.status]?.[2] ?? 6) || a.site.localeCompare(b.site));
-  }, [clientSites, results, filter]);
+  }, [clientSites, results, filter, q]);
   // The task tracker: one row per site to fix, with a status dropdown and owner, like the font one.
   async function download() {
     setExporting(true);
@@ -197,6 +200,7 @@ export default function ConsentArea({ clients = [], onRunning, onCount }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search sites, clients or AMs" aria-label="Search the results" className="mr-1 w-56 rounded-md border border-zinc-300 px-3 py-1.5 text-sm" />
         {FILTERS.map(([k, label]) => { const n = k === "ALL" ? rows.length : count(k); return (
           <button key={k} onClick={() => setFilter(k)} className={`rounded-full border px-3 py-1 text-xs font-medium ${filter === k ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{label}{k !== "ALL" && n ? ` ${n}` : ""}</button>); })}
         {(count("GAP") + count("NO_BANNER")) > 0 && <span className="ml-auto"><Brief text={CONSENT_DEV_BRIEF} big label="Copy brief" /></span>}
@@ -219,7 +223,7 @@ export default function ConsentArea({ clients = [], onRunning, onCount }) {
                       {["GAP", "NO_BANNER", "OK", "NO_TRACKING", "UNREACHABLE"].map((k) => <option key={k} value={k} className="bg-white text-zinc-900">{STATUS[k][0]}</option>)}
                     </select>}</td>
                 <td className="px-3 py-2 text-xs text-zinc-700">{r?.manual && <p className="mb-1 font-medium text-zinc-800">Set by hand {new Date(r.manual.at).toLocaleDateString("en-GB")}</p>}{r?.claude && <ClaudeSays c={r.claude} />}{r?.claude && r?.summary ? <span className="text-zinc-500">Our check: </span> : null}{r?.summary}{r?.bannerName && r.status !== "GAP" ? <span className="text-zinc-500"> Banner: {r.bannerName}.</span> : null}{r?.checkedAt && <div className="mt-0.5 text-[11px] text-zinc-400">Checked {new Date(r.checkedAt).toLocaleDateString("en-GB")}</div>}</td>
-                <td className="px-3 py-2"><div className="flex items-center justify-end gap-2">{r?.ticket && r.status === "GAP" && <Brief text={r.ticket} />}
+                <td className="px-3 py-2"><div className="flex items-center justify-end gap-2">{r?.status === "GAP" && <Brief text={r.ticket || CONSENT_DEV_BRIEF} />}
                   <button onClick={() => checkOne(site)} disabled={r?.status === "RUNNING"} aria-label={`Check ${site} again`} title="Check again" className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /></button>
                   {<button onClick={() => { if (!window.confirm(`Delete ${site} from this list?`)) return; const v = { site, status: "DELETED", checkedAt: new Date().toISOString() }; put(site, v); share(site, v); }} aria-label={`Delete ${site} from the list`} title="Delete this site from the list (check it by hand to bring it back)" className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button>}</div></td>
               </tr>
