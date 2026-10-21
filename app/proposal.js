@@ -44,34 +44,48 @@ function shrink(file, maxW = 1800, quality = 0.86) {
   });
 }
 
+// A plain text box for hours (no number arrows). It saves when you leave it or press Enter, rounded to the half hour.
+function HoursBox({ value, on, onCommit, label }) {
+  const [text, setText] = useState(null);
+  const commit = () => { if (text === null) return; const t = text.trim(); setText(null); if (t === "" ? on : Number.isFinite(Number(t)) && String(value) !== t) onCommit(t); };
+  return <input type="text" inputMode="decimal" value={text ?? String(value ?? "")} placeholder="–" onChange={(e) => setText(e.target.value.replace(/[^0-9.]/g, ""))} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} aria-label={label} className={`w-12 rounded-full px-1 py-0 text-right text-[11px] font-normal outline-none ${on ? "bg-white text-zinc-900" : "bg-zinc-100 text-zinc-900 placeholder:text-zinc-400"}`} />;
+}
 const PACKAGE_TEAM_KEYS = Object.keys(PACKAGE_TEAMS);
 const TIER_PILL = { bronze: "bg-[#f1dfc4] text-[#7a4f12]", silver: "bg-zinc-200 text-zinc-700", gold: "bg-[#fbefb0] text-[#7a6008]" };
 const NEXT_TIER = { bronze: "silver", silver: "gold", gold: "bronze" };
+// The idea's price (or package), in its tier's colour when Bronze / Silver / Gold is on: click to move it to the next tier.
+function PricePill({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier }) {
+  const pkg = isPackageLine(line) && (() => { const g = packagesOf(line, picked)[0]; const t = g?.tiers.find((x) => g.picked.includes(x.id)); return g ? `${g.name} package · ${t?.price} ${t?.period}` : "Package"; })();
+  const pill = `whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${tier ? TIER_PILL[tier] : "bg-indigo-100 text-indigo-800"}`;
+  const label = pkg || priceFor(line, rate);
+  return (
+    <span className="inline-flex items-center gap-1">
+      {tier && onTier ? <button type="button" onClick={() => onTier(NEXT_TIER[tier])} title={`${tier[0].toUpperCase()}${tier.slice(1)} option. Click to move it to ${NEXT_TIER[tier]}`} className={`${pill} hover:opacity-80`}>{label} · {tier[0].toUpperCase()}{tier.slice(1)}</button> : <span className={pill} title={pkg ? "Priced by the package, not by the hour. Change the tier in step 2" : "The hours at this client's day rate"}>{label}</span>}
+      {line.free && <button type="button" onClick={() => onChange({ free: false })} title="Marked free earlier. Click to charge for it" className="rounded-full border border-emerald-600 bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white">Free ×</button>}
+    </span>
+  );
+}
 // Who does it and for how long, in one row: each team is a pill with its hours. A blank box means that team isn't needed.
 // SEO, PPC and Videography are sold as packages, so their pills just switch on and off.
 // With Bronze / Silver / Gold on, the price pill takes its tier's colour; click it to move the idea to the next tier.
-function Effort({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier }) {
+function Effort({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier, pill = true }) {
   const team = line.team || [], th = teamHours(line), total = Object.values(th).reduce((a, b) => a + b, 0);
   const setTeam = (next) => { if (next.length) onChange(withTeam(line, next)); };
   const setHours = (k, v) => {
     if (v === "") return setTeam(team.filter((x) => x !== k));
-    const h = Number(v); if (!(h > 0)) return;
+    const h = Math.max(0.5, Math.round(Number(v) * 2) / 2); if (!Number.isFinite(h)) return; // half hours only
     if (!team.includes(k)) { const t = withTeam(line, [...team, k]); return onChange({ ...t, ...withHours({ ...line, ...t }, k, h) }); }
     onChange(withHours(line, k, h));
   };
-  const pkg = isPackageLine(line) && (() => { const g = packagesOf(line, picked)[0]; const t = g?.tiers.find((x) => g.picked.includes(x.id)); return g ? `${g.name} package · ${t?.price} ${t?.period}` : "Package"; })();
-  const pill = `whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${tier ? TIER_PILL[tier] : "bg-indigo-100 text-indigo-800"}`;
-  const label = pkg || priceFor(line, rate);
   return (
     <span className="flex w-full flex-wrap items-center gap-1 text-xs text-zinc-500">
       {TEAMS.map(([k, name, short]) => {
         const on = team.includes(k), cls = `inline-flex items-center gap-1 rounded-full border py-0.5 text-[11px] font-semibold ${on ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-500"}`;
         if (PACKAGE_TEAM_KEYS.includes(k)) return <button key={k} type="button" onClick={() => setTeam(on ? team.filter((x) => x !== k) : [...team, k])} className={`${cls} px-2 ${on ? "" : "hover:bg-zinc-100"}`} title={`${name} is priced by its package`}>{name}</button>;
-        return <label key={k} className={`${cls} pl-2 pr-0.5`}>{short}<input type="number" min={0} step={0.25} value={on ? th[k] ?? "" : ""} placeholder="–" onChange={(e) => setHours(k, e.target.value)} aria-label={`${name} hours`} className={`w-12 rounded-full px-1 py-0 text-right [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none text-[11px] font-normal outline-none ${on ? "bg-white text-zinc-900" : "bg-zinc-100 text-zinc-900 placeholder:text-zinc-400"}`} /></label>;
+        return <label key={k} className={`${cls} pl-2 pr-0.5`}>{short}<HoursBox value={on ? th[k] : ""} on={on} onCommit={(v) => setHours(k, v)} label={`${name} hours`} /></label>;
       })}
-      {!pkg && <span className="ml-1">= {total} {total === 1 ? "hr" : "hrs"}</span>}
-      {tier && onTier ? <button type="button" onClick={() => onTier(NEXT_TIER[tier])} title={`${tier[0].toUpperCase()}${tier.slice(1)} option. Click to move it to ${NEXT_TIER[tier]}`} className={`${pill} hover:opacity-80`}>{label} · {tier[0].toUpperCase()}{tier.slice(1)}</button> : <span className={pill} title={pkg ? "Priced by the package, not by the hour. Change the tier in step 2" : "The hours at this client's day rate"}>{label}</span>}
-      {line.free && <button type="button" onClick={() => onChange({ free: false })} title="Marked free earlier. Click to charge for it" className="rounded-full border border-emerald-600 bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white">Free ×</button>}
+      {!isPackageLine(line) && <span className="ml-1">= {total} {total === 1 ? "hr" : "hrs"}</span>}
+      {pill && <PricePill line={line} onChange={onChange} picked={picked} rate={rate} tier={tier} onTier={onTier} />}
     </span>
   );
 }
@@ -291,18 +305,18 @@ export function ProposalModal({ group, onClose, onLink }) {
                       <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${i.ai ? "bg-violet-100 text-violet-800" : "bg-zinc-100 text-zinc-700"}`}>{i.ai ? "AI" : "ICL"}</span>
                       {i.starred && <span className="text-amber-500">★</span>}
                       <span className="min-w-[16rem] flex-1 leading-snug" title={i.why}>{i.title}</span>
-                      {l && <><Effort picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(i.key, f)} {...tierProps(l.key)} /></>}
+                      {l && <><PricePill picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(i.key, f)} {...tierProps(l.key)} /><Effort pill={false} picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(i.key, f)} /></>}
                     </li>); })}
                   {Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key)).map((l) => (
                     <li key={l.key} className="flex flex-wrap items-center gap-2 bg-amber-50/60 px-3 py-2 text-sm">
                       <input type="checkbox" checked onChange={() => removeLine(l.key)} className="h-4 w-4" title="Untick to take it out of this proposal" />
                       <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800" title="Still in this proposal, but no longer on the Client Ideas list (done, declined or removed)">Not in Client Ideas now</span>
                       <span className="min-w-[16rem] flex-1 leading-snug" title={l.why}>{l.title}</span>
-                      <Effort picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} {...tierProps(l.key)} />
+                      <PricePill picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} {...tierProps(l.key)} /><Effort pill={false} picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} />
                     </li>))}
                 </ul>
                 {doc.own.length > 0 && <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{doc.own.map((l) => (
-                  <li key={l.key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"><span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">Yours</span><span className="min-w-[16rem] flex-1 leading-snug" title={l.why}>{l.title}</span><Effort picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} {...tierProps(l.key)} /><button onClick={() => change((d) => ({ ...d, own: d.own.filter((x) => x.key !== l.key) }))} aria-label="Remove" className="rounded p-1 text-zinc-400 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button></li>))}
+                  <li key={l.key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"><span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">Yours</span><span className="min-w-[16rem] flex-1 leading-snug" title={l.why}>{l.title}</span><PricePill picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} {...tierProps(l.key)} /><button onClick={() => change((d) => ({ ...d, own: d.own.filter((x) => x.key !== l.key) }))} aria-label="Remove" className="rounded p-1 text-zinc-400 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button><Effort pill={false} picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} /></li>))}
                 </ul>}
                 <div className="space-y-2 rounded-lg border border-zinc-200 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Add an improvement</div>
