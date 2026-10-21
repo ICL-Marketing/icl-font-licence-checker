@@ -7,7 +7,7 @@ import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, 
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, withTitle, ClaudeText } from "@/app/claudeInbox";
 import { ProposalModal } from "@/app/proposal";
 import { setEmailTemplates, staleFooterYear } from "@/lib/leadsShared";
-import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, ideaType, supportEmail, PLANS, checkIdeasPrompt, slug } from "@/lib/clientIdeas";
+import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, ideaType, supportEmail, PLANS, checkIdeasPrompt, slug, parseIdeaCheck } from "@/lib/clientIdeas";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
 // Each client site is checked for free (site health, licences, homepage gaps) plus one search
@@ -341,7 +341,31 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   const current = open ? recs[open.id] : null;
   const currentIdea = current ? (current.ideas || []).find((i) => i.key === open.key) : null;
   // A second opinion on the ideas in view (filters apply): bugs for support, medium ideas worth pitching, the rest dropped.
-  const checkGroups = groups.filter((g) => g.top.length);
+  // Ideas Claude has already checked are left out, so each run only covers what's new.
+  const checkGroups = groups.map((g) => ({ ...g, top: g.top.filter((i) => !i.claudeCheck) })).filter((g) => g.top.length);
+  // Claude's "Check ideas" reply: each idea kept as a bug or a pitch (with its check mark and hours) or dropped, plus anything new it spotted.
+  useClaudeHandler("check-ideas", (text) => {
+    const { checks, added } = parseIdeaCheck(text);
+    if (!checks.length && !added.length) throw new Error("No ideas in that reply. Paste Claude's whole JSON block.");
+    const at = new Date().toISOString(), byRec = new Map();
+    for (const c of checks) { if (!byRec.has(c.recId)) byRec.set(c.recId, []); byRec.get(c.recId).push(c); }
+    let kept = 0, dropped = 0, fresh = 0;
+    for (const [rid, list] of byRec) {
+      const r = recsRef.current[rid]; if (!r) continue;
+      const by = new Map(list.map((c) => [c.key, c]));
+      const ideas = (r.ideas || []).map((i) => { const c = by.get(i.key); if (!c) return i;
+        const claudeCheck = { at, verdict: c.verdict === "drop" ? "drop" : "keep", type: c.verdict === "bug" ? "bug" : "idea", hours: c.hours, reason: c.reason, page: c.page, fix: c.fix };
+        if (c.verdict === "drop") { dropped++; return { ...i, claudeCheck, ...(i.status === "queued" ? { status: "declined", statusAt: at } : {}) }; }
+        kept++; return { ...i, claudeCheck, type: c.verdict === "bug" ? "fix" : "idea", ...(c.hours ? { hours: c.hours } : {}), ...(c.page && !i.evidenceUrl ? { evidenceUrl: c.page } : {}) }; });
+      update(rid, { ideas });
+    }
+    for (const n of added) {
+      const r = recsRef.current[n.recId] || Object.values(recsRef.current).find((x) => x.name === n.recId); if (!r) continue;
+      const idea = { ...customIdea({ title: n.title, service: n.service, hours: n.hours || undefined, why: n.reason }), type: n.verdict === "bug" ? "fix" : "idea", evidenceUrl: n.page, claudeCheck: { at, verdict: "keep", type: n.verdict === "bug" ? "bug" : "idea", hours: n.hours, reason: n.reason, page: n.page } };
+      update(r.id, { ideas: [...(r.ideas || []), idea] }); fresh++;
+    }
+    return `Idea check: ${kept} kept, ${dropped} dropped${fresh ? `, ${fresh} new` : ""}`;
+  });
   useClaudeJob("check-ideas", { label: "Check ideas", order: 6, count: () => checkGroups.length, render: () => <CheckIdeasPanel groups={checkGroups} /> });
 
   return (
@@ -704,7 +728,7 @@ function CheckIdeasPanel({ groups }) {
   }
   return (
     <div className="space-y-2 text-sm">
-      <p className="text-xs text-zinc-600">Claude checks each idea in view against the live site and splits them into <b>website bugs</b> (send to support), <b>medium ideas</b> worth pitching (new pages or functionality), and ones to drop. Use the filters on Client Ideas to narrow it down first.</p>
+      <p className="text-xs text-zinc-600">Claude checks each idea in view against the live site and splits them into <b>website bugs</b> (send to support), <b>medium ideas</b> worth pitching (new pages or functionality), and ones to drop. Use the filters on Client Ideas to narrow it down first. Paste its JSON reply in step 2: kept ideas get a ✓ Claude (check) tag, dropped ones come off.</p>
       <div className="flex flex-wrap items-center gap-2"><span className="text-xs text-zinc-500">{n} ideas across {groups.length} client{groups.length === 1 ? "" : "s"}</span>
         <span className="ml-auto flex gap-2">
           <button onClick={() => copy(false)} disabled={!prompt} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs hover:bg-zinc-100 disabled:opacity-40">{copied ? <><CheckIcon className="h-3.5 w-3.5" /> Copied</> : <><CopyIcon /> Copy prompt</>}</button>

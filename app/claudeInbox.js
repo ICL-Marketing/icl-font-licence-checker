@@ -35,7 +35,7 @@ export function ClaudeText({ children, confirmed = false, className = "" }) {
 // Open the Claude window: { tab: "prompt" | "paste", job, preset: [ids], column }.
 export const openClaude = (detail = {}) => window.dispatchEvent(new CustomEvent("open-claude-inbox", { detail }));
 
-export const KIND_LABEL = { "all": "All jobs", "vet": "Vet leads", "rank-check": "Search rankings", "lead-check": "Lead check", "find-sites": "Website search", "find-leads": "New leads", draft: "Email draft", "draft-batch": "Email drafts (batch)", "client-research": "Client research", proposal: "Proposal deck", "consent-check": "Cookie consent check" };
+export const KIND_LABEL = { "all": "All jobs", "vet": "Vet leads", "rank-check": "Search rankings", "lead-check": "Lead check", "find-sites": "Website search", "find-leads": "New leads", draft: "Email draft", "draft-batch": "Email drafts (batch)", "client-research": "Client research", proposal: "Proposal deck", "consent-check": "Cookie consent check", "check-ideas": "Idea check" };
 
 function jsonOf(text) {
   const t = String(text || "").trim();
@@ -51,6 +51,7 @@ export function detectReply(text) {
   if (!d || typeof d !== "object") return /^subject:/im.test(String(text)) ? "draft" : null;
   if (!Array.isArray(d) && d.proposal && typeof d.proposal === "object") return "proposal";
   if (!Array.isArray(d) && Array.isArray(d.consent_check)) return "consent-check";
+  if (!Array.isArray(d) && Array.isArray(d.idea_check)) return "check-ideas";
   if (!Array.isArray(d) && (Array.isArray(d.vet) || Array.isArray(d.check) || Array.isArray(d.rankings))) return "all";
   if (!Array.isArray(d) && Array.isArray(d.emails)) return "draft-batch";
   if (Array.isArray(d) && d[0] && "lead_id" in d[0] && "email_body" in d[0]) return "draft-batch";
