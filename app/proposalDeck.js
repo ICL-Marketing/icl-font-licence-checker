@@ -146,11 +146,11 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
         { text: x.name.toUpperCase(), options: { fontSize: 19 * sz, bold: true, color: on ? metal : METAL[x.id] ? METAL_DARK[x.id] : NAVY, breakLine: true } },
         { text: x.price.toUpperCase(), options: { fontSize: 44 * sz, bold: true, color: fg, breakLine: true } },
         { text: x.period, options: { fontSize: 15 * sz, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 10 } },
-        { text: x.best, options: { fontSize: 16 * sz, italic: true, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 12 } },
+        { text: x.best, options: { fontSize: 16 * sz, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 12 } },
         ...x.items.map((it, k) => ({ text: it, options: { fontSize: 16 * sz, color: fg, bullet: { indent: 18 }, paraSpaceAfter: 8, ...(k < x.items.length - 1 ? { breakLine: true } : {}) } })),
       ], { x: cx + 0.45, y: 3.8, w: cw - 0.9, h: 5.7, fontFace: FONT, valign: "top", fit: "shrink", isTextBox: true, margin: 0 });
     });
-    s.addText(g.footnote, { x: 0.9, y: 9.95, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 14, italic: true, color: GREY, isTextBox: true, margin: 0 });
+    s.addText(g.footnote, { x: 0.9, y: 9.95, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 14, color: GREY, isTextBox: true, margin: 0 });
   };
   for (const [n, l] of lines.entries()) {
     const c = byKey[l.key] || {};
@@ -218,7 +218,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const est = (t) => (t.length * 18 * 0.7) / 72 + 0.8;
     const c1 = Math.min(9, Math.max(5.6, ...rows.slice(1).map((r) => est(r[0].text)))), c3 = Math.min(7.5, Math.max(4.4, ...rows.slice(1).map((r) => est(r[2].text))));
     s.addTable(rows, { x: 0.9, y: 2.3, w: W - 1.8, colW: [c1, W - 1.8 - c1 - c3, c3], rowH: 0.95, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" } });
-    s.addText(["All prices exclude VAT.", picked.some((g) => g.id === "ppc") && "PPC is our monthly management fee plus your Google ad spend, paid to Google."].filter(Boolean).join(" "), { x: 0.9, y: Math.min(9.9, 2.6 + rows.length * 0.95), w: W - 1.8, h: 0.6, fontFace: FONT, fontSize: 15, italic: true, color: GREY, isTextBox: true, margin: 0 });
+    s.addText(["All prices exclude VAT.", picked.some((g) => g.id === "ppc") && "PPC is our monthly management fee plus your Google ad spend, paid to Google."].filter(Boolean).join(" "), { x: 0.9, y: Math.min(9.9, 2.6 + rows.length * 0.95), w: W - 1.8, h: 0.6, fontFace: FONT, fontSize: 15, color: GREY, isTextBox: true, margin: 0 });
   }
   extrasAt("costs");
   // 6b. Options: Bronze / Silver / Gold built from the ideas (only when switched on in the review step).
@@ -226,11 +226,8 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   if (plan) {
     const s = light("Choose your package");
     const money = (n) => `£${Math.round(n).toLocaleString("en-GB")}`, name = (l) => byKey[l.key]?.title || l.title;
-    const tiers = [
-      { id: "bronze", label: "Bronze", best: "The essentials", items: plan.bronze.lines.map(name), t: plan.bronze },
-      { id: "silver", label: "Silver", best: "Most popular: more for a little extra", items: ["Everything in Bronze", ...plan.silver.lines.slice(plan.bronze.lines.length).map(name)], t: plan.silver },
-      { id: "gold", label: "Gold", best: "Everything in this proposal", items: ["Everything in Silver", ...plan.gold.lines.slice(plan.silver.lines.length).map(name)], t: plan.gold },
-    ];
+    // Every tier lists all of its items (not "Everything in Bronze"), each with its own price.
+    const tiers = ["bronze", "silver", "gold"].map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1), t: plan[id] }));
     s.addText("Three ways to get started. Silver gives you the most for your budget.", { x: 0.9, y: 1.95, w: W - 1.8, h: 0.8, fontFace: FONT, fontSize: 20, color: GREY, isTextBox: true, margin: 0 });
     const gap = 0.35, cw = (W - 1.8 - gap * 2) / 3;
     tiers.forEach((x, i) => {
@@ -243,13 +240,14 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       const save = x.t.full - x.t.price;
       s.addText([
         { text: x.label.toUpperCase(), options: { fontSize: 22, bold: true, color: on ? metal : METAL_DARK[x.id], breakLine: true } },
-        { text: money(x.t.price), options: { fontSize: 50, bold: true, color: fg, breakLine: true } },
-        { text: save > 0 ? `one-off · save ${money(save)}` : "one-off", options: { fontSize: 16, bold: save > 0, color: on ? TEAL : GREY, breakLine: true, paraSpaceAfter: 10 } },
-        { text: x.best, options: { fontSize: 17, italic: true, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 12 } },
-        ...[...x.items, ...plan.free.map((l) => `${name(l)} (free)`)].map((it, k, all) => ({ text: it, options: { fontSize: 17, color: fg, bullet: { indent: 18 }, paraSpaceAfter: 8, ...(k < all.length - 1 ? { breakLine: true } : {}) } })),
-      ], { x: cx + 0.45, y: 3.8, w: cw - 0.9, h: 5.7, fontFace: FONT, valign: "top", fit: "shrink", isTextBox: true, margin: 0 });
+        { text: money(x.t.price), options: { fontSize: 50, bold: true, color: fg, breakLine: save > 0 } },
+        ...(save > 0 ? [{ text: `Save ${money(save)}`, options: { fontSize: 16, bold: true, color: on ? TEAL : METAL_DARK[x.id] } }] : []),
+      ], { x: cx + 0.45, y: 3.8, w: cw - 0.9, h: 1.7, fontFace: FONT, valign: "top", isTextBox: true, margin: 0 });
+      const items = [...x.t.lines.map((l) => [name(l), money(plan.costOf(l))]), ...plan.free.map((l) => [name(l), "Free"])];
+      const many = items.length > 7, fs = many ? 13 : 16, cell = { fontFace: FONT, fontSize: fs, color: fg, valign: "top", margin: [0.06, 0, 0.06, 0] };
+      s.addTable(items.map(([t, p]) => [{ text: `\u2713  ${t}`, options: cell }, { text: p, options: { ...cell, align: "right", bold: true } }]), { x: cx + 0.45, y: 5.65, w: cw - 0.9, colW: [cw - 0.9 - 1.25, 1.25], border: { type: "none" }, fill: { color: on ? NAVY : PALE } });
     });
-    s.addText("Prices exclude VAT. Monthly packages, such as SEO, are on top.", { x: 0.9, y: 9.95, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 14, italic: true, color: GREY, isTextBox: true, margin: 0 });
+    s.addText("Prices exclude VAT. Monthly packages, such as SEO, are on top.", { x: 0.9, y: 9.95, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 14, color: GREY, isTextBox: true, margin: 0 });
   }
   // 6c. Roadmap (the template's process timeline): the ideas spread over the months, most expensive
   // first, one-off packages included, monthly packages running all the way through, a cost per month.
@@ -274,7 +272,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       s.addText(`MONTH ${i + 1}`, { x, y: top + 1.05, w, h: 0.9, fontFace: FONT, fontSize: 28, bold: true, color: NAVY, valign: "middle", isTextBox: true, margin: 0 });
       const runs = [
         ...list.map((l) => ({ text: (byKey[l.key]?.title || l.title) + (l.free ? " (free)" : ""), options: { color: WHITE, bullet: { indent: 20 }, breakLine: true, paraSpaceAfter: 6 } })),
-        ...monthly.map((g) => ({ text: `${g.name} ${String((g.tiers.find((x) => g.picked.includes(x.id)) || {}).name || "").split(":")[0].replace(new RegExp(`^${g.name}\\s*`, "i"), "")} (ongoing)`.replace(/\s+\(/, " ("), options: { color: "CFCFF0", italic: true, bullet: { indent: 20 }, breakLine: true, paraSpaceAfter: 6 } })),
+        ...monthly.map((g) => ({ text: `${g.name} ${String((g.tiers.find((x) => g.picked.includes(x.id)) || {}).name || "").split(":")[0].replace(new RegExp(`^${g.name}\\s*`, "i"), "")} (ongoing)`.replace(/\s+\(/, " ("), options: { color: "CFCFF0", bullet: { indent: 20 }, breakLine: true, paraSpaceAfter: 6 } })),
       ];
       s.addText(runs, { x, y: top + 2.2, w, h: rowH - 2.5, fontFace: FONT, fontSize: fs, valign: "top", isTextBox: true, margin: 0 });
     });

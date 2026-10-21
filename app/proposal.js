@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon } from "@/app/icons";
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
-import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, lineValue, ideasText, tierPlan, quarter, rateOf, DAY_RATE, withTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
+import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, lineValue, priceFor, ideasText, tierPlan, quarter, rateOf, DAY_RATE, withTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
 import Link from "next/link";
 import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY, ANCHORS } from "@/lib/deckTemplate";
 import { PACKAGE_GROUPS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER } from "@/lib/packages";
@@ -47,7 +47,7 @@ function shrink(file, maxW = 1800, quality = 0.86) {
 function TeamPicker({ team, onChange }) {
   return <span className="inline-flex flex-wrap gap-1">{TEAMS.map(([k, name]) => { const on = team.includes(k); return <button key={k} type="button" onClick={() => { const next = on ? team.filter((x) => x !== k) : [...team, k]; if (next.length) onChange(next); }} className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${on ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-500 hover:bg-zinc-100"}`}>{name}</button>; })}</span>;
 }
-function Hours({ line, onChange, picked = [] }) {
+function Hours({ line, onChange, picked = [], rate = DAY_RATE }) {
   // SEO, PPC and Videography are sold as packages: no hours to set.
   if (isPackageLine(line)) { const g = packagesOf(line, picked)[0]; const t = g?.tiers.find((x) => g.picked.includes(x.id)); return <span className="whitespace-nowrap rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-800" title="Priced by the package, not by the hour. Change the tier in step 2">{g ? `${g.name} package · ${t?.price} ${t?.period}` : "Package"}</span>; }
   // One box per team, so each discipline has its own estimate; the total is worked out from them.
@@ -56,7 +56,8 @@ function Hours({ line, onChange, picked = [] }) {
     <span className="inline-flex flex-wrap items-center gap-2 text-xs text-zinc-500">
       {Object.entries(th).map(([k, h]) => <label key={k} className="inline-flex items-center gap-1"><span className="font-medium text-zinc-700">{TEAMS.find(([x]) => x === k)?.[2] || k}</span><input type="number" min={0.25} step={0.25} value={h} onChange={(e) => onChange(withHours(line, k, Number(e.target.value) || 0.25))} className={num} aria-label={`${TEAMS.find(([x]) => x === k)?.[1]} hours`} /></label>)}
       <span>{Object.keys(th).length > 1 ? `= ${total} ${total === 1 ? "hr" : "hrs"}` : "hrs"}</span>
-      <button type="button" onClick={() => onChange({ free: !line.free })} title="Free of charge: shown in the deck as a goodwill extra, left out of the totals and listed last" className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${line.free ? "border-emerald-600 bg-emerald-600 text-white" : "border-zinc-300 bg-white text-zinc-500 hover:bg-zinc-100"}`}>{line.free ? "Free ✓" : "Free"}</button>
+      <span className="whitespace-nowrap rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-800" title="The hours at this client's day rate">{priceFor(line, rate)}</span>
+      {line.free && <button type="button" onClick={() => onChange({ free: false })} title="Marked free earlier. Click to charge for it" className="rounded-full border border-emerald-600 bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white">Free ×</button>}
     </span>
   );
 }
@@ -270,24 +271,24 @@ export function ProposalModal({ group, onClose, onLink }) {
                       <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${i.ai ? "bg-violet-100 text-violet-800" : "bg-zinc-100 text-zinc-700"}`}>{i.ai ? "AI" : "ICL"}</span>
                       {i.starred && <span className="text-amber-500">★</span>}
                       <span className="min-w-[16rem] flex-1 leading-snug" title={i.why}>{i.title}</span>
-                      {l && <><Hours picked={picked} line={l} onChange={(f) => setLine(i.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(i.key, withTeam(l, team))} /></>}
+                      {l && <><Hours picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(i.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(i.key, withTeam(l, team))} /></>}
                     </li>); })}
                   {Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key)).map((l) => (
                     <li key={l.key} className="flex flex-wrap items-center gap-2 bg-amber-50/60 px-3 py-2 text-sm">
                       <input type="checkbox" checked onChange={() => removeLine(l.key)} className="h-4 w-4" title="Untick to take it out of this proposal" />
                       <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800" title="Still in this proposal, but no longer on the Client Ideas list (done, declined or removed)">Not in Client Ideas now</span>
                       <span className="min-w-[16rem] flex-1 leading-snug" title={l.why}>{l.title}</span>
-                      <Hours picked={picked} line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, withTeam(l, team))} />
+                      <Hours picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, withTeam(l, team))} />
                     </li>))}
                 </ul>
                 {doc.own.length > 0 && <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{doc.own.map((l) => (
-                  <li key={l.key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"><span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">Yours</span><span className="min-w-[16rem] flex-1 leading-snug" title={l.why}>{l.title}</span><Hours picked={picked} line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, withTeam(l, team))} /><button onClick={() => change((d) => ({ ...d, own: d.own.filter((x) => x.key !== l.key) }))} aria-label="Remove" className="rounded p-1 text-zinc-400 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button></li>))}
+                  <li key={l.key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"><span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">Yours</span><span className="min-w-[16rem] flex-1 leading-snug" title={l.why}>{l.title}</span><Hours picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, withTeam(l, team))} /><button onClick={() => change((d) => ({ ...d, own: d.own.filter((x) => x.key !== l.key) }))} aria-label="Remove" className="rounded p-1 text-zinc-400 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button></li>))}
                 </ul>}
                 <div className="space-y-2 rounded-lg border border-zinc-200 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Add an improvement</div>
                   <input value={draft.title} onChange={(e) => setDraft((o) => ({ ...o, title: e.target.value }))} placeholder="e.g. Mobile and final QA" className={input} />
                   <input value={draft.why} onChange={(e) => setDraft((o) => ({ ...o, why: e.target.value }))} placeholder="What it involves, in a line (Claude turns it into the slide)" className={input} />
-                  <div className="flex flex-wrap items-center gap-3"><Hours picked={picked} line={draft} onChange={(f) => setDraft((o) => ({ ...o, ...f }))} /><TeamPicker team={draft.team} onChange={(team) => setDraft((o) => ({ ...o, ...withTeam(o, team) }))} />
+                  <div className="flex flex-wrap items-center gap-3"><Hours picked={picked} rate={dayRate} line={draft} onChange={(f) => setDraft((o) => ({ ...o, ...f }))} /><TeamPicker team={draft.team} onChange={(team) => setDraft((o) => ({ ...o, ...withTeam(o, team) }))} />
                     <button onClick={() => { if (!draft.title.trim()) return; change((d) => ({ ...d, own: [...d.own, ownLine(draft)] })); setDraft({ title: "", why: "", min: 2, max: 2, team: ["dev"] }); }} disabled={!draft.title.trim()} className="ml-auto rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm hover:bg-zinc-100 disabled:opacity-40">+ Add</button></div>
                 </div>
                 <div className="flex justify-end"><button onClick={() => change((d) => ({ ...d, step: 1 }))} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white">Next: packages & retainer</button></div>
@@ -353,7 +354,7 @@ export function ProposalModal({ group, onClose, onLink }) {
                           <Bullets items={c.bullets} onChange={(bullets) => setIdeaCopy(l.key, { bullets })} />
                           <input value={c.closing} onChange={(e) => setIdeaCopy(l.key, { closing: e.target.value })} placeholder="Closing benefit (optional)" className={input} />
                         </>}
-                        <div className="flex flex-wrap items-center gap-2 pt-1"><Hours picked={picked} line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, withTeam(l, team))} />
+                        <div className="flex flex-wrap items-center gap-2 pt-1"><Hours picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} /><TeamPicker team={l.team} onChange={(team) => setLine(l.key, withTeam(l, team))} />
                           {c?.max && c.max !== l.max && <button onClick={() => { const th = teamHours(l), tot = Object.values(th).reduce((x, y) => x + y, 0) || 1, hrs = Object.fromEntries(Object.entries(th).map(([k, h]) => [k, quarter((h * c.max) / tot)])); const t = Object.values(hrs).reduce((x, y) => x + y, 0); setLine(l.key, { hrs, min: t, max: t }); }} title={c.hoursNote} className="block w-full rounded-md bg-orange-50 px-2.5 py-1.5 text-left text-[11px] text-orange-800 ring-1 ring-orange-200 hover:bg-orange-100"><span className="font-semibold">Claude suggests {c.max} hrs · use</span>{c.hoursNote && <span className="mt-0.5 block">{c.hoursNote}</span>}</button>}</div>
                       </div>
                       <ImageDrop value={images[l.key]} status={shotState[l.key]} onShot={c?.shot ? () => { setIdeaCopy(l.key, { noImage: false }); getShot(l.key, c.shot, c.shotSel); } : null} onChange={(v) => { setImages((o) => ({ ...o, [l.key]: v })); if (!v && c) setIdeaCopy(l.key, { noImage: true }); }} label={c?.shot ? "No picture on this slide" : "Screenshot (optional)"} />
