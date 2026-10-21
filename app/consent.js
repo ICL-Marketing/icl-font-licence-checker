@@ -60,6 +60,8 @@ export default function ConsentArea({ clients = [], onRunning, onCount }) {
   const [filter, setFilter] = useState("ALL");
   const [one, setOne] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const autoRef = useRef(new Set());
   const stopRef = useRef(false);
   const sharedRef = useRef(false);
 
@@ -81,12 +83,15 @@ export default function ConsentArea({ clients = [], onRunning, onCount }) {
         if (!j.shared) return;
         sharedRef.current = true;
         setResults((prev) => { const next = { ...prev }; for (const [k, v] of Object.entries(j.results || {})) if (!prev[k] || String(v.checkedAt || "") > String(prev[k].checkedAt || "")) next[k] = v; save(next); return next; });
-      }).catch(() => {});
+      }).catch(() => {}).finally(() => setLoaded(true));
     }, 0);
     return () => clearTimeout(t);
   }, []);
 
-  const gaps = Object.values(results).filter((r) => r.status === "GAP").length;
+  // Only results for websites on the client list (or checked one-off from the box): a website
+  // changed or removed in Settings → Clients drops off, and the new one is checked by itself.
+  const shown = Object.values(results).filter((r) => r.status !== "DELETED" && (clientSites.has(r.site) || r.oneOff));
+  const gaps = shown.filter((r) => r.status === "GAP").length;
   useEffect(() => { onCount?.(gaps || null); }, [gaps, onCount]);
   useEffect(() => { onRunning?.(running); }, [running, onRunning]);
 
@@ -101,18 +106,19 @@ export default function ConsentArea({ clients = [], onRunning, onCount }) {
     if (v.status !== "RUNNING" && v.status !== old.status) setTimeout(() => tell(site, v), 0);
     return next;
   });
-  async function checkOne(site) {
+  async function checkOne(site, { oneOff = false } = {}) {
     put(site, { ...(results[site] || {}), site, status: "RUNNING" });
     let r;
     try { r = await fetch(`/api/consent?site=${encodeURIComponent(site)}`).then((x) => x.json()); } catch (e) { r = { site, status: "UNREACHABLE", summary: String(e?.message || e), checkedAt: new Date().toISOString() }; }
     if (r.error) r = { site, status: "UNREACHABLE", summary: r.error, checkedAt: new Date().toISOString() };
+    if (oneOff || results[site]?.oneOff) r.oneOff = true; // checked from the box, not on the client list
     put(site, r);
     const prev = results[site];
     share(site, prev?.claude && prev.status === r.status ? { ...r, claude: prev.claude } : r);
   }
 
   // Claude confirms (or corrects) the sites our check flagged.
-  const toConfirm = Object.values(results).filter((r) => ["GAP", "NO_BANNER", "UNREACHABLE"].includes(r.status) && !r.claude && !r.manual);
+  const toConfirm = shown.filter((r) => ["GAP", "NO_BANNER", "UNREACHABLE"].includes(r.status) && !r.claude && !r.manual);
   useClaudeJob("consent-check", { label: "Cookie consent", order: 7, count: () => toConfirm.length, render: () => <ConsentPrompt items={toConfirm} /> });
   useClaudeHandler("consent-check", (text) => {
     const raw = String(text || ""), m = raw.match(/```(?:json)?\s*([\s\S]*?)```/i), body = m ? m[1] : raw;
@@ -138,8 +144,8 @@ export default function ConsentArea({ clients = [], onRunning, onCount }) {
   }
 
   const rows = useMemo(() => {
-    const sites = new Set([...clientSites.keys(), ...Object.keys(results)]);
-    return [...sites].map((s) => ({ site: s, ...(clientSites.get(s) || {}), r: results[s] }))
+    const sites = new Set([...clientSites.keys(), ...shown.map((r) => r.site)]);
+    return [...sites].filter((s) => results[s]?.status !== "DELETED").map((s) => ({ site: s, ...(clientSites.get(s) || {}), r: results[s] }))
       .filter((x) => filter === "ALL" || x.r?.status === filter)
       .sort((a, b) => (STATUS[a.r?.status]?.[2] ?? 6) - (STATUS[b.r?.status]?.[2] ?? 6) || a.site.localeCompare(b.site));
   }, [clientSites, results, filter]);
@@ -147,7 +153,7 @@ export default function ConsentArea({ clients = [], onRunning, onCount }) {
   async function download() {
     setExporting(true);
     try {
-      const list = Object.values(results).map((r) => ({ ...r, ...(clientSites.get(r.site) || {}) }));
+      const list = shown.map((r) => ({ ...r, ...(clientSites.get(r.site) || {}) }));
       const r = await fetch("/api/export", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "consent", results: list }) });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(await r.blob());
@@ -156,8 +162,18 @@ export default function ConsentArea({ clients = [], onRunning, onCount }) {
       URL.revokeObjectURL(a.href);
     } finally { setExporting(false); }
   }
-  const count = (k) => Object.values(results).filter((r) => r.status === k).length;
-  const unchecked = [...clientSites.keys()].filter((s) => !results[s] || results[s].status === "UNREACHABLE");
+  const count = (k) => shown.filter((r) => r.status === k).length;
+  // Deleted sites stay out of every list and run until you check one by hand again.
+  const live = [...clientSites.keys()].filter((s) => results[s]?.status !== "DELETED");
+  const unchecked = live.filter((s) => !results[s] || results[s].status === "UNREACHABLE");
+  // New client websites (added or changed in Settings → Clients) are checked straight away.
+  useEffect(() => {
+    if (!loaded || running) return;
+    const fresh = live.filter((s) => !results[s] && !autoRef.current.has(s));
+    if (!fresh.length) return;
+    const t = setTimeout(() => { for (const s of fresh) autoRef.current.add(s); runAll(fresh); }, 0);
+    return () => clearTimeout(t);
+  }, [loaded, running, live.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-4">
@@ -168,11 +184,11 @@ export default function ConsentArea({ clients = [], onRunning, onCount }) {
           {running
             ? <button onClick={() => { stopRef.current = true; }} className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
             : <>
-              <button onClick={() => runAll([...clientSites.keys()])} disabled={!clientSites.size} title="Every website on the client list (Settings → Clients)" className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><PlayIcon className="h-4 w-4" /> Check all {clientSites.size} client websites</button>
-              {unchecked.length > 0 && unchecked.length < clientSites.size && <button onClick={() => runAll(unchecked)} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100">Only the {unchecked.length} not checked yet</button>}
+              <button onClick={() => runAll(live)} disabled={!live.length} title="Every website on the client list (Settings → Clients)" className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><PlayIcon className="h-4 w-4" /> Check all {live.length} client websites</button>
+              {unchecked.length > 0 && unchecked.length < live.length && <button onClick={() => runAll(unchecked)} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-100">Only the {unchecked.length} not checked or couldn&apos;t check</button>}
             </>}
           {toConfirm.length > 0 && <button onClick={() => openClaude({ job: "consent-check" })} title="Claude reads each flagged site and its Tag Manager container (and watches the requests if it can open a browser), then you paste its reply back" className="inline-flex items-center gap-1.5 rounded-md bg-orange-600 px-3 py-2 text-sm font-medium text-white hover:bg-orange-700">Confirm {toConfirm.length} with Claude</button>}
-          <form onSubmit={(e) => { e.preventDefault(); const h = host(one); if (h.includes(".")) { checkOne(h); setOne(""); } }} className="ml-auto flex items-center gap-1.5">
+          <form onSubmit={(e) => { e.preventDefault(); const h = host(one); if (h.includes(".")) { checkOne(h, { oneOff: !clientSites.has(h) }); setOne(""); } }} className="ml-auto flex items-center gap-1.5">
             <input value={one} onChange={(e) => setOne(e.target.value)} placeholder="Check one site, e.g. example.co.uk" className="w-64 rounded-md border border-zinc-300 px-2 py-1.5 text-sm" aria-label="Website to check" />
             <button className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-100"><SearchIcon className="h-4 w-4" /> Check</button>
           </form>
@@ -205,7 +221,7 @@ export default function ConsentArea({ clients = [], onRunning, onCount }) {
                 <td className="px-3 py-2 text-xs text-zinc-700">{r?.manual && <p className="mb-1 font-medium text-zinc-800">Set by hand {new Date(r.manual.at).toLocaleDateString("en-GB")}</p>}{r?.claude && <ClaudeSays c={r.claude} />}{r?.claude && r?.summary ? <span className="text-zinc-500">Our check: </span> : null}{r?.summary}{r?.bannerName && r.status !== "GAP" ? <span className="text-zinc-500"> Banner: {r.bannerName}.</span> : null}{r?.checkedAt && <div className="mt-0.5 text-[11px] text-zinc-400">Checked {new Date(r.checkedAt).toLocaleDateString("en-GB")}</div>}</td>
                 <td className="px-3 py-2"><div className="flex items-center justify-end gap-2">{r?.ticket && r.status === "GAP" && <Brief text={r.ticket} />}
                   <button onClick={() => checkOne(site)} disabled={r?.status === "RUNNING"} aria-label={`Check ${site} again`} title="Check again" className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /></button>
-                  {r && <button onClick={() => { if (!window.confirm(`Delete the result for ${site}?`)) return; setResults((prev) => { const next = { ...prev }; delete next[site]; save(next); return next; }); fetch("/api/results", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "consent", site }) }).catch(() => {}); }} aria-label={`Delete the result for ${site}`} title="Delete this result" className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button>}</div></td>
+                  {<button onClick={() => { if (!window.confirm(`Delete ${site} from this list?`)) return; const v = { site, status: "DELETED", checkedAt: new Date().toISOString() }; put(site, v); share(site, v); }} aria-label={`Delete ${site} from the list`} title="Delete this site from the list (check it by hand to bring it back)" className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button>}</div></td>
               </tr>
             ))}
             {!rows.length && <tr><td colSpan={4} className="px-3 py-6 text-center text-sm text-zinc-500">Nothing here yet.</td></tr>}
