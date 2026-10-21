@@ -184,7 +184,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     const prev = recsRef.current[id] || {};
     st.phase = `Checking ${c.name} (${host(w)})…`; setRun({ ...st });
     const site = await post({ step: "check", website: w });
-    let rec = { ...prev, ...site, clientId: c.id, name: c.name, manager: c.manager || "", poc: c.poc || "", emails: c.emails || [], plan: c.plan || "" };
+    let rec = { ...prev, ...site, clientId: c.id, name: c.name, manager: c.manager || "", poc: c.poc || "", emails: c.emails || [], plan: c.plan || "", firstCheckedAt: prev.firstCheckedAt || (prev.checkedAt ? "" : new Date().toISOString()) };
     const alive = site.problem !== "Dead/broken site" && site.problem !== "Parked domain";
     if (alive && !stopRef.current) { st.phase = `Checking licences on ${host(w)}…`; setRun({ ...st }); try { const l = await post({ step: "licence", website: w }); rec.licence = l.licence; } catch {} }
     // AI research: who they really are and what would help them, from the web plus our findings.
@@ -297,6 +297,10 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   const byClient = new Map();
   for (const r of liveRecs) { const k = r.clientId || r.name; if (!byClient.has(k)) byClient.set(k, { clientId: r.clientId, name: r.name, manager: r.manager || "", recs: [] }); byClient.get(k).recs.push(r); }
   const iclIps = iclServerIps(Object.values(recs));
+  // When a client was first checked, if that was in the last 7 days ("" otherwise).
+  // Sites checked before this was recorded: their earliest idea tells when they first came in.
+  const firstSeen = (r) => r.firstCheckedAt || (r.ideas || []).map((i) => i.foundAt || "").filter(Boolean).sort()[0] || "";
+  const newSince = (g) => g.recs.map(firstSeen).filter((t) => t && Date.now() - Date.parse(t) < 7 * 86400000).sort().pop() || "";
   const groups = [...byClient.values()].map((g) => {
     const client = clients.find((c) => c.id === g.clientId) || { name: g.name };
     const bb = builtByFor(client, g.recs, iclIps);
@@ -312,7 +316,8 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     .map((g) => (!q || `${g.name} ${g.manager} ${g.recs.map((r) => r.website).join(" ")}`.toLowerCase().includes(q) ? g : { ...g, top: g.top.filter((i) => `${i.title} ${i.why || ""} ${i.service || ""}`.toLowerCase().includes(q)) }))
     .filter((g) => g.queue.length && (!manager || g.manager === manager) && (!q || g.top.length))
     .filter((g) => !service || g.top.length)
-    .sort((a, b) => (b.client?.ideasPinned ? 1 : 0) - (a.client?.ideasPinned ? 1 : 0) || a.name.localeCompare(b.name)); // pinned clients first
+    // Pinned clients first, then ones first checked in the last week (newest first), then A to Z.
+    .sort((a, b) => (b.client?.ideasPinned ? 1 : 0) - (a.client?.ideasPinned ? 1 : 0) || String(newSince(b)).localeCompare(String(newSince(a))) || a.name.localeCompare(b.name));
   const starCount = [...byClient.values()].reduce((n, g) => n + clientQueue(g.recs).filter((i) => i.starred && !["declined", "done"].includes(i.status)).length, 0);
   // Service chips: how many big ideas of each type are in play (respecting the manager and search filters).
   const serviceCounts = {};
@@ -395,7 +400,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
               {groups.length === 0 && <tr><td colSpan={2} className="p-4 text-zinc-500">No ideas yet. Use the Claude button at the top: Client research.</td></tr>}
               {groups.map((g) => (
                 <tr key={g.clientId || g.name} className="align-top">
-                  <td className="px-4 py-3"><div className="flex items-start gap-2"><div className="min-w-0 flex-1 font-medium">{g.name}</div>{g.clientId && (g.client?.ideasHidden
+                  <td className="px-4 py-3"><div className="flex items-start gap-2"><div className="min-w-0 flex-1 font-medium">{g.name}{newSince(g) && <span className="ml-1.5 rounded-full bg-blue-100 px-1.5 py-0.5 align-middle text-[10px] font-semibold text-blue-800" title="Added and checked in the last 7 days">New</span>}</div>{g.clientId && (g.client?.ideasHidden
                     ? <button onClick={() => hideClient(g.clientId, false)} title="Put this client back on Client Ideas" className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-blue-700 hover:bg-blue-50">Restore</button>
                     : <><button onClick={() => pinClient(g.clientId, !g.client?.ideasPinned)} aria-label={g.client?.ideasPinned ? `Unpin ${g.name}` : `Pin ${g.name} to the top`} aria-pressed={!!g.client?.ideasPinned} title={g.client?.ideasPinned ? "Pinned to the top: click to unpin" : "Pin to the top"} className={`shrink-0 rounded p-1 hover:bg-zinc-100 ${g.client?.ideasPinned ? "text-zinc-900" : "text-zinc-400 hover:text-zinc-900"}`}><PinIcon filled={!!g.client?.ideasPinned} /></button>
                       <button onClick={() => { if (window.confirm(`Remove ${g.name} from Client Ideas? They stay in Settings, and you can restore them from "Removed clients".`)) hideClient(g.clientId, true); }} aria-label={`Remove ${g.name} from Client Ideas`} title="Remove from Client Ideas" className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button></>)}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return <span className="inline-flex items-center gap-1 text-[11px]">{w && <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700 hover:underline">{w} <ExternalIcon /></a>}{g.clientId && <button onClick={() => { const v = window.prompt(`${g.name}: the right website address`, w ? `https://${w}` : "https://"); if (v) changeSite(g, w || "", v); }} title="Wrong website? Change it here: the old site's ideas are dropped, the new one is checked and Claude research opens" className="rounded px-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">{w ? "edit" : "+ website"}</button>}</span>; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button><button onClick={() => setDeckFor(g)} title="Make a proposal slide deck: pick ideas, add your own, Claude writes it, download the .pptx" className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-zinc-700">Proposal deck</button></div></td>
