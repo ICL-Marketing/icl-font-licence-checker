@@ -208,9 +208,9 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     return rec;
   }
 
-  async function checkAll(force = false) {
+  async function checkAll(force = false, onlyNew = false) {
     stopRef.current = false; onRunning?.(true);
-    const jobs = clients.flatMap((c) => (c.websites || []).map((w) => [c, w])).filter(([c, w]) => force || daysAgo(recsRef.current[recId(c, w)]?.checkedAt) > RECHECK_DAYS);
+    const jobs = clients.flatMap((c) => (c.websites || []).map((w) => [c, w])).filter(([c, w]) => (onlyNew ? !recsRef.current[recId(c, w)]?.checkedAt : force || daysAgo(recsRef.current[recId(c, w)]?.checkedAt) > RECHECK_DAYS));
     const st = { phase: "Starting…", done: 0, total: jobs.length, found: 0, errors: [] };
     setRun({ ...st });
     for (const [c, w] of jobs) {
@@ -340,6 +340,8 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
           {running
             ? <button onClick={() => { stopRef.current = true; }} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-white"><StopIcon className="h-4 w-4" /> Stop</button>
             : <button onClick={() => checkAll(false)} disabled={!sitesTotal} title="Checks every client website not checked in the last 30 days" className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"><SearchIcon className="h-4 w-4" /> Find ideas</button>}
+          {/* Clients (or websites) added since the last check: one click to check just those. */}
+          {!running && sitesTotal > sitesChecked && <button onClick={() => checkAll(false, true)} title="Checks only the client websites never checked yet" className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"><SearchIcon className="h-4 w-4" /> Check {sitesTotal - sitesChecked} new</button>}
           <button onClick={() => checkAll(true)} disabled={running || !sitesTotal} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-100 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /> Re-check all</button>
           <button onClick={() => openClaude({ job: "check-ideas" })} title="A prompt asking Claude to check the ideas in view are accurate and worth doing: bugs go to support, medium ideas stay" className="inline-flex items-center gap-1.5 rounded-md border border-orange-300 bg-orange-50 px-4 py-2 text-sm text-orange-900 hover:bg-orange-100">Check ideas with Claude</button>
           {cfg?.ai
