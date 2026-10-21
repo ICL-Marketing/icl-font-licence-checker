@@ -232,7 +232,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const gap = 0.35, cw = (W - 1.8 - gap * 2) / 3;
     tiers.forEach((x, i) => {
       const on = x.id === "silver", cx = 0.9 + i * (cw + gap), fg = on ? WHITE : INK, metal = METAL[x.id];
-      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx, y: 3.3, w: cw, h: 6.4, rectRadius: 0.25, fill: { color: on ? NAVY : PALE }, line: { color: on ? metal : PALE, width: on ? 2.5 : 1 } });
+      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx, y: 3.3, w: cw, h: plan.monthly.length ? 5.6 : 6.4, rectRadius: 0.25, fill: { color: on ? NAVY : PALE }, line: { color: on ? metal : PALE, width: on ? 2.5 : 1 } });
       if (on) {
         s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, rectRadius: 0.25, fill: { color: TEAL }, line: { color: TEAL } });
         s.addText("RECOMMENDED", { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, fontFace: FONT, fontSize: 13, bold: true, color: NAVY, align: "center", valign: "middle", charSpacing: 1, isTextBox: true, margin: 0 });
@@ -247,7 +247,13 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       const many = items.length > 7, fs = many ? 13 : 16, cell = { fontFace: FONT, fontSize: fs, color: fg, valign: "top", margin: [0.06, 0, 0.06, 0] };
       s.addTable(items.map(([t, p]) => [{ text: `\u2713  ${t}`, options: cell }, { text: p, options: { ...cell, align: "right", bold: true } }]), { x: cx + 0.45, y: 5.65, w: cw - 0.9, colW: [cw - 0.9 - 1.25, 1.25], border: { type: "none" }, fill: { color: on ? NAVY : PALE } });
     });
-    s.addText("Prices exclude VAT. Monthly packages, such as SEO, are on top.", { x: 0.9, y: 9.95, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 14, color: GREY, isTextBox: true, margin: 0 });
+    // Monthly packages (SEO, PPC) aren't in the tiers: they sit underneath as an extra on top of any option.
+    const extras = [...new Map(plan.monthly.map((l) => packagesOf(l, picked)[0]).filter(Boolean).map((g) => [g.id, [`${g.name} package`, priceOf(g)]])).values()];
+    if (extras.length) {
+      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.1, w: W - 1.8, h: 0.85, rectRadius: 0.2, fill: { color: WHITE }, line: { color: TEAL, width: 1.5 } });
+      s.addText([{ text: "+ MONTHLY EXTRA   ", options: { bold: true, color: TEAL, charSpacing: 1 } }, ...extras.flatMap(([n, p], k) => [{ text: `${k ? "     " : ""}${n}  ` , options: { bold: true, color: NAVY } }, { text: p, options: { color: INK } }])], { x: 1.3, y: 9.1, w: W - 2.6, h: 0.85, fontFace: FONT, fontSize: 17, valign: "middle", isTextBox: true, margin: 0 });
+    }
+    s.addText(extras.length ? "Prices exclude VAT. Monthly extras can be added to any option." : "Prices exclude VAT.", { x: 0.9, y: extras.length ? 10.2 : 9.95, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 14, color: GREY, isTextBox: true, margin: 0 });
   }
   // 6c. Roadmap (the template's process timeline): the ideas spread over the months, most expensive
   // first, one-off packages included, monthly packages running all the way through, a cost per month.
