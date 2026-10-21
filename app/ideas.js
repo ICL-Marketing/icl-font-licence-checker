@@ -307,7 +307,9 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     const jobs = queue.filter((i) => devJob(i) && (!service || service === "★" ? service !== "★" || i.starred : (i.service || serviceFor(i.title)) === service));
     return { ...g, client, bb, ours, queue, top: [...(size ? [] : jobs), ...topIdeas(queue.filter((i) => !devJob(i) && !badRuleKeys.has(i.key) && (!minHours || hoursFor(i) > minHours) && (service !== "★" || i.starred) && (!size || (i.size || "small") === size)), 50, service === "★" ? "" : service, { withSmall: !size || size === "small" })], pick: monthlyPick(queue, month) }; })
     .filter((g) => !!g.client?.ideasHidden === (showHidden && clients.some((c) => c.ideasHidden)))
-    .filter((g) => g.queue.length && (!manager || g.manager === manager) && (!q || `${g.name} ${g.manager} ${g.queue.map((i) => i.title).join(" ")}`.toLowerCase().includes(q)))
+    // Search: a client whose name (or AM, or website) matches shows all its ideas; otherwise only the ideas that match.
+    .map((g) => (!q || `${g.name} ${g.manager} ${g.recs.map((r) => r.website).join(" ")}`.toLowerCase().includes(q) ? g : { ...g, top: g.top.filter((i) => `${i.title} ${i.why || ""} ${i.service || ""}`.toLowerCase().includes(q)) }))
+    .filter((g) => g.queue.length && (!manager || g.manager === manager) && (!q || g.top.length))
     .filter((g) => !service || g.top.length)
     .sort((a, b) => a.name.localeCompare(b.name));
   const starCount = [...byClient.values()].reduce((n, g) => n + clientQueue(g.recs).filter((i) => i.starred && !["declined", "done"].includes(i.status)).length, 0);
