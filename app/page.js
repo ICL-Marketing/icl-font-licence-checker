@@ -1,6 +1,7 @@
 "use client";
 
 import { mailHref } from "@/app/mail";
+import { setSender } from "@/lib/leadsShared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -61,7 +62,7 @@ const LAUNCH_HOME = "https://content.icltest.net/admin";
 // Who's signed in, and a way out.
 function SignedIn() {
   const [email, setEmail] = useState("");
-  useEffect(() => { fetch("/api/login").then((r) => r.json()).then((j) => setEmail(j.email || "")).catch(() => {}); }, []);
+  useEffect(() => { fetch("/api/login").then((r) => r.json()).then((j) => { setEmail(j.email || ""); setSender(j.profile); }).catch(() => {}); }, []); // emails are written as this person
   if (!email) return null;
   const name = email.split("@")[0].split(/[._-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(" "); // chris.seal → Chris Seal
   return (

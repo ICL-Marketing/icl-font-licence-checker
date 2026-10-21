@@ -133,6 +133,7 @@ export default function Settings() {
         </section>
       )}
       {section === "templates" && <TemplatesEditor />}
+      {section === "activity" && <ActivityLog />}
       {section === "proposals" && (<>
         <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
           <h2 className="font-semibold">Default day rate</h2>
@@ -286,7 +287,45 @@ export default function Settings() {
   );
 }
 
-const SECTIONS = [["team", "Team"], ["clients", "Clients"], ["templates", "Email templates"], ["emails", "Email details"], ["leads", "Lead maintenance"], ["proposals", "Proposals"], ["archived", "Archived checks"], ["connections", "Connections"]];
+const SECTIONS = [["team", "Team"], ["clients", "Clients"], ["templates", "Email templates"], ["emails", "Email details"], ["leads", "Lead maintenance"], ["proposals", "Proposals"], ["archived", "Archived checks"], ["connections", "Connections"], ["activity", "Activity log"]];
+
+// Every saved change, newest first: who, when, what and which fields. Kept on the server for the last 5,000 changes.
+const AREA_LABEL = { leads: "Website Leads", ideas: "Client Ideas", proposals: "Proposal decks", consent: "Cookie Consent", fonts: "Font Licenses", images: "Image Licenses", design: "Design Checks", launch: "Launch checks", post: "Post-launch", clients: "Clients", settings: "Settings" };
+function ActivityLog() {
+  const [items, setItems] = useState(null);
+  const [who, setWho] = useState(""); const [area, setArea] = useState(""); const [q, setQ] = useState("");
+  const load = () => fetch("/api/activity?limit=2000").then((r) => r.json()).then((j) => setItems(j.items || [])).catch(() => setItems([]));
+  useEffect(() => { const t = setTimeout(load, 0); return () => clearTimeout(t); }, []);
+  if (!items) return <p className="mt-5 text-sm text-zinc-500">Loading…</p>;
+  const people = [...new Set(items.map((i) => i.who))].sort(), areas = [...new Set(items.map((i) => i.area))].sort();
+  const shown = items.filter((i) => (!who || i.who === who) && (!area || i.area === area) && (!q || `${i.label} ${i.item} ${(i.changes || []).join(" ")}`.toLowerCase().includes(q.toLowerCase()))).slice(0, 500);
+  const sel = "rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm";
+  return (
+    <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+      <h2 className="font-semibold">Activity log</h2>
+      <p className="mb-3 text-sm text-zinc-500">Every saved change across the app: who made it, when, and what changed. Changes saved by someone&apos;s browser on its own (like a scan finishing) show under that person.</p>
+      <div className="mb-3 flex flex-wrap gap-2">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search names or fields" className={`${sel} w-56`} />
+        <select value={who} onChange={(e) => setWho(e.target.value)} className={sel}><option value="">Everyone</option>{people.map((p) => <option key={p} value={p}>{p}</option>)}</select>
+        <select value={area} onChange={(e) => setArea(e.target.value)} className={sel}><option value="">Everything</option>{areas.map((a) => <option key={a} value={a}>{AREA_LABEL[a] || a}</option>)}</select>
+        <button onClick={load} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-100">Refresh</button>
+      </div>
+      {!shown.length ? <p className="text-sm text-zinc-500">Nothing yet. Changes are logged from now on.</p> : (
+        <div className="overflow-x-auto"><table className="w-full text-sm">
+          <thead className="text-left text-[11px] uppercase tracking-wide text-zinc-500"><tr><th className="py-1 pr-3">When</th><th className="py-1 pr-3">Who</th><th className="py-1 pr-3">Where</th><th className="py-1 pr-3">What</th><th className="py-1">Changed</th></tr></thead>
+          <tbody className="divide-y divide-zinc-100">{shown.map((i, n) => (
+            <tr key={n} className="align-top">
+              <td className="whitespace-nowrap py-1.5 pr-3 text-xs text-zinc-500">{new Date(i.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</td>
+              <td className="whitespace-nowrap py-1.5 pr-3 text-xs">{String(i.who).split("@")[0]}</td>
+              <td className="whitespace-nowrap py-1.5 pr-3 text-xs text-zinc-600">{AREA_LABEL[i.area] || i.area}</td>
+              <td className="py-1.5 pr-3 text-xs font-medium">{i.label || i.item}</td>
+              <td className="py-1.5 text-xs text-zinc-600">{(i.changes || []).join(" · ")}</td>
+            </tr>))}</tbody>
+        </table></div>
+      )}
+    </section>
+  );
+}
 
 // The eight contact finders: what is connected, what is left this month, and a free test.
 function FindersPanel() {
@@ -394,6 +433,8 @@ const parseClients = (t) => t.split(/\n/).map((line) => line.split("|").map((x) 
 function LinksEditor() {
   const [links, setLinks] = useState(LINK_DEFAULTS);
   const [sender, setSender] = useState(SENDER_DEFAULTS);
+  const [me, setMe] = useState(null); // the signed-in person's own first name and role
+  useEffect(() => { fetch("/api/login").then((r) => r.json()).then((j) => { if (j.email) setMe(j.profile || { name: "", role: "" }); }).catch(() => {}); }, []);
   const [clients, setClients] = useState(CLIENT_DEFAULTS);
   const [subjects, setSubjects] = useState(SUBJECT_DEFAULTS);
   const [followUp, setFollowUp] = useState({ chaseDays: 7, coldDays: 21, lostDays: 60 });
@@ -441,7 +482,12 @@ function LinksEditor() {
         ))}
       </div>
       <div className="grid gap-2 sm:grid-cols-4">
-        {[["name", "Your first name"], ["role", "Your role"], ["agency", "Agency"], ["where", "Where you are"]].map(([k, label]) => (
+        {/* Your name and role are yours alone (on your sign-in), so Claude writes each person's emails as them. */}
+        {me && [["name", "Your first name"], ["role", "Your role"]].map(([k, label]) => (
+          <label key={k} className="block text-sm"><span className="text-xs font-semibold text-zinc-600">{label} <span className="font-normal text-zinc-400">(just you)</span></span>
+            <input value={me[k] || ""} onChange={(e) => setMe({ ...me, [k]: e.target.value })} onBlur={() => fetch("/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ profile: me }) }).catch(() => {})} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
+        ))}
+        {[["agency", "Agency"], ["where", "Where you are"]].map(([k, label]) => (
           <label key={k} className="block text-sm"><span className="text-xs font-semibold text-zinc-600">{label}</span>
             <input value={sender[k] || ""} onChange={(e) => setSender({ ...sender, [k]: e.target.value })} className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1 text-sm" /></label>
         ))}

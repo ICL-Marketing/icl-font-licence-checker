@@ -1,5 +1,6 @@
 import { storeConfigured, getClients, setClients } from "@/lib/store";
 import { normaliseClients } from "@/lib/clients";
+import { logActivity } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,11 @@ export async function POST(request) {
   if (!storeConfigured()) return Response.json({ shared: false });
   const b = await request.json().catch(() => ({}));
   if (!Array.isArray(b.clients)) return Response.json({ error: "clients required" }, { status: 400 });
-  try { return Response.json({ shared: true, clients: await setClients(normaliseClients(b.clients).slice(0, 2000)) }); }
+  try {
+    const before = await getClients().catch(() => null);
+    const clients = await setClients(normaliseClients(b.clients).slice(0, 2000));
+    await logActivity({ area: "clients", item: "clients", label: "Client list", before: { clients: before || [] }, after: { clients } });
+    return Response.json({ shared: true, clients });
+  }
   catch (e) { return Response.json({ error: String(e?.message || e) }, { status: 500 }); }
 }
