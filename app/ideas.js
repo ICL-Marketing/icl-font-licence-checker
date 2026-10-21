@@ -6,7 +6,7 @@ import Link from "next/link";
 import { StopIcon, RefreshIcon, ExternalIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon, TrashIcon } from "@/app/icons";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, sentIds, PasteHint, withTitle, ClaudeText } from "@/app/claudeInbox";
 import { ProposalModal } from "@/app/proposal";
-import { setEmailTemplates } from "@/lib/leadsShared";
+import { setEmailTemplates, staleFooterYear } from "@/lib/leadsShared";
 import { IDEA_STATUSES, IDEA_KINDS, ideasFor, ideaEmail, researchPrompt, parseResearchReply, findingsLine, IDEAS_VERSION, normStatus, monthKey, monthName, clientQueue, monthlyPick, topIdeas, IDEA_SERVICES, serviceFor, hoursFor, isQuickFix, customIdea, IDEA_GREETING, internalTasks, builtByFor, iclServerIps, ideaType, supportEmail, PLANS, checkIdeasPrompt } from "@/lib/clientIdeas";
 
 // Client Ideas: the same engine as Website Leads, pointed at our existing clients' websites.
@@ -190,7 +190,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     if (cfg?.ai && withAi && !stopRef.current) {
       st.phase = `Researching ${c.name} with AI…`; setRun({ ...st });
       const t = rec.seo?.searches?.find((x) => x.kind === "trade");
-      const findings = { problem: rec.problem || "", detail: rec.problemDetail || "", platform: rec.platform || "", footerYear: rec.year || 0, signals: rec.signals || null,
+      const findings = { problem: rec.problem || "", detail: rec.problemDetail || "", platform: rec.platform || "", footerYear: staleFooterYear(rec.year), signals: rec.signals || null,
         licence: rec.licence ? { fonts: [...(rec.licence.fonts || []), ...(rec.licence.possibleFonts || [])].map((f) => `${f.family}: ${f.label}`), stockImages: (rec.licence.images || []).length } : null,
         search: t ? `${t.query}: ${t.position ? `#${t.position}` : "not on page 1"}` : "" };
       const ask = (quick) => fetch("/api/ideas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ step: "research", name: c.name, websites: c.websites || [], notes: c.notes || "", findings, quick }) }).then((r) => r.json());
