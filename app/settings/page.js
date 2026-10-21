@@ -6,7 +6,7 @@ import { TeamEditor, loadTeam, saveTeam, normaliseTeam } from "@/app/team";
 import { ClientsEditor, loadClients, saveClients } from "@/app/clients";
 import { normaliseClients } from "@/lib/clients";
 import { keysFor } from "@/app/launch";
-import { DEFAULT_SUBJECTS_SHARED, ICL_LINE, MAINTENANCE_DEFAULT, OPT_OUT_DEFAULT } from "@/lib/leadsShared";
+import { DEFAULT_SUBJECTS_SHARED, ICL_LINE, MAINTENANCE_DEFAULT, OPT_OUT_DEFAULT, OLD_ICL } from "@/lib/leadsShared";
 import { MAIL_KEY } from "@/app/mail";
 import { RetainerPointsEditor, TemplateEditor, DayRateEditor } from "@/app/proposal";
 
@@ -529,7 +529,7 @@ function TemplatesEditor() {
     Promise.all([fetch("/api/settings?key=lead-links").then((r) => r.json()).catch(() => ({})), fetch("/api/settings?key=email-templates").then((r) => r.json()).catch(() => ({}))]).then(([a, b]) => {
       links.current = a.value || {};
       if (a.value?.subjects) setSubjects({ ...SUBJECT_DEFAULTS, ...a.value.subjects });
-      if (b.value) setTpl({ footer: b.value.footer || ICL_LINE, optOut: b.value.optOut || OPT_OUT_DEFAULT, maintenance: { subject: b.value.maintenance?.subject || MAINTENANCE_DEFAULT.subject, body: b.value.maintenance?.body || MAINTENANCE_DEFAULT.body } });
+      if (b.value) setTpl({ footer: (b.value.footer && !OLD_ICL.test(b.value.footer.trim()) ? b.value.footer : "") || ICL_LINE, optOut: b.value.optOut || OPT_OUT_DEFAULT, maintenance: { subject: b.value.maintenance?.subject || MAINTENANCE_DEFAULT.subject, body: b.value.maintenance?.body || MAINTENANCE_DEFAULT.body } });
       setTimeout(() => { loaded.current = true; }, 0);
     });
   }, []);

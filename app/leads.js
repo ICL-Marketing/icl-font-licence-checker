@@ -298,6 +298,8 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
       if (!local) { local = Object.fromEntries(SEED.map((l) => [l.id, l])); save(local); }
       const yoursLocal = Object.fromEntries(Object.values(local).filter(handledByYou).map((l) => [l.id, l.status]));
       for (const l of Object.values(local)) if (l.email && !l.email.includes("\n\n")) l.email = l.email.trim().replace(/\n+/g, "\n\n"); // paragraph spacing for older drafts
+      // A footer year only last year out is never worth a line: drafts lose it here too.
+      for (const l of Object.values(local)) if (l.email && !isFrozen(l) && /(©|\(c\)|copyright)\s*20\d\d/i.test(l.email)) l.email = stripFlagLine(l.email);
       // Dormant companies scored before the rule existed: Low, parked, with the reason.
       for (const l of Object.values(local)) if (/dormant/i.test(l.caveats || "") && (l.likelihood !== "Low" || !/dormant/i.test(l.likelihoodWhy || ""))) { l.likelihood = "Low"; l.likelihoodWhy = "Filed as dormant at Companies House, so not trading through this company; nothing to sell to"; if (["new", "qualified", "no-contact"].includes(l.status)) l.status = "not-pursuing"; l.updatedAt = new Date().toISOString(); }
       // A lead with nothing to pitch (site current, no licence risk) does not belong in an open column.
@@ -344,7 +346,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         for (const l of Object.values(next)) if (handledByYou(l)) yoursShared[l.id] = l.status;
         // "Just thought I'd flag it with you…" is gone from every email: the closing paragraph
         // does that job. Drafts written before lose it here, sent ones are left as they went.
-        for (const l of Object.values(next)) if (l.email && !isFrozen(l) && /flag it with you/i.test(l.email)) { const t = stripFlagLine(l.email); if (t !== l.email) { l.email = t; l.updatedAt = new Date().toISOString(); push(l.id, l); } }
+        for (const l of Object.values(next)) if (l.email && !isFrozen(l) && (/flag it with you/i.test(l.email) || /(©|\(c\)|copyright)\s*20\d\d/i.test(l.email))) { const t = stripFlagLine(l.email); if (t !== l.email) { l.email = t; l.updatedAt = new Date().toISOString(); push(l.id, l); } }
         // A lead whose draft is already in belongs in Ready to check email, not in the queue
         // that is still waiting for Claude.
         for (const l of Object.values(next)) if (l.status === "to-draft" && l.review?.drafted && l.email) { l.status = "to-check"; l.statusAt = l.updatedAt = new Date().toISOString(); push(l.id, l); }
@@ -2247,7 +2249,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
     ...issues.map((i) => ({ key: `chk:${i.id}`, label: i.label, from: "Checker", issue: i })),
     // Claude's three findings, best first. High is a quick fix worth flagging, Low is a bigger
     // recommendation, so the list reads in the order the email should make its case.
-    ...sortFindings(l.claude?.findings).map((x, i) => ({ key: `find:${i}`, label: `${x.label}: ${x.note}`, grade: x.grade, from: "Claude" })),
+    ...sortFindings(l.claude?.findings).filter((x) => !(/footer|copyright/i.test(x.label) && !(l.year && l.year <= new Date().getFullYear() - 2))).map((x, i) => ({ key: `find:${i}`, label: `${x.label}: ${x.note}`, grade: x.grade, from: "Claude" })),
     ...(!(l.claude?.findings || []).length && l.claude && (l.claude.angle || l.claude.issue_note) ? [{ key: "claude", label: oneLine(l.claude.angle || l.claude.issue_note), from: "Claude" }] : []),
     // What you wrote in step 1 is an issue you can lead with too.
     ...(String(r.notes || "").trim() ? [{ key: "note", label: String(r.notes).trim().replace(/\s+/g, " "), from: "You" }] : []),
