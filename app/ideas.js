@@ -39,6 +39,15 @@ function supportHref(r, it) {
   const body = [`Client: ${r?.name || ""}`, site && `Website: ${site}`, r?.manager && `Account manager: ${r.manager}`, "", `What needs fixing: ${it.title}`, it.why && `Details: ${it.why}`, it.page && `Page: ${it.page}`].filter((x) => x !== false && x !== undefined && x !== null).join("\n");
   return mailHref("support@icldigital.com", `${r?.name || "Client"}: ${it.title}`, body);
 }
+// Every support job for one client in one email.
+function supportBundleHref(r, items) {
+  const site = r?.website ? `https://${r.website}` : "";
+  const list = items.map((it, n) => [`${n + 1}. ${it.title}`, it.claudeCheck?.fix && `   Fix: ${it.claudeCheck.fix}`, it.why && `   Details: ${it.why}`, (it.page || it.claudeCheck?.page) && `   Page: ${it.page || it.claudeCheck.page}`].filter(Boolean).join("\n"));
+  const body = [`Client: ${r?.name || ""}`, site && `Website: ${site}`, r?.manager && `Account manager: ${r.manager}`, "", "What needs fixing:", ...list].filter((x) => x !== false && x !== undefined && x !== null).join("\n");
+  return mailHref("support@icldigital.com", `${r?.name || "Client"}: ${items.length} support fixes`, body);
+}
+// Things we'd normally sort at go-live: anything broken, and Support work (cookie banner, footer year, accessibility, alt text…).
+const isSupportJob = (i) => i.status === "queued" && !i.internal && (ideaType(i) === "fix" || (i.service || serviceFor(i.title)) === "Support");
 // Who the idea came from: Claude or the automatic checks ("AI"), or ICL's own list and your team ("ICL").
 const ideaSource = (i) => (i.ai || i.internal || ideaType(i) === "fix" ? "AI" : "ICL");
 
@@ -324,6 +333,8 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     .map((g) => (!q || `${g.name} ${g.manager} ${g.recs.map((r) => r.website).join(" ")}`.toLowerCase().includes(q) ? g : { ...g, top: g.top.filter((i) => `${i.title} ${i.why || ""} ${i.service || ""}`.toLowerCase().includes(q)) }))
     .filter((g) => g.queue.length && (!manager || g.manager === manager) && (!q || g.top.length))
     .filter((g) => !service || g.top.length)
+    // Support jobs on sites we built (cookie banner, footer year, accessibility, alt text…) show as one card with one email.
+    .map((g) => { const sup = g.ours ? g.top.filter(isSupportJob) : []; return { ...g, cards: sup.length > 1 ? [{ bundle: true, key: "support-bundle", recId: sup[0].recId, title: `Support fixes (${sup.length})`, items: sup, status: "queued" }, ...g.top.filter((i) => !sup.includes(i))] : g.top }; })
     // Pinned clients first, then ones first checked in the last week (newest first), then A to Z.
     .sort((a, b) => (b.client?.ideasPinned ? 1 : 0) - (a.client?.ideasPinned ? 1 : 0) || String(newSince(b)).localeCompare(String(newSince(a))) || a.name.localeCompare(b.name));
   const starCount = [...byClient.values()].reduce((n, g) => n + clientQueue(g.recs).filter((i) => i.starred && !["declined", "done"].includes(i.status)).length, 0);
@@ -445,8 +456,21 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
                   <td className="max-w-0 px-3 py-3">
                   <div className="grid snap-x auto-cols-[calc((100%-2.25rem)/3.2)] grid-flow-col gap-3 overflow-x-auto pb-1">
                   {g.top.length === 0 && <div className="text-xs text-zinc-400">No big ideas yet.</div>}
-                  {g.top.map((it, n) => {
+                  {g.cards.map((it, n) => {
                     const r = g.recs.find((x) => x.id === it.recId) || g.recs[0]; const to = (r?.emails || [])[0] || "";
+                    if (it.bundle) return (
+                      <div key="support-bundle" className="relative snap-start rounded-lg border border-red-200 bg-red-50/40 p-2.5">
+                        <div className="flex flex-wrap items-center gap-1 text-[11px]"><span className="rounded-full bg-red-600 px-1.5 py-0.5 font-semibold text-white">Support</span><span className="rounded-full bg-zinc-100 px-1.5 py-0.5 font-semibold text-zinc-700">~{it.items.reduce((t, i) => t + hoursFor(i), 0)} hrs</span></div>
+                        <div className="mt-1 font-medium leading-snug">{it.title}</div>
+                        <ul className="mt-1 space-y-0.5 text-xs text-zinc-700">{it.items.map((i) => (
+                          <li key={i.key} className="flex items-start gap-1"><button onClick={() => setOpen({ id: i.recId, key: i.key })} className="min-w-0 flex-1 text-left hover:underline">• {i.title}</button>
+                            <button onClick={() => { if (window.confirm(`Delete “${i.title}”?`)) updateIdea(i.recId, i.key, { status: "declined", badReason: "", statusAt: new Date().toISOString() }); }} aria-label={`Delete ${i.title}`} title="Delete this one" className="shrink-0 rounded text-zinc-300 hover:text-red-700"><TrashIcon className="h-3 w-3" /></button></li>))}</ul>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                          <a href={supportBundleHref(r, it.items)} target="_blank" rel="noopener" title="One email to support@icldigital.com with everything on this list" className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 hover:bg-zinc-100">Send to Support</a>
+                          <button onClick={() => { const at = new Date().toISOString(); for (const i of it.items) updateIdea(i.recId, i.key, { status: "done", statusAt: at }); }} title="All fixed: take them off the list" className="rounded-md bg-emerald-700 px-2 py-0.5 font-medium text-white hover:bg-emerald-800">Mark all done</button>
+                        </div>
+                      </div>
+                    );
                     const href = mailHref(to, it.subject || "", ideaEmail(r, it, to));
                     return (
                       <div key={`${it.recId}|${it.key}`} onClick={() => setOpen({ id: it.recId, key: it.key })} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setOpen({ id: it.recId, key: it.key }); }} className={`relative cursor-pointer snap-start rounded-lg border p-2.5 pr-8 hover:border-zinc-400 hover:bg-zinc-50 ${it.starred ? "border-amber-300 bg-amber-50/40" : "border-zinc-200"}`}>
