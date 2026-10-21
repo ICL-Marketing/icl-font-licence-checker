@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PlayIcon, StopIcon, RefreshIcon, CopyIcon, CheckIcon, ExternalIcon, SearchIcon, DownloadIcon, SpinnerIcon } from "@/app/icons";
+import { PlayIcon, StopIcon, RefreshIcon, TrashIcon, CopyIcon, CheckIcon, ExternalIcon, SearchIcon, DownloadIcon, SpinnerIcon } from "@/app/icons";
 import { useClaudeJob, useClaudeHandler, openClaude, withTitle, markSent, ClaudeText } from "@/app/claudeInbox";
 import { consentCheckPrompt, CONSENT_DEV_BRIEF } from "@/lib/consent";
 
@@ -195,13 +195,17 @@ export default function ConsentArea({ clients = [], onRunning, onCount }) {
               <tr key={site} className="align-top">
                 <td className="px-3 py-2"><a href={`https://${site}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-zinc-900 hover:underline">{site} <ExternalIcon /></a>
                   {(client || manager) && <div className="text-xs text-zinc-500">{[client, manager].filter(Boolean).join(" · ")}</div>}</td>
-                <td className="px-3 py-2">{r ? <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS[r.status]?.[1] || "bg-zinc-200"}`}>{STATUS[r.status]?.[0] || r.status}</span> : <span className="text-xs text-zinc-400">Not checked</span>}</td>
+                <td className="px-3 py-2">{!r ? <span className="text-xs text-zinc-400">Not checked</span>
+                  : r.status === "RUNNING" ? <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS.RUNNING[1]}`}>{STATUS.RUNNING[0]}</span>
+                  // The result pill is also where you change it by hand (after checking in a private window).
+                  : <select value={r.status} onChange={(e) => { const v = { ...r, status: e.target.value, manual: { at: new Date().toISOString() } }; put(site, v); share(site, v); }} aria-label={`Result for ${site}: change it by hand`} title="Change the result by hand, e.g. after checking it yourself in a private window"
+                      className={`cursor-pointer appearance-none whitespace-nowrap rounded-full border-0 py-0.5 pl-2 pr-5 text-[11px] font-semibold ${STATUS[r.status]?.[1] || "bg-zinc-200"}`} style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center", backgroundSize: "9px" }}>
+                      {["GAP", "NO_BANNER", "OK", "NO_TRACKING", "UNREACHABLE"].map((k) => <option key={k} value={k} className="bg-white text-zinc-900">{STATUS[k][0]}</option>)}
+                    </select>}</td>
                 <td className="px-3 py-2 text-xs text-zinc-700">{r?.manual && <p className="mb-1 font-medium text-zinc-800">Set by hand {new Date(r.manual.at).toLocaleDateString("en-GB")}</p>}{r?.claude && <ClaudeSays c={r.claude} />}{r?.claude && r?.summary ? <span className="text-zinc-500">Our check: </span> : null}{r?.summary}{r?.bannerName && r.status !== "GAP" ? <span className="text-zinc-500"> Banner: {r.bannerName}.</span> : null}{r?.checkedAt && <div className="mt-0.5 text-[11px] text-zinc-400">Checked {new Date(r.checkedAt).toLocaleDateString("en-GB")}</div>}</td>
                 <td className="px-3 py-2"><div className="flex items-center justify-end gap-2">{r?.ticket && r.status === "GAP" && <Brief text={r.ticket} />}
-                  {r && r.status !== "RUNNING" && <select value="" onChange={(e) => { const v = { ...r, status: e.target.value, manual: { at: new Date().toISOString() } }; put(site, v); share(site, v); }} aria-label={`Set the result for ${site} by hand`} title="Set the result by hand, e.g. after checking it yourself in a private window" className="rounded border border-zinc-300 bg-white px-1 py-0.5 text-xs text-zinc-600">
-                    <option value="">Set result…</option>{["GAP", "NO_BANNER", "OK", "NO_TRACKING", "UNREACHABLE"].filter((k) => k !== r.status).map((k) => <option key={k} value={k}>{STATUS[k][0]}</option>)}
-                  </select>}
-                  <button onClick={() => checkOne(site)} disabled={r?.status === "RUNNING"} aria-label={`Check ${site} again`} title="Check again" className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /></button></div></td>
+                  <button onClick={() => checkOne(site)} disabled={r?.status === "RUNNING"} aria-label={`Check ${site} again`} title="Check again" className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-40"><RefreshIcon className="h-4 w-4" /></button>
+                  {r && <button onClick={() => { if (!window.confirm(`Delete the result for ${site}?`)) return; setResults((prev) => { const next = { ...prev }; delete next[site]; save(next); return next; }); fetch("/api/results", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "consent", site }) }).catch(() => {}); }} aria-label={`Delete the result for ${site}`} title="Delete this result" className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button>}</div></td>
               </tr>
             ))}
             {!rows.length && <tr><td colSpan={4} className="px-3 py-6 text-center text-sm text-zinc-500">Nothing here yet.</td></tr>}
