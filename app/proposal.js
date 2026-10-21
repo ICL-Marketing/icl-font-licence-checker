@@ -232,7 +232,7 @@ export function ProposalModal({ group, onClose, onLink }) {
     try {
       const { buildDeck } = await import("@/app/proposalDeck");
       const template = await loadTemplate().catch(() => null);
-      await buildDeck({ client: group.name, website, lines, copy: doc.copy, images, packages: pkgIds, template, dayRate });
+      await buildDeck({ client: group.name, website, lines, copy: doc.copy, images, packages: pkgIds, template, dayRate, tiers: !!doc.tiersOn });
     }
     catch (e) { setErr(`Couldn't build the deck: ${e.message}`); }
     setBusy(false);
@@ -241,8 +241,8 @@ export function ProposalModal({ group, onClose, onLink }) {
   const hidden = doc?.copy?.hide || {};
   const toggle = (k) => ({ hidden: !!hidden[k], onToggle: () => setCopy({ hide: { ...hidden, [k]: !hidden[k] } }) });
   // The Bronze / Silver / Gold slide is off unless switched on (hide.tiers === false).
-  const tiersToggle = { hidden: hidden.tiers !== false, onToggle: () => setCopy({ hide: { ...hidden, tiers: hidden.tiers === false } }) };
-  const plan = doc?.copy && hidden.tiers === false ? tierPlan(lines, picked, dayRate) : null;
+  const tiersToggle = { hidden: !doc?.tiersOn, onToggle: () => change((d) => ({ ...d, tiersOn: !d.tiersOn })) };
+  const plan = doc?.tiersOn ? tierPlan(lines, picked, dayRate) : null;
   const tierPreview = !plan ? "needs at least three paid ideas" : ["bronze", "silver", "gold"].map((t) => `${t[0].toUpperCase()}${t.slice(1)} £${plan[t].price.toLocaleString("en-GB")} (${plan[t].lines.length})`).join(" · ");
   const setIdeaCopy = (key, fields) => setCopy({ ideas: doc.copy.ideas.map((x) => (x.key === key ? { ...x, ...fields } : x)) });
   const step = doc?.step || 0;
@@ -296,6 +296,11 @@ export function ProposalModal({ group, onClose, onLink }) {
 
             {step === 1 && (
               <div className="space-y-3">
+                <label className="flex items-start gap-2 rounded-lg border border-zinc-200 p-3 text-sm">
+                  <input type="checkbox" checked={!!doc.tiersOn} onChange={tiersToggle.onToggle} className="mt-0.5 h-4 w-4" />
+                  <span><span className="font-semibold">Offer Bronze / Silver / Gold options</span> <span className="text-zinc-500">(a &quot;Choose your package&quot; slide built from these ideas; Silver is priced to be the easy choice)</span>
+                    {doc.tiersOn && <span className="mt-1 block text-xs text-zinc-600">{tierPreview}</span>}</span>
+                </label>
                 <div className="rounded-lg border border-zinc-200 p-3">
                   <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Packages to offer (optional)</div>
                   <div className="space-y-1.5">{PACKAGE_GROUPS.map((g) => (

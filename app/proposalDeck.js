@@ -27,7 +27,7 @@ const teamList = (team = []) => TEAMS.filter(([k]) => team.includes(k)).map(([, 
 const hrs = (a, b) => `${range(a, b)}\u00A0hr${a === b && a === 1 ? "" : "s"}`;
 const fileSafe = (s) => String(s).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "Client";
 
-export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null, dayRate = DAY_RATE }) {
+export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null, dayRate = DAY_RATE, tiers = false }) {
   const { default: PptxGenJS } = await import("pptxgenjs");
   const pres = new PptxGenJS();
   // Where each slide goes: null for one built here, or a slot name for a slide copied from the uploaded template.
@@ -222,7 +222,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   }
   extrasAt("costs");
   // 6b. Options: Bronze / Silver / Gold built from the ideas (only when switched on in the review step).
-  const plan = hide.tiers === false ? tierPlan(lines, picked, dayRate) : null;
+  const plan = tiers ? tierPlan(lines, picked, dayRate) : null;
   if (plan) {
     const s = light("Choose your package");
     const money = (n) => `£${Math.round(n).toLocaleString("en-GB")}`, name = (l) => byKey[l.key]?.title || l.title;
