@@ -1,6 +1,6 @@
 // Builds the ICL proposal deck (.pptx) in the browser with pptxgenjs, in the house style:
 // dark gradient slides with the white logo, white slides with navy titles, teal accents, Obviously.
-import { TEAMS, range, split, totals, priceFor, DAY_RATE } from "@/lib/proposal";
+import { TEAMS, range, split, totals, priceFor, DAY_RATE, DAY_HOURS } from "@/lib/proposal";
 import { pickedPackages, packageFor, packagesOf, hourTeams } from "@/lib/packages";
 
 const W = 19.44, H = 12.5;
@@ -167,31 +167,38 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const runs = [{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, bold: true } }, { text: (pkg ? priceOf(pkg) : `${hrs(l.min, l.max)} · ${l.free ? "FREE OF CHARGE" : priceFor(l, dayRate)}`).toUpperCase(), options: { color: NAVY, bold: true } }, { text: "      TEAM:  ", options: { color: GREY, bold: true } }, { text: teamText.toUpperCase(), options: { color: NAVY, bold: true } }];
     const chars = runs.reduce((n, r) => n + r.text.length, 0), fs = Math.max(11, Math.min(20, Math.floor(((W - 2.9) * 72) / (chars * 0.7))));
     s.addText(runs, { x: 1.4, y: 9.6, w: W - 2.9, h: 1.15, fontFace: FONT, fontSize: fs, valign: "middle", wrap: false, isTextBox: true, margin: 0 });
-    for (const g of packagesOf(l, picked)) packageSlide(g);
+    // Fixed-price packages (videography) are explained on the idea slide itself, so no package slide for them.
+    for (const g of packagesOf(l, picked)) if (!g.fixed) packageSlide(g);
   }
   extrasAt("ideas");
-  // 6. Estimated effort
-  if (!hide.effort && hourLines.length) {
-    const s = light("Estimated effort");
+  // 6. Investment summary: the hourly work, plus one-off packages (videography) at their set price.
+  const fixedLines = lines.filter((l) => pkgOf(l)?.fixed);
+  if (!hide.effort && (hourLines.length || fixedLines.length)) {
+    const s = light("Investment summary");
     const hd = (t, al = "center") => ({ text: t, options: { bold: true, color: WHITE, fill: { color: NAVY }, align: al, fontSize: many ? 12 : 16 } });
     const cell = (t, o = {}) => ({ text: t, options: { color: INK, fontSize: many ? 15 : 17, align: "center", ...o } });
     // Only the teams this proposal uses get a column.
     const used = TEAMS.filter(([k]) => t[k][1] > 0);
-    const many = used.length > 4, fixedW = many ? [4.8, 3.2] : [5.8, 3.6], TW = W - 1.8, EW = 2.4;
+    const many = used.length > 3, fixedW = many ? [4.6, 3.0] : [5.4, 3.4], TW = W - 1.8, EW = 2.2, CW = 2.2; // CW: the cost column
+    const money = (n) => `£${Math.round(n).toLocaleString("en-GB")}`, costOf = (l) => (l.free ? 0 : (l.max * dayRate) / DAY_HOURS);
     const pad = { margin: [0.08, 0.1, 0.08, 0.35] }; // breathing room on the left of the first column
-    const rows = [[{ ...hd("Improvement", "left"), options: { ...hd("Improvement", "left").options, ...pad } }, hd("Team"), ...used.map(([, , short]) => hd(short)), hd("Estimate")]];
-    for (const l of hourLines) { const sp = split(l); rows.push([cell((byKey[l.key]?.title || l.title).toUpperCase(), { align: "left", bold: true, color: NAVY, ...pad }), cell(l.team.map(teamName).join(" + ")), ...used.map(([k]) => cell(sp[k] && !l.free ? range(...sp[k]) : "–")), cell(l.free ? `FREE (${hrs(l.min, l.max)})` : hrs(l.min, l.max), { bold: true, ...(l.free ? { color: TEAL } : {}) })]); }
-    rows.push([cell("TOTAL HANDS-ON WORK", { align: "left", bold: true, color: NAVY, fill: { color: PALE }, ...pad }), cell("", { fill: { color: PALE } }), ...used.map(([k]) => cell(t[k][1] ? range(t[k][0], t[k][1]) : "–", { bold: true, fill: { color: PALE } })), cell(`${range(t.min, t.max)} hrs`, { bold: true, color: NAVY, fill: { color: PALE } })]);
+    const rows = [[{ ...hd("Improvement", "left"), options: { ...hd("Improvement", "left").options, ...pad } }, hd("Team"), ...used.map(([, , short]) => hd(short)), hd("Estimate"), hd("Cost")]];
+    for (const l of hourLines) { const sp = split(l); rows.push([cell((byKey[l.key]?.title || l.title).toUpperCase(), { align: "left", bold: true, color: NAVY, ...pad }), cell(l.team.map(teamName).join(" + ")), ...used.map(([k]) => cell(sp[k] && !l.free ? range(...sp[k]) : "–")), cell(l.free ? `FREE (${hrs(l.min, l.max)})` : hrs(l.min, l.max), { bold: true, ...(l.free ? { color: TEAL } : {}) }), cell(l.free ? "FREE" : money(costOf(l)), { bold: true, ...(l.free ? { color: TEAL } : {}) })]); }
+    const tierOf = (g) => g.tiers.find((x) => g.picked.includes(x.id)) || g.tiers[0];
+    for (const l of fixedLines) { const g = pkgOf(l), tr = tierOf(g); rows.push([cell((byKey[l.key]?.title || l.title).toUpperCase(), { align: "left", bold: true, color: NAVY, ...pad }), cell(l.team.map(teamName).join(" + ")), ...used.map(() => cell("–")), cell(String(tr.period || "").replace(/^for an? /i, "").replace(/^./, (c) => c.toUpperCase())), cell(tr.price, { bold: true })]); }
+    const fixedCost = fixedLines.reduce((n, l) => n + (Number(String(tierOf(pkgOf(l)).price).replace(/[^0-9.]/g, "")) || 0), 0), fromPrice = fixedLines.some((l) => /^from/i.test(tierOf(pkgOf(l)).price));
+    rows.push([cell("TOTAL HANDS-ON WORK", { align: "left", bold: true, color: NAVY, fill: { color: PALE }, ...pad }), cell("", { fill: { color: PALE } }), ...used.map(([k]) => cell(t[k][1] ? range(t[k][0], t[k][1]) : "–", { bold: true, fill: { color: PALE } })), cell(`${range(t.min, t.max)} hrs`, { bold: true, color: NAVY, fill: { color: PALE } }), cell(`${fromPrice ? "From " : ""}${money(hourLines.reduce((n, l) => n + costOf(l), 0) + fixedCost)}`, { bold: true, color: NAVY, fill: { color: PALE } })]);
     const rh = Math.min(1, 7.6 / rows.length);
-    s.addTable(rows, { x: 0.9, y: 2.3, w: TW, colW: [...fixedW, ...used.map(() => (TW - fixedW[0] - fixedW[1] - EW) / used.length), EW], rowH: rh, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" }, margin: 0.08 });
+    s.addTable(rows, { x: 0.9, y: 2.3, w: TW, colW: [...fixedW, ...used.map(() => (TW - fixedW[0] - fixedW[1] - EW - CW) / used.length), EW, CW], rowH: rh, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" }, margin: 0.08 });
   }
   // 6b. Costs: package work (SEO, PPC, videography, support) kept apart from the hours
-  if (!hide.costs && picked.length) {
-    const s = light(picked.some((g) => g.fixed) ? (picked.some((g) => !g.fixed) ? "Monthly & one-off costs" : "One-off costs") : "Monthly costs");
+  // One-off packages are on the investment summary, so this is the monthly costs only.
+  if (!hide.costs && picked.some((g) => !g.fixed)) {
+    const s = light("Monthly costs");
     const hd = (t, al = "left") => ({ text: t, options: { bold: true, color: WHITE, fill: { color: NAVY }, align: al, fontSize: 17, margin: [0.08, 0.35, 0.08, 0.35] } });
     const cell = (t, o = {}) => ({ text: t, options: { color: INK, fontSize: 18, margin: [0.1, 0.35, 0.1, 0.35], ...o } });
     const rows = [[hd("Package"), hd("Covers"), hd("Cost", "right")]];
-    for (const g of [...picked.filter((x) => !x.fixed), ...picked.filter((x) => x.fixed)]) for (const t of g.tiers.filter((x) => g.picked.includes(x.id))) {
+    for (const g of picked.filter((x) => !x.fixed)) for (const t of g.tiers.filter((x) => g.picked.includes(x.id))) {
       const covers = lines.filter((l) => packagesOf(l, picked).some((x) => x.id === g.id)).map((l) => byKey[l.key]?.title || l.title);
       rows.push([cell((t.name.toLowerCase().includes(g.name.toLowerCase()) ? t.name : `${g.name} ${t.name}`).toUpperCase(), { bold: true, color: NAVY }), cell(covers.length ? covers.join(", ") : t.best), cell(`${t.price} ${t.period}`, { bold: true, color: NAVY, align: "right" })]);
     }
@@ -199,15 +206,14 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const est = (t) => (t.length * 18 * 0.7) / 72 + 0.8;
     const c1 = Math.min(9, Math.max(5.6, ...rows.slice(1).map((r) => est(r[0].text)))), c3 = Math.min(7.5, Math.max(4.4, ...rows.slice(1).map((r) => est(r[2].text))));
     s.addTable(rows, { x: 0.9, y: 2.3, w: W - 1.8, colW: [c1, W - 1.8 - c1 - c3, c3], rowH: 0.95, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" } });
-    s.addText(["All prices exclude VAT.", picked.some((g) => g.id === "ppc") && "PPC is our monthly management fee plus your Google ad spend, paid to Google.", picked.some((g) => g.fixed) && "Videography is a set price for a set amount of work."].filter(Boolean).join(" "), { x: 0.9, y: Math.min(9.9, 2.6 + rows.length * 0.95), w: W - 1.8, h: 0.6, fontFace: FONT, fontSize: 15, italic: true, color: GREY, isTextBox: true, margin: 0 });
+    s.addText(["All prices exclude VAT.", picked.some((g) => g.id === "ppc") && "PPC is our monthly management fee plus your Google ad spend, paid to Google."].filter(Boolean).join(" "), { x: 0.9, y: Math.min(9.9, 2.6 + rows.length * 0.95), w: W - 1.8, h: 0.6, fontFace: FONT, fontSize: 15, italic: true, color: GREY, isTextBox: true, margin: 0 });
   }
   extrasAt("costs");
   // 7. Retainer
   if (copy.retainer?.length && !hide.retainer) {
-    const s = light("Next: a monthly retainer");
+    const s = light(copy.retainerTitle || "Next: a support retainer");
     blockGrid(s, copy.retainer);
   }
-  extrasAt("retainer");
   // 8. Support packages: the template's page 11 (tier headings in their colours, open table with rules)
   if (!hide.support && !fixedSlide("support")) {
     const s = light();
@@ -234,6 +240,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     rows.forEach((r, i) => r.forEach((c) => { c.options.border = i === 0 ? [null, null, { type: "solid", pt: 1, color: INDIGO }, null] : i === rows.length - 1 ? [{ type: "solid", pt: 1, color: INDIGO }, null, null, null] : [null, null, null, null]; }));
     s.addTable(rows, { x: 0.71, y: 2.48, w: 18.1, colW: [4.88, 4.37, 4.34, 4.51], rowH: [0.87, 2.04, 0.91, 0.87, 0.67, 0.71, 0.67, 0.87, 0.87], fontFace: FONT, fontSize: 20, valign: "middle", margin: [0.04, 0.1, 0.04, 0.04] });
   }
+  extrasAt("retainer"); // your own slides placed after the retainer follow the support packages, which come straight after it
   extrasAt("support");
   // 9. Service retainer offering: the brand layout, staggered rows of service names (positions taken from the design, in px of a 1900px-wide slide)
   if (!hide.services && !fixedSlide("services")) {
