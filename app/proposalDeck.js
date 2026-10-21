@@ -1,6 +1,6 @@
 // Builds the ICL proposal deck (.pptx) in the browser with pptxgenjs, in the house style:
 // dark gradient slides with the white logo, white slides with navy titles, teal accents, Obviously.
-import { TEAMS, range, split, totals, priceFor, DAY_RATE, DAY_HOURS } from "@/lib/proposal";
+import { TEAMS, range, split, totals, priceFor, DAY_RATE, DAY_HOURS, lineValue } from "@/lib/proposal";
 import { pickedPackages, packageFor, packagesOf, hourTeams } from "@/lib/packages";
 
 const W = 19.44, H = 12.5;
@@ -209,6 +209,37 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     s.addText(["All prices exclude VAT.", picked.some((g) => g.id === "ppc") && "PPC is our monthly management fee plus your Google ad spend, paid to Google."].filter(Boolean).join(" "), { x: 0.9, y: Math.min(9.9, 2.6 + rows.length * 0.95), w: W - 1.8, h: 0.6, fontFace: FONT, fontSize: 15, italic: true, color: GREY, isTextBox: true, margin: 0 });
   }
   extrasAt("costs");
+  // 6c. Roadmap (the template's process timeline): the ideas spread over the months, most expensive
+  // first, one-off packages included, monthly packages running all the way through, a cost per month.
+  if (!hide.roadmap && lines.length > 1) {
+    const valueOf = (l) => lineValue(l, picked, dayRate);
+    const items = [...lines].sort((a, b) => valueOf(b) - valueOf(a));
+    const n = Math.min(6, items.length), months = Array.from({ length: n }, () => []);
+    if (items.length <= 6) items.forEach((l, i) => months[i].push(l));
+    else { const target = items.reduce((t, l) => t + Math.max(0, valueOf(l)), 0) / n; let m = 0, sum = 0; for (const l of items) { if (m < n - 1 && sum >= target && months[m].length) { m++; sum = 0; } months[m].push(l); sum += Math.max(0, valueOf(l)); } }
+    const monthly = picked.filter((g) => !g.fixed);
+    const monthlyCost = monthly.reduce((t, g) => t + Math.max(0, ...g.tiers.filter((x) => g.picked.includes(x.id)).map((x) => Number(String(x.price).replace(/[^0-9.]/g, "")) || 0)), 0);
+    const costOfLine = (l) => { if (l.free) return 0; const g = pkgOf(l); if (g?.fixed) return Number(String((g.tiers.find((x) => g.picked.includes(x.id)) || {}).price || "").replace(/[^0-9.]/g, "")) || 0; return g ? 0 : (l.max * dayRate) / DAY_HOURS; };
+    const s = dark();
+    s.addText([{ text: "YOUR ", options: { color: WHITE } }, { text: "ROADMAP", options: { color: TEAL } }], { x: 0.9, y: 0.6, w: W - 1.8, h: 1.1, fontFace: FONT, fontSize: 54, bold: true, isTextBox: true, margin: 0 });
+    const left = 0.9, colW = (W - 0.9 - left) / n, fs = n <= 3 ? 26 : n <= 4 ? 22 : 18;
+    // The teal arrow running under the month titles.
+    s.addShape(pres.shapes.RECTANGLE, { x: 0, y: 3.3, w: W - 0.75, h: 1.0, fill: { color: TEAL }, line: { color: TEAL } });
+    s.addShape(pres.shapes.ISOSCELES_TRIANGLE, { x: W - 1.25, y: 3.55, w: 1.0, h: 0.5, rotate: 90, fill: { color: TEAL }, line: { color: TEAL } });
+    months.forEach((list, i) => {
+      const x = left + i * colW, w = colW - 0.35;
+      s.addText(String(i + 1), { x, y: 1.95, w, h: 1.2, fontFace: FONT, fontSize: 72, bold: true, color: WHITE, isTextBox: true, margin: 0 });
+      s.addText(`MONTH ${i + 1}`, { x, y: 3.3, w, h: 1.0, fontFace: FONT, fontSize: n <= 4 ? 30 : 24, bold: true, color: NAVY, valign: "middle", isTextBox: true, margin: 0 });
+      const cost = list.reduce((t, l) => t + costOfLine(l), 0) + monthlyCost;
+      const runs = [
+        ...list.map((l) => ({ text: (byKey[l.key]?.title || l.title) + (l.free ? " (free)" : ""), options: { color: WHITE, bullet: { indent: 18 }, breakLine: true, paraSpaceAfter: 6 } })),
+        ...monthly.map((g) => ({ text: `${g.name} ${String((g.tiers.find((x) => g.picked.includes(x.id)) || {}).name || "").split(":")[0].replace(new RegExp(`^${g.name}\\s*`, "i"), "")} (ongoing)`.replace(/\s+\(/, " ("), options: { color: "CFCFF0", italic: true, bullet: { indent: 18 }, breakLine: true, paraSpaceAfter: 6 } })),
+        { text: `£${Math.round(cost).toLocaleString("en-GB")} this month`, options: { color: TEAL, bold: true } },
+      ];
+      s.addText(runs, { x, y: 4.65, w, h: H - 4.65 - 1.6, fontFace: FONT, fontSize: fs, valign: "top", isTextBox: true, margin: 0 });
+    });
+    s.addText("Prices exclude VAT. Hourly work at your day rate; packages at their set price.", { x: 0.9, y: H - 1.55, w: W - 1.8, h: 0.4, fontFace: FONT, fontSize: 12, italic: true, color: "CFCFF0", isTextBox: true, margin: 0 });
+  }
   // 7. Retainer
   if (copy.retainer?.length && !hide.retainer) {
     const s = light(copy.retainerTitle || "Next: a support retainer");
