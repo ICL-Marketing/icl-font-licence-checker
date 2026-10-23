@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon } from "@/app/icons";
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
-import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, lineValue, priceFor, ideasText, tierPlan, quarter, rateOf, DAY_RATE, withTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
+import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, lineValue, priceFor, ideasText, tierPlan, copyEdits, withEdits, quarter, rateOf, DAY_RATE, withTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
 import Link from "next/link";
 import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY, ANCHORS } from "@/lib/deckTemplate";
 import { PACKAGE_GROUPS, PACKAGE_TEAMS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER } from "@/lib/packages";
@@ -234,12 +234,12 @@ export function ProposalModal({ group, onClose, onLink }) {
   const sorted = [...allLines].sort((a, b) => lineValue(b, picked, dayRate) - lineValue(a, picked, dayRate));
   const lines = frozen ? [...allLines].sort((a, b) => ((frozen.indexOf(a.key) + 1 || 1e9) - (frozen.indexOf(b.key) + 1 || 1e9))) : sorted;
   const freeze = { onFocusCapture: (e) => { if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName) && !frozen) setFrozen(sorted.map((l) => l.key)); }, onBlurCapture: (e) => { if (!(e.relatedTarget && /^(INPUT|TEXTAREA)$/.test(e.relatedTarget.tagName) && e.currentTarget.contains(e.relatedTarget))) setFrozen(null); } };
-  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines, notes: doc.notes, points: chosen, packages: picked, manager: group.manager })) : "";
+  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines, notes: doc.notes, points: chosen, packages: picked, keep: copyEdits(doc.copy) })) : "";
 
   function applyReply(text) {
     const copy = parseProposalReply(text);
     if (!copy.ideas.length) throw new Error("No ideas in that reply. Paste Claude's whole JSON block.");
-    change((d) => ({ ...d, copy: { ...copy, hide: d.copy?.hide || {} }, step: 3 }));
+    change((d) => ({ ...d, copy: { ...withEdits(copy, copyEdits(d.copy)), hide: d.copy?.hide || {} }, step: 3 }));
     setReply(""); setErr("");
     return `Proposal copy for ${group.name}: ${copy.ideas.length} idea slides`;
   }
@@ -266,7 +266,8 @@ export function ProposalModal({ group, onClose, onLink }) {
     catch (e) { setErr(`Couldn't build the deck: ${e.message}`); }
     setBusy(false);
   }
-  const setCopy = (fields) => change((d) => ({ ...d, copy: { ...d.copy, ...fields } }));
+  // Drafts from before hand edits were tracked get Claude's text as it stands now as their starting point.
+  const setCopy = (fields) => change((d) => ({ ...d, copy: { ...d.copy, original: d.copy?.original || withEdits(d.copy, null).original, ...fields } }));
   const hidden = doc?.copy?.hide || {};
   const toggle = (k) => ({ hidden: !!hidden[k], onToggle: () => setCopy({ hide: { ...hidden, [k]: !hidden[k] } }) });
   // The Bronze / Silver / Gold slide is off unless switched on (hide.tiers === false).
