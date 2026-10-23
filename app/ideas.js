@@ -428,6 +428,9 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
         <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search clients or ideas" className="w-56 rounded-md border border-zinc-300 px-3 py-1.5 text-sm" />
         {managers.length > 0 && <select value={manager} onChange={(e) => setManager(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm"><option value="">All account managers</option>{managers.map((m) => <option key={m}>{m}</option>)}</select>}
         <select value={size} onChange={(e) => setSize(e.target.value)} className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm"><option value="">All ideas</option><option value="large">Big ideas</option><option value="medium">Medium ideas</option><option value="small">Small ideas</option></select>
+        <select value={minHours} onChange={(e) => setMinHours(Number(e.target.value))} title="Hide ideas that would take this many hours or fewer" className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm">
+          {[0, 4, 8, 16, 24, 40].map((h) => <option key={h} value={h}>{h ? `Over ${h} hours` : "Any hours"}</option>)}
+        </select>
         {clients.some((c) => c.ideasHidden) && (() => { const n = clients.filter((c) => c.ideasHidden).length, label = showHidden ? "Hide removed clients" : `Show ${n} removed client${n === 1 ? "" : "s"}`; return (
           <button onClick={() => setShowHidden((v) => !v)} aria-label={label} aria-pressed={showHidden} title={label} className={`inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-sm ${showHidden ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"}`}>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true">{showHidden
@@ -447,16 +450,11 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
 
       {view === "top" && (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          <button onClick={() => setService("")} className={`rounded-full border px-3 py-1 text-xs font-medium ${!service ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>All services</button>
-          {starCount > 0 && <button onClick={() => setService(service === "★" ? "" : "★")} className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium ${service === "★" ? "border-amber-500 bg-amber-500 text-white" : "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"}`}>★ Starred <span className="opacity-70">{starCount}</span></button>}
+          <button onClick={() => setService("")} className={`rounded-full border px-3 py-1 text-xs font-medium ${!service ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>All</button>
+          {starCount > 0 && <button onClick={() => setService(service === "★" ? "" : "★")} className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium ${service === "★" ? "border-amber-500 bg-amber-500 text-white" : "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"}`}title="Starred ideas">★ <span className="opacity-70">{starCount}</span></button>}
           {Object.keys(IDEA_SERVICES).filter((k) => serviceCounts[k]).map((k) => (
             <button key={k} onClick={() => setService(service === k ? "" : k)} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${service === k ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}><span className={`h-2 w-2 rounded-full ${IDEA_SERVICES[k]}`} />{k}<span className="opacity-60">{serviceCounts[k]}</span></button>
           ))}
-          <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-zinc-600" title="Hide ideas that would take this many hours or fewer">Over
-            <select value={minHours} onChange={(e) => setMinHours(Number(e.target.value))} className="rounded-md border border-zinc-300 bg-white px-1.5 py-1 text-xs">
-              {[0, 4, 8, 16, 24, 40].map((h) => <option key={h} value={h}>{h ? `${h} hours` : "any hours"}</option>)}
-            </select>
-          </label>
         </div>
       )}
       {view === "top" && (
