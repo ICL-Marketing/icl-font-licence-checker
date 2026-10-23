@@ -38,17 +38,23 @@ export async function POST(request) {
   if (await locked(email, ip)) return no("Too many tries. Wait 15 minutes, then try again.", 429);
   const user = await getUser(email);
 
+  // Forgotten password: list the email in PASSWORD_RESET on the host (comma separated). That lets it set a new
+  // password once with the team password; changing the PASSWORD_RESET value allows another reset.
+  const reset = String(process.env.PASSWORD_RESET || "").trim();
+  const canReset = !!user && !!reset && reset.split(",").map((e) => normEmail(e)).includes(email) && user.resetKey !== reset;
+
   if (b.newPassword !== undefined) {
-    if (user) return no("This email already has a password. Sign in with it instead.", 409);
+    if (user && !canReset) return no("This email already has a password. Sign in with it instead.", 409);
     if (!teamPasswordIsValid(b.teamPassword)) { await failed(email, ip); return no("The team password isn't right."); }
     const pw = String(b.newPassword || "");
     if (pw.length < MIN_PASSWORD) return no(`Use at least ${MIN_PASSWORD} characters.`, 400);
     if (teamPasswordIsValid(pw)) return no("Choose your own password, not the team one.", 400);
-    await setUser(email, { hash: hashPassword(pw), createdAt: new Date().toISOString(), lastLogin: new Date().toISOString() });
+    await setUser(email, { ...(user || {}), hash: hashPassword(pw), createdAt: user?.createdAt || new Date().toISOString(), lastLogin: new Date().toISOString(), ...(canReset ? { resetKey: reset } : {}) });
     return signIn(email);
   }
 
   if (!user) return no("First time? Create your password.", 404, { needsSetup: true });
+  if (canReset) return no("Your password has been reset. Create a new one.", 404, { needsSetup: true });
   if (!checkPassword(String(b.password || ""), user.hash)) { await failed(email, ip); return no("Wrong email or password."); }
   await setUser(email, { ...user, lastLogin: new Date().toISOString() });
   return signIn(email);
