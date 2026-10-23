@@ -97,7 +97,6 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   // Taking a client off Client Ideas keeps them in Settings (launch checks still use them).
   const hideClient = (id, hidden) => onClientsChange?.(clients.map((c) => (c.id === id ? { ...c, ideasHidden: hidden } : c)));
   const linkProposal = (id, url) => onClientsChange?.(clients.map((c) => (c.id === id ? { ...c, proposalUrl: url } : c)));
-  const pinClient = (id, pinned) => onClientsChange?.(clients.map((c) => (c.id === id ? { ...c, ideasPinned: pinned } : c)));
   // Only ideas big enough to be worth pitching: over this many hours (0 = any size).
   const [minHours, setMinHoursState] = useState(() => { try { return Number(localStorage.getItem("flc-ideas-min-hours") || 0) || 0; } catch { return 0; } });
   const setMinHours = (v) => { setMinHoursState(v); try { localStorage.setItem("flc-ideas-min-hours", String(v)); } catch {} };
@@ -327,6 +326,8 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
   // When a client was first checked, if that was in the last 7 days ("" otherwise).
   // Sites checked before this was recorded: their earliest idea tells when they first came in.
   const firstSeen = (r) => r.firstCheckedAt || (r.ideas || []).map((i) => i.foundAt || "").filter(Boolean).sort()[0] || "";
+  // Most recently worked on first: the latest hand edit to any of the client's ideas, or when they were first checked.
+  const lastEdited = (g) => g.recs.flatMap((r) => [...Object.values(r.edits || {}), firstSeen(r)]).filter(Boolean).sort().pop() || "";
   const newSince = (g) => g.recs.map(firstSeen).filter((t) => t && Date.now() - Date.parse(t) < 7 * 86400000).sort().pop() || "";
   const groups = [...byClient.values()].map((g) => {
     const client = clients.find((c) => c.id === g.clientId) || { name: g.name };
@@ -353,8 +354,8 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
       const items = [...byTopic.values()];
       return { ...g, cards: items.length > 1 ? [{ bundle: true, key: "support-bundle", recId: items[0].recId, title: `Support fixes (${items.length})`, items, status: "queued" }, ...g.top.filter((i) => !sup.includes(i))] : g.top };
     })
-    // Pinned clients first, then ones first checked in the last week (newest first), then A to Z.
-    .sort((a, b) => (b.client?.ideasPinned ? 1 : 0) - (a.client?.ideasPinned ? 1 : 0) || String(newSince(b)).localeCompare(String(newSince(a))) || a.name.localeCompare(b.name));
+    // Most recently edited first, then A to Z.
+    .sort((a, b) => String(lastEdited(b)).localeCompare(String(lastEdited(a))) || a.name.localeCompare(b.name));
   const starCount = [...byClient.values()].reduce((n, g) => n + clientQueue(g.recs).filter((i) => i.starred && !["declined", "done"].includes(i.status)).length, 0);
   // Service chips: how many big ideas of each type are in play (respecting the manager and search filters).
   const serviceCounts = {};
@@ -467,7 +468,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
                 <tr key={g.clientId || g.name} className="align-top">
                   <td className="px-4 py-3"><div className="flex items-start gap-2"><div className="min-w-0 flex-1 font-medium">{g.name}{newSince(g) && <span className="ml-1.5 rounded-full bg-blue-100 px-1.5 py-0.5 align-middle text-[10px] font-semibold text-blue-800" title="Added and checked in the last 7 days">New</span>}</div>{g.clientId && (g.client?.ideasHidden
                     ? <button onClick={() => hideClient(g.clientId, false)} title="Put this client back on Client Ideas" className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-blue-700 hover:bg-blue-50">Restore</button>
-                    : <><button onClick={() => pinClient(g.clientId, !g.client?.ideasPinned)} aria-label={g.client?.ideasPinned ? `Unpin ${g.name}` : `Pin ${g.name} to the top`} aria-pressed={!!g.client?.ideasPinned} title={g.client?.ideasPinned ? "Pinned to the top: click to unpin" : "Pin to the top"} className={`shrink-0 rounded p-1 hover:bg-zinc-100 ${g.client?.ideasPinned ? "text-zinc-900" : "text-zinc-400 hover:text-zinc-900"}`}><PinIcon filled={!!g.client?.ideasPinned} /></button>
+                    : <>
                       <button onClick={() => { if (window.confirm(`Remove ${g.name} from Client Ideas? They stay in Settings, and you can restore them from "Removed clients".`)) hideClient(g.clientId, true); }} aria-label={`Remove ${g.name} from Client Ideas`} title="Remove from Client Ideas" className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button></>)}</div>{(() => { const w = (g.recs.find((x) => x.website) || {}).website; return <span className="inline-flex items-center gap-1 text-[11px]">{w && <a href={`https://${w}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-700 hover:underline">{w} <ExternalIcon /></a>}{g.clientId && <button onClick={() => { const v = window.prompt(`${g.name}: the right website address`, w ? `https://${w}` : "https://"); if (v) changeSite(g, w || "", v); }} title="Wrong website? Change it here: the old site's ideas are dropped, the new one is checked and Claude research opens" className="rounded px-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">{w ? "edit" : "+ website"}</button>}</span>; })()}<div className="text-[11px] text-zinc-500">{g.manager || "No account manager"}</div><div className="mt-1.5 flex flex-wrap items-center gap-1"><button onClick={() => setAddFor(g)} className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">+ Add idea</button><button onClick={() => setDeckFor(g)} title="Make a proposal slide deck: pick ideas, add your own, Claude writes it, download the .pptx" className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-zinc-700">Proposal deck</button>{g.client?.proposalUrl && <a href={g.client.proposalUrl} target="_blank" rel="noopener" title="The proposal deck saved on SharePoint" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-100">Deck <ExternalIcon /></a>}<button onClick={() => openClaude({ job: "client-research", preset: [g.clientId] })} title="A Claude prompt for just this client: new ideas, and a check of the ones already here" className="inline-flex items-center gap-1 rounded-md bg-orange-600 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-orange-700">Claude</button></div></td>
                   <td className="max-w-0 px-3 py-3">
                   <div className="grid snap-x auto-cols-[calc((100%-2.25rem)/3.2)] grid-flow-col gap-3 overflow-x-auto pb-1">
@@ -608,10 +609,6 @@ function BriefButton({ text }) {
 function CopyPrompt({ text, label = "Claude prompt" }) {
   const [done, setDone] = useState(false);
   return <button onClick={(e) => { e.stopPropagation(); navigator.clipboard?.writeText(text).catch(() => {}); setDone(true); setTimeout(() => setDone(false), 2500); }} title={text} className="shrink-0 whitespace-nowrap rounded bg-orange-600 px-1.5 text-[10px] font-medium text-white hover:bg-orange-700">{done ? "Copied" : label}</button>;
-}
-// A pushpin: outline when not pinned, filled when the client is pinned to the top.
-function PinIcon({ filled = false }) {
-  return <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden="true"><path d="M12 17v5" /><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" /></svg>;
 }
 function IdeaDrawer({ r, idea, onClose, onIdea, onRec, onBad }) {
   const [copied, setCopied] = useState(false);
