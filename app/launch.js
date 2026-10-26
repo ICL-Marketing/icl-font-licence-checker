@@ -424,7 +424,10 @@ function LaunchCard({ k, r, mode, client, signed, log, shared, team, open, toggl
   const auto = checks.filter((c) => c.state === "pass").length;
   const signedCount = checks.filter((c) => c.state !== "pass" && signed[c.id]).length;
   const fails = checks.filter((c) => c.state === "fail" && !signed[c.id]).length;
-  const todo = checks.filter((c) => c.state !== "pass" && !signed[c.id]).length;
+  // Complete = passed automatically, or signed off / not required by a person. Drives
+  // "Hide completed", its count and the remaining badge so they always agree.
+  const isDone = (c) => c.state === "pass" || !!signed[c.id];
+  const todo = checks.filter((c) => !isDone(c)).length;
   const [exporting, setExporting] = useState("");
   const marker = r.markerLink || load(MARKER_KEY, {})[k] || "";
   const [showLog, setShowLog] = useState(false);
@@ -502,7 +505,7 @@ function LaunchCard({ k, r, mode, client, signed, log, shared, team, open, toggl
             {r.status === "DONE" && (
               <label className="flex items-center gap-1.5 text-xs text-zinc-600">
                 <input type="checkbox" checked={hideDone} onChange={(e) => { setHideDone(e.target.checked); save("flc-launch-hide-done", e.target.checked); }} className="h-3.5 w-3.5" />
-                Hide completed ({checks.length - todo})
+                Hide completed ({checks.filter(isDone).length})
               </label>
             )}
             {r.scannedAt && <span className="text-[11px] text-zinc-400">Scanned {new Date(r.scannedAt).toLocaleString("en-GB")}{r.stopped ? " (stopped early)" : ""}</span>}
@@ -513,8 +516,10 @@ function LaunchCard({ k, r, mode, client, signed, log, shared, team, open, toggl
         <div className="border-t border-zinc-100 px-4 py-3">
           {r.status === "DONE" && [...owners, "Automated"].map((who) => {
             // Checks the scan verified itself sit in their own group at the bottom; nobody needs to sign them.
-            const mine = checks.filter((c) => (who === "Automated" ? c.state === "pass" : c.owner === who && c.state !== "pass")).map((c, i) => ({ c, i, done: c.state === "pass" || !!signed[c.id] }));
-            if (!mine.length) return null;
+            const mine = checks.filter((c) => (who === "Automated" ? c.state === "pass" : c.owner === who && c.state !== "pass")).map((c, i) => ({ c, i, done: isDone(c) }));
+            const shown = mine.filter((x) => !(hideDone && x.done));
+            // A group with nothing left to show (e.g. Automated, all passed) drops its header too.
+            if (!shown.length) return null;
             const left = mine.filter((x) => !x.done).length;
             return (
               <div key={who} className="mb-4">
@@ -523,13 +528,16 @@ function LaunchCard({ k, r, mode, client, signed, log, shared, team, open, toggl
                   <span className={`text-[11px] font-normal ${left ? "text-zinc-500" : "text-green-700"}`}>{who === "Automated" ? `${mine.length} passed automatically` : `${mine.length - left} of ${mine.length} complete`}</span>
                 </h3>
                 <div className="space-y-2">
-                  {mine.filter((x) => !(hideDone && x.done)).sort((a, b) => a.done - b.done || a.i - b.i).map(({ c }) => (
+                  {shown.sort((a, b) => a.done - b.done || a.i - b.i).map(({ c }) => (
                     <CheckRow key={c.id} c={c} s={signed[c.id]} team={team} client={client} onSign={(name, nr) => onSign(c, name, nr)} marker={marker} markerReady={markerReady} snag={r.snags?.[c.id]} onSnag={(sn) => onSnag(c.id, sn)} site={r.start?.finalUrl || `https://${k}`} />
                   ))}
                 </div>
               </div>
             );
           })}
+          {r.status === "DONE" && hideDone && !todo && checks.length > 0 && (
+            <p className="mb-4 text-sm text-green-700">Everything is complete. Untick Hide completed to see the checks.</p>
+          )}
           {r.status === "DONE" && (
             <div className="rounded-lg border border-zinc-200">
               <button onClick={() => setShowLog((v) => !v)} className="flex w-full items-center justify-between px-3 py-2 text-left text-sm">
