@@ -146,7 +146,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
         { text: x.name.toUpperCase(), options: { fontSize: 19 * sz, bold: true, color: on ? metal : METAL[x.id] ? METAL_DARK[x.id] : NAVY, breakLine: true } },
         { text: x.price.toUpperCase(), options: { fontSize: 44 * sz, bold: true, color: fg, breakLine: true } },
         { text: x.period, options: { fontSize: 15 * sz, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 10 } },
-        { text: x.best, options: { fontSize: 16 * sz, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 12 } },
+        ...(x.best ? [{ text: x.best, options: { fontSize: 16 * sz, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 12 } }] : []),
         ...x.items.map((it, k) => ({ text: it, options: { fontSize: 16 * sz, color: fg, bullet: { indent: 18 }, paraSpaceAfter: 8, ...(k < x.items.length - 1 ? { breakLine: true } : {}) } })),
       ], { x: cx + 0.45, y: 3.8, w: cw - 0.9, h: 5.7, fontFace: FONT, valign: "top", fit: "shrink", isTextBox: true, margin: 0 });
     });
@@ -245,7 +245,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       ], { x: cx + 0.45, y: 3.8, w: cw - 0.9, h: 1.7, fontFace: FONT, valign: "top", isTextBox: true, margin: 0 });
       const items = [...x.t.lines.map((l) => [name(l), money(plan.costOf(l))]), ...plan.free.map((l) => [name(l), "Free"])];
       const many = items.length > 7, fs = many ? 13 : 16, cell = { fontFace: FONT, fontSize: fs, color: fg, valign: "top", margin: [0.06, 0, 0.06, 0] };
-      s.addTable(items.map(([t, p]) => [{ text: `\u2713  ${t}`, options: cell }, { text: p, options: { ...cell, align: "right", bold: true } }]), { x: cx + 0.45, y: 5.65, w: cw - 0.9, colW: [cw - 0.9 - 1.25, 1.25], border: { type: "none" }, fill: { color: on ? NAVY : PALE } });
+      s.addTable(items.map(([t, p]) => [{ text: `\u2022  ${t}`, options: cell }, { text: p, options: { ...cell, align: "right", bold: true } }]), { x: cx + 0.45, y: 5.65, w: cw - 0.9, colW: [cw - 0.9 - 1.25, 1.25], border: { type: "none" }, fill: { color: on ? NAVY : PALE } });
     });
     // Monthly packages (SEO, PPC) aren't in the tiers: they sit underneath as an extra on top of any option.
     const extras = [...new Map(plan.monthly.map((l) => packagesOf(l, picked)[0]).filter(Boolean).map((g) => [g.id, [`${g.name} package`, priceOf(g)]])).values()];
