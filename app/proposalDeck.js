@@ -143,7 +143,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       { title: "Company page refresh", text: "A refreshed company page that matches your website, so it looks current and is easy to trust." },
       { title: "Partner profiles", text: "People engage with people, not companies. We bring each partner's profile up to date so it shows their experience." },
       { title: "Content roadmap", text: `${posts} posts per month. We strategise, write and schedule the content, put it on the website and design social banners, working with our Head of Marketing.` },
-      { title: "AI outreach", text: "We scrape data for your ideal customers and use AI automation to connect with and nurture each one through personalised messaging. From £650 per month (ex VAT) per team member." },
+      { title: "LinkedIn Automations", text: "We scrape data for your ideal customers and use AI automation to connect with and nurture each one through personalised messaging. From £650 per month (ex VAT) per team member." },
     ]);
   }
   // 3. Background
@@ -262,7 +262,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       const covers = lines.filter((l) => packagesOf(l, picked).some((x) => x.id === g.id)).map((l) => byKey[l.key]?.title || l.title);
       rows.push([cell((t.name.toLowerCase().includes(g.name.toLowerCase()) ? t.name : `${g.name} ${t.name}`).toUpperCase(), { bold: true, color: NAVY }), cell(covers.length ? covers.join(", ") : t.best), cell(`${t.price} ${t.period}`, { bold: true, color: NAVY, align: "right" })]);
     }
-    if (showLinkedin) rows.push([cell("LINKEDIN AI OUTREACH", { bold: true, color: NAVY }), cell("Personalised outreach to your ideal customers (one team member)"), cell("£650 per month", { bold: true, color: NAVY, align: "right" })]);
+    if (showLinkedin) rows.push([cell("LINKEDIN AUTOMATIONS", { bold: true, color: NAVY }), cell("Automated outreach and follow-up with your ideal customers (one team member)"), cell("£650 per month", { bold: true, color: NAVY, align: "right" })]);
     // Column widths follow the longest package name and cost, so each stays on one line.
     const est = (t) => (t.length * 18 * 0.7) / 72 + 0.8;
     const c1 = Math.min(9, Math.max(5.6, ...rows.slice(1).map((r) => est(r[0].text)))), c3 = Math.min(7.5, Math.max(4.4, ...rows.slice(1).map((r) => est(r[2].text))));
