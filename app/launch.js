@@ -162,7 +162,7 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
         okCount: prev.pages.filter((p) => p.status >= 200 && p.status < 400 && !p.notHtml && !p.error).length, keepMarker: !only.includes("marker") ? prev.marker : undefined,
         fontScan: only.includes("fonts") ? null : prev.fontScan, imageScan: only.includes("licence-images") ? null : prev.imageScan };
     }
-    patch(key, { input, status: "RUNNING", phase: w ? (only ? "Rescanning unsigned checks" : "Finishing the check") : "Reading the site", done: 0, total: 1, pct: w ? undefined : 1, error: "" });
+    patch(key, { input, status: "RUNNING", phase: w ? (only ? "Rescanning unsigned checks" : "Finishing the check") : "Reading the site", done: 0, total: 1, pct: w ? undefined : 1, left: null, error: "" });
     // Overall progress across the whole check, not just the current step.
     const WEIGHTS = { start: 3, pages: 25, links: 10, images: 7, psi: 30, fonts: 5, "licence-images": 15, marker: 5 };
     const ORDER = Object.keys(WEIGHTS);
@@ -171,7 +171,16 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
       const before = ORDER.slice(0, Math.max(0, i)).reduce((n, k) => n + WEIGHTS[k], 0);
       return Math.min(100, before + (WEIGHTS[stage] || 0) * (total ? Math.min(1, done / total) : 0));
     };
-    const progress = (phase, done, total, stage = w?.stage) => patch(key, { work: w, phase, done, total, pct: overall(stage, done, total) });
+    // Time left, from how fast the bar moved over the last two minutes, so a slow step (Google PageSpeed) counts properly.
+    const samples = [];
+    const timeLeft = (pct) => {
+      const now = Date.now();
+      samples.push([now, pct]);
+      while (samples.length > 2 && now - samples[0][0] > 120_000) samples.shift();
+      const [t0, p0] = samples[0], rate = (pct - p0) / (now - t0);
+      return now - t0 > 15_000 && rate > 0 ? (100 - pct) / rate : null; // wait 15s before guessing
+    };
+    const progress = (phase, done, total, stage = w?.stage) => { const pct = overall(stage, done, total); patch(key, { work: w, phase, done, total, pct, left: timeLeft(pct) }); };
     const paused = () => { patch(key, { status: "PAUSED", work: w, phase: "" }); };
     try {
       if (w?.stage === "start") {
@@ -419,6 +428,8 @@ export default function LaunchArea({ post, onRunning, onCount, onSiteResult, mod
   );
 }
 
+const timeLeftText = (ms) => { const m = Math.round(ms / 60_000); return m < 1 ? "under a minute left" : m < 60 ? `about ${m} min left` : `about ${Math.floor(m / 60)} hr ${m % 60} min left`; };
+
 function LaunchCard({ k, r, mode, client, signed, log, shared, team, open, toggle, onSign, onRescan, onFinish, onRescanUnsigned, onRemove, busy, markerReady, onSnag }) {
   const checks = useMemo(() => (r.status === "DONE" ? evaluateLaunch(r).filter((c) => (mode === "post" ? c.section === "Launch actions" : c.section === "Launch checks")) : []), [r, mode]);
   const auto = checks.filter((c) => c.state === "pass").length;
@@ -464,7 +475,7 @@ function LaunchCard({ k, r, mode, client, signed, log, shared, team, open, toggl
           <span className="font-medium">{k}</span>
           {client && <span className="text-xs text-zinc-500">{client.name}{client.manager ? ` · AM: ${client.manager}` : ""}</span>}
           <span className="basis-full text-sm text-zinc-600 sm:basis-auto sm:flex-1">
-            {r.status === "RUNNING" ? `${r.phase}… ${r.total > 1 ? `${r.done} of ${r.total}` : ""}`
+            {r.status === "RUNNING" ? `${r.phase}… ${r.total > 1 ? `${r.done} of ${r.total}` : ""}${r.left ? ` · ${timeLeftText(r.left)}` : ""}`
               : r.status === "ERROR" ? r.error
               : r.status === "PAUSED" ? `Stopped part way (${workLeft(r.work)} left). Press Finish scan to carry on from where it got to.${r.error ? ` ${r.error}` : ""}`
               : `${auto} Automatically Signed Off / ${signedCount} Manually Signed Off`}
