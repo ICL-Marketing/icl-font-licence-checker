@@ -381,7 +381,7 @@ export default function Home() {
   return (
     <main className="mx-auto w-full max-w-[1500px] p-4 sm:p-6">
       <header className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <h1 className="text-2xl font-semibold">ICL Sales</h1>
+        <h1 className="text-2xl font-semibold">ICL Sales <span className="align-middle text-xs font-normal opacity-50" title={`Commit ${process.env.NEXT_PUBLIC_BUILD} · built ${String(process.env.NEXT_PUBLIC_BUILT_AT || "").slice(0, 16).replace("T", " ")} UTC`}>{process.env.NEXT_PUBLIC_VERSION}</span></h1>
         <nav className="ml-auto flex flex-wrap items-center justify-end gap-x-5 gap-y-1" aria-label="Sections">
           <ClaudeInbox button={false} /> {/* the window opens from the Claude buttons in each area */}
           {(() => {
