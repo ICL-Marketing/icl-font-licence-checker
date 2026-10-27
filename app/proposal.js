@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon } from "@/app/icons";
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
-import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, lineValue, priceFor, ideasText, tierPlan, copyEdits, withEdits, quarter, rateOf, DAY_RATE, withTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
+import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, lineValue, priceFor, ideasText, tierPlan, copyEdits, withEdits, quarter, rateOf, DAY_RATE, withTeam, withoutTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
 import Link from "next/link";
 import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY, ANCHORS } from "@/lib/deckTemplate";
 import { PACKAGE_GROUPS, PACKAGE_TEAMS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER } from "@/lib/packages";
@@ -70,9 +70,9 @@ function PricePill({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier 
 // With Bronze / Silver / Gold on, the price pill takes its tier's colour; click it to move the idea to the next tier.
 function Effort({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier, pill = true }) {
   const team = line.team || [], th = teamHours(line), total = Object.values(th).reduce((a, b) => a + b, 0);
-  const setTeam = (next) => { if (next.length) onChange(withTeam(line, next)); };
+  const setTeam = (next) => onChange(withTeam(line, next));
   const setHours = (k, v) => {
-    if (v === "") return setTeam(team.filter((x) => x !== k));
+    if (v === "" || Number(v) === 0) return team.includes(k) && onChange(withoutTeam(line, k)); // blank or 0 takes the team off
     const h = Math.max(0.5, Math.round(Number(v) * 2) / 2); if (!Number.isFinite(h)) return; // half hours only
     if (!team.includes(k)) { const t = withTeam(line, [...team, k]); return onChange({ ...t, ...withHours({ ...line, ...t }, k, h) }); }
     onChange(withHours(line, k, h));
@@ -81,8 +81,9 @@ function Effort({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier, pi
     <span className="flex w-full flex-wrap items-center gap-1 text-xs text-zinc-500">
       {TEAMS.map(([k, name, short]) => {
         const on = team.includes(k), cls = `inline-flex items-center gap-1 rounded-full border py-0.5 text-[11px] font-semibold ${on ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-500"}`;
-        if (PACKAGE_TEAM_KEYS.includes(k)) return <button key={k} type="button" onClick={() => setTeam(on ? team.filter((x) => x !== k) : [...team, k])} className={`${cls} px-2 ${on ? "" : "hover:bg-zinc-100"}`} title={`${name} is priced by its package`}>{name}</button>;
-        return <label key={k} className={`${cls} pl-2 pr-0.5`}>{short}<HoursBox value={on ? th[k] : ""} on={on} onCommit={(v) => setHours(k, v)} label={`${name} hours`} /></label>;
+        if (PACKAGE_TEAM_KEYS.includes(k)) return <button key={k} type="button" onClick={() => (on ? onChange(withoutTeam(line, k)) : setTeam([...team, k]))} className={`${cls} px-2 ${on ? "" : "hover:bg-zinc-100"}`} title={`${name} is priced by its package`}>{name}</button>;
+        // Click the name to take the team off (clears its hours) or put it back.
+        return <span key={k} className={`${cls} pl-0.5 pr-0.5`}><button type="button" onClick={() => (on ? onChange(withoutTeam(line, k)) : setTeam([...team, k]))} title={on ? `Take ${name} off this idea` : `Add ${name}`} className={`rounded-full px-1.5 ${on ? "hover:bg-zinc-700" : "hover:bg-zinc-100"}`}>{short}</button><HoursBox value={on ? th[k] : ""} on={on} onCommit={(v) => setHours(k, v)} label={`${name} hours`} /></span>;
       })}
       {!isPackageLine(line) && <span className="ml-1">= {total} {total === 1 ? "hr" : "hrs"}</span>}
       {pill && <PricePill line={line} onChange={onChange} picked={picked} rate={rate} tier={tier} onTier={onTier} />}
@@ -218,7 +219,7 @@ export function ProposalModal({ group, onClose, onLink }) {
     saveT.current = setTimeout(flush, 300);
     return next;
   });
-  const allLines = (doc ? [...pool.filter((i) => doc.picked[i.key]).map((i) => doc.picked[i.key]), ...Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key) && !l.custom), ...doc.own] : []).filter((l) => l.custom || (!supportKeys.has(l.key) && l.service !== "Support")).map((l) => (l.min === l.max ? l : { ...l, min: l.max })).map((l) => (l.team?.includes("dev") && !l.team.includes("design") ? { ...l, ...withTeam(l, l.team) } : l)) // one set figure (older drafts had a range); support jobs never
+  const allLines = (doc ? [...pool.filter((i) => doc.picked[i.key]).map((i) => doc.picked[i.key]), ...Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key) && !l.custom), ...doc.own] : []).filter((l) => l.custom || (!supportKeys.has(l.key) && l.service !== "Support")).map((l) => (l.min === l.max ? l : { ...l, min: l.max })) // one set figure (older drafts had a range); support jobs never. New ideas start with design beside development, but you can take it off
 ;
   // Take an idea out of this proposal (yours are deleted; Client Ideas ones are just unticked).
   const removeLine = (key) => change((d) => { const picked = { ...d.picked }; delete picked[key]; return { ...d, picked, own: d.own.filter((x) => x.key !== key) }; });
@@ -227,13 +228,16 @@ export function ProposalModal({ group, onClose, onLink }) {
   const chosen = points.filter((x) => chosenIds.includes(x.id));
   const pkgIds = effectivePackages(doc?.packages || [], allLines);
   const picked = pickedPackages(pkgIds);
-  // Biggest first by value (hours at the day rate, packages at their price), free work last.
-  // While you're typing in a field the order stays put, so the card doesn't jump away; it re-sorts when you leave the field.
-  const [frozen, setFrozen] = useState(null);
+  // Biggest first by value (hours at the day rate, packages at their price), free work last, when a step opens.
+  // After that each idea keeps its place while you change its hours or teams; new ideas join at the end.
+  const [order, setOrder] = useState(null); // { scope, keys }
   const dayRate = Number(doc?.dayRate) > 0 ? Number(doc.dayRate) : defaultRate;
   const sorted = [...allLines].sort((a, b) => lineValue(b, picked, dayRate) - lineValue(a, picked, dayRate));
-  const lines = frozen ? [...allLines].sort((a, b) => ((frozen.indexOf(a.key) + 1 || 1e9) - (frozen.indexOf(b.key) + 1 || 1e9))) : sorted;
-  const freeze = { onFocusCapture: (e) => { if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName) && !frozen) setFrozen(sorted.map((l) => l.key)); }, onBlurCapture: (e) => { if (!(e.relatedTarget && /^(INPUT|TEXTAREA)$/.test(e.relatedTarget.tagName) && e.currentTarget.contains(e.relatedTarget))) setFrozen(null); } };
+  const scope = `${id}:${doc?.step}`, kept = order?.scope === scope ? order.keys : null;
+  const lines = kept ? [...kept.map((k) => allLines.find((l) => l.key === k)).filter(Boolean), ...sorted.filter((l) => !kept.includes(l.key))] : sorted;
+  if (lines.map((l) => l.key).join() !== (kept || []).join()) setOrder({ scope, keys: lines.map((l) => l.key) });
+  const resort = () => setOrder({ scope, keys: sorted.map((l) => l.key) });
+  const unsorted = lines.some((l, n) => l.key !== sorted[n]?.key);
   const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines, notes: doc.notes, points: chosen, packages: picked, keep: copyEdits(doc.copy) })) : "";
 
   function applyReply(text) {
@@ -373,7 +377,7 @@ export function ProposalModal({ group, onClose, onLink }) {
                 </div>
                 <BlockList label="Background" items={doc.copy.background} onChange={(background) => setCopy({ background })} {...toggle("background")} />
                 <BlockList label="Where the biggest wins are" items={doc.copy.wins} onChange={(wins) => setCopy({ wins })} {...toggle("wins")} />
-                <div {...freeze} className="space-y-2"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Idea slides</div>
+                <div className="space-y-2"><div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Idea slides{unsorted && <button type="button" onClick={resort} className="rounded px-1.5 py-0.5 font-normal normal-case tracking-normal text-blue-700 hover:bg-blue-50">Sort biggest first</button>}</div>
                   {lines.map((l, n) => { const c = doc.copy.ideas.find((x) => x.key === l.key); return (
                     <div key={l.key} className="relative flex flex-wrap gap-3 rounded-lg border border-zinc-200 p-3 pr-10">
                       <button onClick={() => { if (window.confirm(`Take “${c?.title || l.title}” out of this proposal?`)) removeLine(l.key); }} aria-label="Remove from deck" title="Remove this idea from the deck" className="absolute right-2 top-2 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button>
