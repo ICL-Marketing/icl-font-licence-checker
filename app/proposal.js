@@ -90,12 +90,12 @@ function Effort({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier, pi
     </span>
   );
 }
-function ImageDrop({ value, onChange, label, status, onShot }) {
+function ImageDrop({ value, onChange, label, status, onShot, shotLabel = "Use the page screenshot" }) {
   const ref = useRef(null);
   const take = async (f) => { if (f && f.type.startsWith("image/")) onChange(await shrink(f)); };
   return (
     <div tabIndex={0} onPaste={(e) => take([...e.clipboardData.files][0])} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); take(e.dataTransfer.files[0]); }} className="relative flex h-32 w-48 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 text-center text-[11px] text-zinc-500 outline-none hover:border-zinc-400 focus:border-blue-500" onClick={() => ref.current?.click()} title="Click to choose, drop a file, or click then Ctrl+V to paste a screenshot">
-      {value ? <img src={value} alt="" className="h-full w-full object-contain" /> : status === "loading" ? <span className="flex items-center gap-1.5 px-2"><SpinnerIcon className="h-3.5 w-3.5 animate-spin" /> Taking a screenshot…</span> : <span className="px-2">{status === "failed" ? "Screenshot didn't load. " : ""}{label}<br />click, drop or paste{onShot && <><br /><button type="button" onClick={(e) => { e.stopPropagation(); onShot(); }} className="mt-1 font-semibold text-blue-700 hover:underline">Use the page screenshot</button></>}</span>}
+      {value ? <img src={value} alt="" className="h-full w-full object-contain" /> : status === "loading" ? <span className="flex items-center gap-1.5 px-2"><SpinnerIcon className="h-3.5 w-3.5 animate-spin" /> Taking a screenshot…</span> : <span className="px-2">{status === "failed" ? "Screenshot didn't load. " : ""}{label}<br />click, drop or paste{onShot && <><br /><button type="button" onClick={(e) => { e.stopPropagation(); onShot(); }} className="mt-1 font-semibold text-blue-700 hover:underline">{shotLabel}</button></>}</span>}
       {value && <button onClick={(e) => { e.stopPropagation(); onChange(null); }} aria-label="Remove image" className="absolute right-1 top-1 rounded bg-white/90 p-0.5 text-zinc-500 hover:text-red-700"><TrashIcon className="h-3.5 w-3.5" /></button>}
       <input ref={ref} type="file" accept="image/*" className="hidden" onChange={(e) => take(e.target.files[0])} />
     </div>
@@ -161,10 +161,12 @@ export function ProposalModal({ group, onClose, onLink }) {
   // Screenshots of the client's pages (the ones Claude picked), taken for you in the review step. Kept in this browser only.
   const [shotState, setShotState] = useState({}); // key -> "loading" | "failed"
   const asked = useRef(new Set());
-  function getShot(key, url, sel = "") {
+  // A stock photo for an idea with nothing to screenshot yet (a new page or feature), so every idea slide has a picture.
+  const getStock = (key, q) => getShot(key, "", "", `/api/stock?q=${encodeURIComponent(q)}`);
+  function getShot(key, url, sel = "", src = "") {
     asked.current.add(key);
     setShotState((o) => ({ ...o, [key]: "loading" }));
-    fetch(`/api/shot?url=${encodeURIComponent(url)}${sel ? `&sel=${encodeURIComponent(sel)}` : ""}`).then((r) => (r.ok ? r.blob() : Promise.reject())).then(shrink)
+    fetch(src || `/api/shot?url=${encodeURIComponent(url)}${sel ? `&sel=${encodeURIComponent(sel)}` : ""}`).then((r) => (r.ok ? r.blob() : Promise.reject())).then(shrink)
       .then((data) => { setImages((o) => ({ ...o, [key]: data })); setShotState((o) => ({ ...o, [key]: "" })); })
       .catch(() => setShotState((o) => ({ ...o, [key]: "failed" })));
   }
@@ -252,7 +254,7 @@ export function ProposalModal({ group, onClose, onLink }) {
     if (doc?.step !== 3 || !doc.copy) return;
     const t = setTimeout(() => {
       if (website && !doc.copy.noCover && !images.cover && !asked.current.has("cover")) getShot("cover", `https://${website}`);
-      for (const c of doc.copy.ideas || []) if (c.shot && !c.noImage && !images[c.key] && !asked.current.has(c.key)) getShot(c.key, c.shot, c.shotSel);
+      for (const c of doc.copy.ideas || []) if (!c.noImage && !images[c.key] && !asked.current.has(c.key)) { if (c.shot) getShot(c.key, c.shot, c.shotSel); else getStock(c.key, c.stock || c.title); }
     }, 0);
     return () => clearTimeout(t);
   });
@@ -391,14 +393,14 @@ export function ProposalModal({ group, onClose, onLink }) {
                         <div className="flex flex-wrap items-center gap-2 pt-1"><Effort picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} {...tierProps(l.key)} />
                           {c?.max && c.max !== l.max && <button onClick={() => { const th = teamHours(l), tot = Object.values(th).reduce((x, y) => x + y, 0) || 1, hrs = Object.fromEntries(Object.entries(th).map(([k, h]) => [k, quarter((h * c.max) / tot)])); const t = Object.values(hrs).reduce((x, y) => x + y, 0); setLine(l.key, { hrs, min: t, max: t }); }} title={c.hoursNote} className="block w-full rounded-md bg-orange-50 px-2.5 py-1.5 text-left text-[11px] text-orange-800 ring-1 ring-orange-200 hover:bg-orange-100"><span className="font-semibold">Claude suggests {c.max} hrs · use</span>{c.hoursNote && <span className="mt-0.5 block">{c.hoursNote}</span>}</button>}</div>
                       </div>
-                      <ImageDrop value={images[l.key]} status={shotState[l.key]} onShot={c?.shot ? () => { setIdeaCopy(l.key, { noImage: false }); getShot(l.key, c.shot, c.shotSel); } : null} onChange={(v) => { setImages((o) => ({ ...o, [l.key]: v })); if (!v && c) setIdeaCopy(l.key, { noImage: true }); }} label={c?.shot ? "No picture on this slide" : "Screenshot (optional)"} />
+                      <ImageDrop value={images[l.key]} status={shotState[l.key]} onShot={c ? () => { setIdeaCopy(l.key, { noImage: false }); if (c.shot) getShot(l.key, c.shot, c.shotSel); else getStock(l.key, c.stock || c.title); } : null} shotLabel={c?.shot ? "Use the page screenshot" : "Use a stock photo"} onChange={(v) => { setImages((o) => ({ ...o, [l.key]: v })); if (!v && c) setIdeaCopy(l.key, { noImage: true }); }} label="No picture on this slide" />
                     </div>); })}
                 </div>
                 <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Roadmap slide title<input value={doc.copy.roadmapTitle || ""} onChange={(e) => setCopy({ roadmapTitle: e.target.value })} placeholder="Too much in one go? Roadmap it over N months with a support retainer (N is worked out for you)" className={`${input} mt-0.5 font-normal normal-case tracking-normal`} /></label>
                 <BlockList label="Support retainer" items={doc.copy.retainer} onChange={(retainer) => setCopy({ retainer })} {...toggle("retainer")} />
                 <div><div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Standard slides</div>
-                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["effort", "Investment summary table"], ["tiers", "Bronze / Silver / Gold options (switch on to add)"], ["roadmap", "Month-by-month roadmap"], ["costs", "Monthly / one-off costs table"], ["services", "Our service retainer offering"], ["support", "Support packages (Bronze, Silver, Gold)"], ["packages", "SEO / PPC package slides"], ...tplExtras.map((e) => [`extra:${e.i}`, `Your slide: ${e.title.slice(0, 50)}`])].map(([k, name]) => (
-                    <li key={k} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className={(k === "tiers" ? tiersToggle.hidden : hidden[k]) ? "text-zinc-400 line-through" : ""}>{name}{k === "tiers" && !tiersToggle.hidden && <span className="ml-2 text-xs text-zinc-500">{tierPreview}</span>}</span><span className="ml-auto"><SlideToggle {...(k === "tiers" ? tiersToggle : toggle(k))} /></span></li>))}
+                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["agenda", "Agenda"], ["linkedin", "LinkedIn suggestions"], ["effort", "Investment summary table"], ["tiers", "Bronze / Silver / Gold options (switch on to add)"], ["roadmap", "Month-by-month roadmap"], ["costs", "Monthly / one-off costs table"], ["services", "Our service retainer offering"], ["support", "Support packages (Bronze, Silver, Gold)"], ["packages", "SEO / PPC package slides"], ...tplExtras.map((e) => [`extra:${e.i}`, `Your slide: ${e.title.slice(0, 50)}`])].map(([k, name]) => (
+                    <li key={k} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className={(k === "tiers" ? tiersToggle.hidden : hidden[k]) ? "text-zinc-400 line-through" : ""}>{name}{k === "tiers" && !tiersToggle.hidden && <span className="ml-2 text-xs text-zinc-500">{tierPreview}</span>}</span>{k === "linkedin" && !hidden.linkedin && <label className="text-xs text-zinc-600">Posts a month <input type="number" min={1} value={doc.copy.linkedinPosts ?? ""} placeholder="8" onChange={(e) => setCopy({ linkedinPosts: e.target.value === "" ? undefined : Number(e.target.value) })} className="ml-1 w-14 rounded border border-zinc-300 px-1.5 py-0.5 text-xs" /></label>}<span className="ml-auto"><SlideToggle {...(k === "tiers" ? tiersToggle : toggle(k))} /></span></li>))}
                   </ul>
                 </div>
                 {err && <p className="text-sm text-red-700">{err}</p>}

@@ -4,6 +4,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 45;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// The common cookie banners (CookieYes, Cookiebot, OneTrust, Complianz, Termly, iubenda, Osano, Borlabs, GDPR Cookie Consent and similar).
+const HIDE_BANNERS = `#onetrust-consent-sdk, #CybotCookiebotDialog, #CybotCookiebotDialogBodyUnderlay, .cky-consent-container, .cky-overlay, #cookie-law-info-bar, .cli-modal-backdrop, #cmplz-cookiebanner-container, .cmplz-cookiebanner, #termly-code-snippet-support, #iubenda-cs-banner, .osano-cm-window, #BorlabsCookieBox, #moove_gdpr_cookie_info_bar, #cookie-notice, .cookie-notice, #cookie-banner, .cookie-banner, #cookieConsent, .cookie-consent, [id*="cookie-consent" i], [class*="cookie-banner" i], [aria-label*="cookie" i][role="dialog"], [aria-describedby*="cookie" i][role="dialog"] { display: none !important; } html, body { overflow: auto !important; }`;
 
 // Just one part of the page: a real headless browser loads it and photographs the element matching the
 // CSS selector Claude picked from the HTML (free: @sparticuz/chromium on Vercel, the local Chromium elsewhere).
@@ -18,6 +20,12 @@ async function partShot(url, sel) {
     const page = await browser.newPage();
     await page.goto(url, { waitUntil: "networkidle2", timeout: 20000 }).catch(() => {});
     await sleep(800);
+    // Clean pictures: cookie banners and consent pop-ups are hidden before the shot.
+    await page.addStyleTag({ content: HIDE_BANNERS }).catch(() => {});
+    if (!sel) { // the top of the page, one screen deep
+      const buf = await page.screenshot({ type: "jpeg", quality: 85 });
+      return new Response(Buffer.from(buf), { headers: { "content-type": "image/jpeg", "cache-control": "private, max-age=3600" } });
+    }
     const el = await page.$(sel).catch(() => null);
     if (!el) return null;
     await el.scrollIntoView().catch(() => {});
@@ -37,7 +45,8 @@ export async function GET(request) {
   const q = new URL(request.url).searchParams;
   const url = q.get("url") || "", sel = (q.get("sel") || "").trim().slice(0, 120);
   if (!/^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(url)) return Response.json({ error: "url required" }, { status: 400 });
-  if (sel) { const part = await partShot(url, sel); if (part) return part; }
+  // A real browser first (so cookie banners can be hidden), mShots if that fails.
+  { const shot = await partShot(url, sel); if (shot) return shot; }
   const shot = `https://s0.wp.com/mshots/v1/${encodeURIComponent(url)}?vpw=1440&vph=900&w=1440&h=900`; // a full desktop-width viewport, not mShots' narrower default
   for (let i = 0; i < 8; i++) {
     try {
