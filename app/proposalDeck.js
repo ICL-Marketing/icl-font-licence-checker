@@ -1,7 +1,7 @@
 // Builds the ICL proposal deck (.pptx) in the browser with pptxgenjs, in the house style:
 // dark gradient slides with the white logo, white slides with navy titles, teal accents, Obviously.
 import { TEAMS, range, split, totals, priceFor, DAY_RATE, DAY_HOURS, lineValue, tierPlan } from "@/lib/proposal";
-import { pickedPackages, packageFor, packagesOf, hourTeams } from "@/lib/packages";
+import { pickedPackages, packageFor, packagesOf, hourTeams, isSeoLine } from "@/lib/packages";
 
 const W = 19.44, H = 12.5;
 const NAVY = "252560", INDIGO = "291F8E", TEAL = "1EDD9B", INK = "1B1B3A", GREY = "5B5B78", PALE = "F3F3FA", WHITE = "FFFFFF";
@@ -27,7 +27,7 @@ const teamList = (team = []) => TEAMS.filter(([k]) => team.includes(k)).map(([, 
 const hrs = (a, b) => `${range(a, b)}\u00A0hr${a === b && a === 1 ? "" : "s"}`;
 const fileSafe = (s) => String(s).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "Client";
 
-export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null, dayRate = DAY_RATE, tiers = false }) {
+export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null, dayRate = DAY_RATE, tiers = false, savings = {} }) {
   const { default: PptxGenJS } = await import("pptxgenjs");
   const pres = new PptxGenJS();
   // Where each slide goes: null for one built here, or a slot name for a slide copied from the uploaded template.
@@ -53,7 +53,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   const extrasAt = (anchor) => { (template?.extras || []).forEach((e, i) => { if (e.after === anchor && !NOT_IN_CLIENT_DECKS.test(e.title || "") && !hide[`extra:${i}`] && template.slots[`extra:${i}`]) order.push(`extra:${i}`); }); };
   const byKey = Object.fromEntries((copy.ideas || []).map((i) => [i.key, i]));
   const hide = copy.hide || {}; // slides taken out in the review step
-  const plan = tiers ? tierPlan(lines, picked, dayRate, typeof tiers === "object" ? tiers : {}) : null;
+  const plan = tiers ? tierPlan(lines, picked, dayRate, typeof tiers === "object" ? tiers : {}, savings) : null;
   const dark = () => { const s = pres.addSlide(); s.background = { data: bg }; s.addImage({ data: logoW, x: 0.9, y: H - 1.15, w: 2.3, h: 2.3 * (183 / 786) }); return s; };
   const light = (title) => {
     const s = pres.addSlide(); s.background = { color: WHITE };
@@ -107,8 +107,8 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   }
   // 2. Agenda: the sections this deck actually has, in order.
   const fixedLines = lines.filter((l) => pkgOf(l)?.fixed);
-  const showSummary = !hide.effort && (hourLines.length || fixedLines.length), showCosts = !hide.costs && picked.some((g) => !g.fixed);
   const showRoadmap = !hide.roadmap && lines.length > 1, showLinkedin = !hide.linkedin;
+  const showSummary = !hide.effort && (hourLines.length || fixedLines.length), showCosts = !hide.costs && (picked.some((g) => !g.fixed) || showLinkedin);
   if (!hide.agenda) {
     const agenda = [
       ...(template?.extras || []).filter((e, i) => e.after === "cover" && !NOT_IN_CLIENT_DECKS.test(e.title || "") && !hide[`extra:${i}`] && template.slots[`extra:${i}`] && e.title).map((e) => e.title),
@@ -188,15 +188,16 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
         { text: x.price.toUpperCase(), options: { fontSize: 44 * sz, bold: true, color: fg, breakLine: true } },
         { text: x.period, options: { fontSize: 15 * sz, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 10 } },
         ...(x.best ? [{ text: x.best, options: { fontSize: 16 * sz, color: on ? "DCDCF5" : GREY, breakLine: true, paraSpaceAfter: 12 } }] : []),
-        ...x.items.map((it, k) => ({ text: it, options: { fontSize: 16 * sz, color: fg, bullet: { indent: 18 }, paraSpaceAfter: 8, ...(k < x.items.length - 1 ? { breakLine: true } : {}) } })),
+        ...x.items.map((it, k) => ({ text: it, options: { fontSize: 16 * sz, color: fg, bullet: { indent: 18 }, paraSpaceAfter: x.items.length >= 15 ? 3 : 6, ...(k < x.items.length - 1 ? { breakLine: true } : {}) } })),
       ], { x: cx + 0.45, y: 3.8, w: cw - 0.9, h: 5.7, fontFace: FONT, valign: "top", fit: "shrink", isTextBox: true, margin: 0 });
     });
     s.addText(g.footnote, { x: 0.9, y: 9.95, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 14, color: GREY, isTextBox: true, margin: 0 });
   };
-  for (const [n, l] of lines.entries()) {
+  // The SEO idea is always the last idea slide.
+  for (const [n, l] of [...lines.filter((x) => !isSeoLine(x)), ...lines.filter(isSeoLine)].entries()) {
     const c = byKey[l.key] || {};
     const s = light();
-    const img = images[l.key];
+    const img = hide.pictures || isSeoLine(l) ? null : images[l.key]; // the SEO slide is text only; pictures can be switched off
     const textW = img ? 8.7 : W - 1.8; // no picture: the text uses the full width
     s.addText(`${n + 1}. ${(c.title || l.title).toUpperCase()}`, { x: 0.9, y: 0.75, w: W - 1.8, h: 1.1, fontFace: FONT, fontSize: 40, bold: true, color: NAVY, fit: "shrink", isTextBox: true, margin: 0 });
     // Body paragraphs at 1.5 line spacing: the intro with no indent and 16pt after, bullets with a 0.36" hanging
@@ -222,7 +223,9 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const teamText = teamBits.length ? teamBits.join(", ") : teamList(l.team); // only the teams with hours, each with its hours
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: W - 1.8, h: 1.25, rectRadius: 0.2, fill: { color: PALE }, line: { color: PALE } });
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: 0.18, h: 1.25, rectRadius: 0.05, fill: { color: TEAL }, line: { color: TEAL } });
-    const runs = [{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, bold: true } }, { text: (pkg ? priceOf(pkg) : `${hrs(l.min, l.max)} · ${l.free ? "FREE OF CHARGE" : priceFor(l, dayRate)}`).toUpperCase(), options: { color: NAVY, bold: true } }, { text: "      TEAM:  ", options: { color: GREY, bold: true } }, { text: teamText.toUpperCase(), options: { color: NAVY, bold: true } }];
+    // The SEO idea: "SEO Bronze from £599 p.m., Team: Marketing".
+    const seoTier = isSeoLine(l) && pkg && (pkg.tiers.find((x) => pkg.picked.includes(x.id)) || pkg.tiers[0]);
+    const runs = seoTier ? [{ text: `${pkg.name} ${String(seoTier.name).split(":")[0].replace(new RegExp(`^${pkg.name}\\s*`, "i"), "")} from ${seoTier.price} p.m.`.replace(/\s+/g, " ").toUpperCase(), options: { color: NAVY, bold: true } }, { text: ",  TEAM:  ", options: { color: GREY, bold: true } }, { text: "MARKETING", options: { color: NAVY, bold: true } }] : [{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, bold: true } }, { text: (pkg ? priceOf(pkg) : `${hrs(l.min, l.max)} · ${l.free ? "FREE OF CHARGE" : priceFor(l, dayRate)}`).toUpperCase(), options: { color: NAVY, bold: true } }, { text: "      TEAM:  ", options: { color: GREY, bold: true } }, { text: teamText.toUpperCase(), options: { color: NAVY, bold: true } }];
     const chars = runs.reduce((n, r) => n + r.text.length, 0), fs = Math.max(11, Math.min(20, Math.floor(((W - 2.9) * 72) / (chars * 0.7))));
     s.addText(runs, { x: 1.4, y: 9.6, w: W - 2.9, h: 1.15, fontFace: FONT, fontSize: fs, valign: "middle", wrap: false, isTextBox: true, margin: 0 });
   }
@@ -259,6 +262,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       const covers = lines.filter((l) => packagesOf(l, picked).some((x) => x.id === g.id)).map((l) => byKey[l.key]?.title || l.title);
       rows.push([cell((t.name.toLowerCase().includes(g.name.toLowerCase()) ? t.name : `${g.name} ${t.name}`).toUpperCase(), { bold: true, color: NAVY }), cell(covers.length ? covers.join(", ") : t.best), cell(`${t.price} ${t.period}`, { bold: true, color: NAVY, align: "right" })]);
     }
+    if (showLinkedin) rows.push([cell("LINKEDIN AI OUTREACH", { bold: true, color: NAVY }), cell("Personalised outreach to your ideal customers (one team member)"), cell("£650 per month", { bold: true, color: NAVY, align: "right" })]);
     // Column widths follow the longest package name and cost, so each stays on one line.
     const est = (t) => (t.length * 18 * 0.7) / 72 + 0.8;
     const c1 = Math.min(9, Math.max(5.6, ...rows.slice(1).map((r) => est(r[0].text)))), c3 = Math.min(7.5, Math.max(4.4, ...rows.slice(1).map((r) => est(r[2].text))));
@@ -269,11 +273,18 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   // 6b. Options: Bronze / Silver / Gold built from the ideas (only when switched on in the review step).
   if (plan) {
     const s = light("Choose your package");
+    const tierPrice = (l) => { const g = pkgOf(l); return g?.fixed ? String((g.tiers.find((y) => g.picked.includes(y.id)) || g.tiers[0]).price) : ""; };
     const money = (n) => `£${Math.round(n).toLocaleString("en-GB")}`, name = (l) => byKey[l.key]?.title || l.title;
     // Every tier lists all of its items (not "Everything in Bronze"), each with its own price.
     const tiers = ["bronze", "silver", "gold"].map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1), t: plan[id] }));
     s.addText("Three ways to get started. Silver gives you the most for your budget.", { x: 0.9, y: 1.95, w: W - 1.8, h: 0.8, fontFace: FONT, fontSize: 20, color: GREY, isTextBox: true, margin: 0 });
     const gap = 0.35, cw = (W - 1.8 - gap * 2) / 3;
+    const itemsOf = (x) => [...x.t.lines.map((l) => [name(l), tierPrice(l) || money(plan.costOf(l))]), ...plan.free.map((l) => [name(l), "Free"])];
+    const longest = Math.max(...tiers.map((x) => itemsOf(x).length));
+    // Fit check: the longest list (by height) must fit between the price and the bottom of the card.
+    const room = 3.3 + (plan.monthly.length ? 5.6 : 6.4) - 5.65 - 0.2, textW = cw - 0.9 - 1.6 - 0.3;
+    const listH = (fs, marB) => Math.max(...tiers.map((x) => itemsOf(x).reduce((h, [t]) => h + Math.ceil((t.length * fs * 0.55) / 72 / textW) * (fs * 1.2) / 72 + marB, 0)));
+    let cardSize = 16; while (cardSize > 10 && listH(cardSize, 0.14) > room) cardSize -= 1;
     tiers.forEach((x, i) => {
       const on = x.id === "silver", cx = 0.9 + i * (cw + gap), fg = on ? WHITE : INK, metal = METAL[x.id];
       s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx, y: 3.3, w: cw, h: plan.monthly.length ? 5.6 : 6.4, rectRadius: 0.25, fill: { color: on ? NAVY : PALE }, line: { color: on ? metal : PALE, width: on ? 2.5 : 1 } });
@@ -283,7 +294,6 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       }
       // Bronze has no saving; Silver and Gold show theirs. "From" when a package with a "From" price is included.
       const save = x.id === "bronze" ? 0 : x.t.full - x.t.price;
-      const tierPrice = (l) => { const g = pkgOf(l); return g?.fixed ? String((g.tiers.find((y) => g.picked.includes(y.id)) || g.tiers[0]).price) : ""; };
       const from = x.t.lines.some((l) => /^from/i.test(tierPrice(l)));
       s.addText([
         { text: x.label.toUpperCase(), options: { fontSize: 22, bold: true, color: on ? metal : METAL_DARK[x.id], breakLine: true } },
@@ -291,8 +301,10 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
         ...(save > 0 ? [{ text: `Save ${money(save)}`, options: { fontSize: 16, bold: true, color: on ? TEAL : METAL_DARK[x.id] } }] : []),
       ], { x: cx + 0.45, y: 3.8, w: cw - 0.9, h: 1.7, fontFace: FONT, valign: "top", isTextBox: true, margin: 0 });
       // Item prices match the investment summary exactly (a package at its own price wording).
-      const items = [...x.t.lines.map((l) => [name(l), tierPrice(l) || money(plan.costOf(l))]), ...plan.free.map((l) => [name(l), "Free"])];
-      const many = items.length > 7, fs = many ? 13 : 16, cell = { fontFace: FONT, fontSize: fs, color: fg, valign: "top", margin: [0.06, 0, 0.06, 0] };
+      const items = itemsOf(x);
+      // 0.18" under each item (0.14" on the longest list); the text size drops until the longest list fits its card.
+      const marB = items.length === longest && longest > 1 && tiers.some((y) => itemsOf(y).length < longest) ? 0.14 : 0.18, fs = cardSize;
+      const cell = { fontFace: FONT, fontSize: fs, color: fg, valign: "top", margin: [0, 0, marB, 0] };
       // Real check-mark bullets with a hanging indent, so wrapped lines sit under the text, not the tick.
       s.addTable(items.map(([t, p]) => [{ text: [{ text: t, options: { bullet: { code: "2713", indent: 18 } } }], options: cell }, { text: p, options: { ...cell, align: "right", bold: true } }]), { x: cx + 0.45, y: 5.65, w: cw - 0.9, colW: [cw - 0.9 - 1.6, 1.6], border: { type: "none" }, fill: { color: on ? NAVY : PALE } });
     });
@@ -328,9 +340,10 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       const x = left + i * colW, w = colW - 0.3;
       s.addText(String(i + 1), { x, y: top, w, h: 1.0, fontFace: FONT, fontSize: n > 4 ? 52 : 64, bold: true, color: WHITE, isTextBox: true, margin: 0 });
       s.addText(`MONTH ${i + 1}`, { x, y: top + 1.05, w, h: 0.9, fontFace: FONT, fontSize: n > 4 ? 20 : 28, bold: true, color: NAVY, valign: "middle", isTextBox: true, margin: 0 });
+      const after = list.length + monthly.length >= 15 ? 3 : 6; // 6pt after each item, 3pt in a list of 15 or more
       const runs = [
-        ...list.map((l) => ({ text: (byKey[l.key]?.title || l.title) + (l.free ? " (free)" : ""), options: { color: WHITE, bullet: { indent: 16 }, breakLine: true, paraSpaceAfter: 6 } })),
-        ...monthly.map((g) => { const tid = g.picked[0]; return { text: `${g.name} ${String((g.tiers.find((x) => x.id === tid) || {}).name || "").split(":")[0].replace(new RegExp(`^${g.name}\\s*`, "i"), "")} (ongoing)`.replace(/\s+\(/, " ("), options: { color: ONGOING[tid] || "CFCFF0", bold: !!ONGOING[tid], bullet: { indent: 16 }, breakLine: true, paraSpaceAfter: 6 } }; }),
+        ...list.map((l) => ({ text: (byKey[l.key]?.title || l.title) + (l.free ? " (free)" : ""), options: { color: WHITE, bullet: { indent: 16 }, breakLine: true, paraSpaceAfter: after } })),
+        ...monthly.map((g) => { const tid = g.picked[0]; return { text: `${g.name} ${String((g.tiers.find((x) => x.id === tid) || {}).name || "").split(":")[0].replace(new RegExp(`^${g.name}\\s*`, "i"), "")} (ongoing)`.replace(/\s+\(/, " ("), options: { color: ONGOING[tid] || "CFCFF0", bold: !!ONGOING[tid], bullet: { indent: 16 }, breakLine: true, paraSpaceAfter: after } }; }),
       ];
       s.addText(runs, { x, y: top + 2.3, w, h: H - top - 3.8, fontFace: FONT, fontSize: fs, valign: "top", isTextBox: true, margin: 0 });
     });

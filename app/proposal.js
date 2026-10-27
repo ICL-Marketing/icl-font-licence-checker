@@ -7,7 +7,7 @@ import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
 import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, lineValue, priceFor, ideasText, tierPlan, copyEdits, withEdits, quarter, rateOf, DAY_RATE, withTeam, withoutTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
 import Link from "next/link";
 import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY, ANCHORS } from "@/lib/deckTemplate";
-import { PACKAGE_GROUPS, PACKAGE_TEAMS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER } from "@/lib/packages";
+import { PACKAGE_GROUPS, PACKAGE_TEAMS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER, isSeoLine } from "@/lib/packages";
 import { ideaType, serviceFor } from "@/lib/clientIdeas";
 
 function Grow({ value, className = "", ...rest }) {
@@ -234,7 +234,7 @@ export function ProposalModal({ group, onClose, onLink }) {
   // After that each idea keeps its place while you change its hours or teams; new ideas join at the end.
   const [order, setOrder] = useState(null); // { scope, keys }
   const dayRate = Number(doc?.dayRate) > 0 ? Number(doc.dayRate) : defaultRate;
-  const sorted = [...allLines].sort((a, b) => lineValue(b, picked, dayRate) - lineValue(a, picked, dayRate));
+  const sorted = [...allLines].sort((a, b) => isSeoLine(a) - isSeoLine(b) || lineValue(b, picked, dayRate) - lineValue(a, picked, dayRate)); // the SEO idea always last
   const scope = `${id}:${doc?.step}`, kept = order?.scope === scope ? order.keys : null;
   const lines = kept ? [...kept.map((k) => allLines.find((l) => l.key === k)).filter(Boolean), ...sorted.filter((l) => !kept.includes(l.key))] : sorted;
   if (lines.map((l) => l.key).join() !== (kept || []).join()) setOrder({ scope, keys: lines.map((l) => l.key) });
@@ -252,9 +252,10 @@ export function ProposalModal({ group, onClose, onLink }) {
   useClaudeHandler("proposal", applyReply);
   useEffect(() => {
     if (doc?.step !== 3 || !doc.copy) return;
+    const seoKeys = new Set(allLines.filter(isSeoLine).map((l) => l.key)); // the SEO slide is text only
     const t = setTimeout(() => {
       if (website && !doc.copy.noCover && !images.cover && !asked.current.has("cover")) getShot("cover", `https://${website}`);
-      for (const c of doc.copy.ideas || []) if (!c.noImage && !images[c.key] && !asked.current.has(c.key)) { if (c.shot) getShot(c.key, c.shot, c.shotSel); else getStock(c.key, c.stock || c.title); }
+      if (!doc.copy.hide?.pictures) for (const c of doc.copy.ideas || []) if (!seoKeys.has(c.key) && !c.noImage && !images[c.key] && !asked.current.has(c.key)) { if (c.shot) getShot(c.key, c.shot, c.shotSel); else getStock(c.key, c.stock || c.title); }
     }, 0);
     return () => clearTimeout(t);
   });
@@ -267,7 +268,7 @@ export function ProposalModal({ group, onClose, onLink }) {
     try {
       const { buildDeck } = await import("@/app/proposalDeck");
       const template = await loadTemplate().catch(() => null);
-      await buildDeck({ client: group.name, website, lines, copy: doc.copy, images, packages: pkgIds, template, dayRate, tiers: doc.tiersOn ? doc.tierOf || {} : false });
+      await buildDeck({ client: group.name, website, lines, copy: doc.copy, images, packages: pkgIds, template, dayRate, tiers: doc.tiersOn ? doc.tierOf || {} : false, savings: doc.tierSavings || {} });
     }
     catch (e) { setErr(`Couldn't build the deck: ${e.message}`); }
     setBusy(false);
@@ -278,7 +279,7 @@ export function ProposalModal({ group, onClose, onLink }) {
   const toggle = (k) => ({ hidden: !!hidden[k], onToggle: () => setCopy({ hide: { ...hidden, [k]: !hidden[k] } }) });
   // The Bronze / Silver / Gold slide is off unless switched on (hide.tiers === false).
   const tiersToggle = { hidden: !doc?.tiersOn, onToggle: () => change((d) => ({ ...d, tiersOn: !d.tiersOn })) };
-  const plan = doc?.tiersOn ? tierPlan(lines, picked, dayRate, doc.tierOf || {}) : null;
+  const plan = doc?.tiersOn ? tierPlan(lines, picked, dayRate, doc.tierOf || {}, doc.tierSavings || {}) : null;
   const tierProps = (key) => (plan?.tierOf[key] ? { tier: plan.tierOf[key], onTier: (t) => change((d) => ({ ...d, tierOf: { ...d.tierOf, [key]: t } })) } : {});
   const tierPreview = !plan ? "needs at least three paid ideas" : ["bronze", "silver", "gold"].map((t) => `${t[0].toUpperCase()}${t.slice(1)} £${plan[t].price.toLocaleString("en-GB")} (${plan[t].lines.length})`).join(" · ");
   const setIdeaCopy = (key, fields) => setCopy({ ideas: doc.copy.ideas.map((x) => (x.key === key ? { ...x, ...fields } : x)) });
@@ -302,7 +303,8 @@ export function ProposalModal({ group, onClose, onLink }) {
                 <label className="flex items-start gap-2 rounded-lg border border-zinc-200 p-3 text-sm">
                   <input type="checkbox" checked={!!doc.tiersOn} onChange={tiersToggle.onToggle} className="mt-0.5 h-4 w-4" />
                   <span><span className="font-semibold">Offer Bronze / Silver / Gold options</span> <span className="text-zinc-500">(a &quot;Choose your package&quot; slide built from these ideas; Silver is priced to be the easy choice)</span>
-                    {doc.tiersOn && <span className="mt-1 block text-xs text-zinc-600">{tierPreview}{plan && " · click a price pill to move that idea to another tier"}{doc.tierOf && Object.keys(doc.tierOf).length > 0 && <> · <button type="button" onClick={(e) => { e.preventDefault(); change((d) => ({ ...d, tierOf: {} })); }} className="underline hover:text-zinc-900">reset to auto</button></>}</span>}</span>
+                    {doc.tiersOn && <span className="mt-1 block text-xs text-zinc-600">{tierPreview}{plan && " · click a price pill to move that idea to another tier"}{doc.tierOf && Object.keys(doc.tierOf).length > 0 && <> · <button type="button" onClick={(e) => { e.preventDefault(); change((d) => ({ ...d, tierOf: {} })); }} className="underline hover:text-zinc-900">reset to auto</button></>}
+                      {plan && <span className="mt-1 flex flex-wrap items-center gap-3" onClick={(e) => e.preventDefault()}>{["silver", "gold"].map((t) => <span key={t} className="inline-flex items-center gap-1" title={`Leave blank for the usual saving. Price = the ${t} items' total minus this saving`}>{t[0].toUpperCase()}{t.slice(1)} saving £<input type="number" min={0} step={50} value={doc.tierSavings?.[t] ?? ""} placeholder={String(Math.round(plan[t].full - plan[t].price))} onChange={(e) => { const v = e.target.value; change((d) => ({ ...d, tierSavings: { ...d.tierSavings, [t]: v === "" ? undefined : Number(v) } })); }} className="w-20 rounded border border-zinc-300 px-1.5 py-0.5 text-xs" /></span>)}<span className="text-zinc-500">Thin out Bronze or Silver by moving their biggest ideas up a tier.</span></span>}</span>}</span>
                 </label>
                 <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
                   {pool.length === 0 && <li className="p-3 text-sm text-zinc-500">No ideas for this client yet. Add your own below.</li>}
@@ -399,7 +401,7 @@ export function ProposalModal({ group, onClose, onLink }) {
                 <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Roadmap slide title<input value={doc.copy.roadmapTitle || ""} onChange={(e) => setCopy({ roadmapTitle: e.target.value })} placeholder="Too much in one go? Roadmap it over N months with a support retainer (N is worked out for you)" className={`${input} mt-0.5 font-normal normal-case tracking-normal`} /></label>
                 <BlockList label="Support retainer" items={doc.copy.retainer} onChange={(retainer) => setCopy({ retainer })} {...toggle("retainer")} />
                 <div><div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Standard slides</div>
-                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["agenda", "Agenda"], ["linkedin", "LinkedIn suggestions"], ["effort", "Investment summary table"], ["tiers", "Bronze / Silver / Gold options (switch on to add)"], ["roadmap", "Month-by-month roadmap"], ["costs", "Monthly / one-off costs table"], ["services", "Our service retainer offering"], ["support", "Support packages (Bronze, Silver, Gold)"], ["packages", "SEO / PPC package slides"], ...tplExtras.map((e) => [`extra:${e.i}`, `Your slide: ${e.title.slice(0, 50)}`])].map(([k, name]) => (
+                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["agenda", "Agenda"], ["linkedin", "LinkedIn suggestions (and AI outreach in monthly costs)"], ["pictures", "Pictures on idea slides"], ["effort", "Investment summary table"], ["tiers", "Bronze / Silver / Gold options (switch on to add)"], ["roadmap", "Month-by-month roadmap"], ["costs", "Monthly / one-off costs table"], ["services", "Our service retainer offering"], ["support", "Support packages (Bronze, Silver, Gold)"], ["packages", "SEO / PPC package slides"], ...tplExtras.map((e) => [`extra:${e.i}`, `Your slide: ${e.title.slice(0, 50)}`])].map(([k, name]) => (
                     <li key={k} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className={(k === "tiers" ? tiersToggle.hidden : hidden[k]) ? "text-zinc-400 line-through" : ""}>{name}{k === "tiers" && !tiersToggle.hidden && <span className="ml-2 text-xs text-zinc-500">{tierPreview}</span>}</span>{k === "linkedin" && !hidden.linkedin && <label className="text-xs text-zinc-600">Posts a month <input type="number" min={1} value={doc.copy.linkedinPosts ?? ""} placeholder="8" onChange={(e) => setCopy({ linkedinPosts: e.target.value === "" ? undefined : Number(e.target.value) })} className="ml-1 w-14 rounded border border-zinc-300 px-1.5 py-0.5 text-xs" /></label>}<span className="ml-auto"><SlideToggle {...(k === "tiers" ? tiersToggle : toggle(k))} /></span></li>))}
                   </ul>
                 </div>
