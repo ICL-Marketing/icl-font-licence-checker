@@ -56,6 +56,21 @@ const NEXT_TIER = { bronze: "silver", silver: "gold", gold: "bronze" };
 // The idea's price (or package), in its tier's colour when Bronze / Silver / Gold is on: click to move it to the next tier.
 // Off when the deck leaves prices out ("Include prices" unticked): no price pills anywhere in the editor either.
 const PricesShown = createContext(true);
+// Under an idea's title: Issue and Solution (or the older one-line explanation), and links to the pages on
+// their current site that show it, each opening in a new tab.
+function IdeaDetail({ idea }) {
+  const links = [...new Set([...(idea.links || []), idea.evidenceUrl].filter((u) => /^https?:\/\//.test(u || "")))];
+  const label = (u) => { try { const x = new URL(u); return x.pathname === "/" ? x.hostname.replace(/^www\./, "") : x.pathname.replace(/\/$/, ""); } catch { return u; } };
+  return (
+    <span className="mt-0.5 block space-y-0.5 text-xs leading-snug text-zinc-500">
+      {idea.issue || idea.solution ? <>
+        {idea.issue && <span className="block"><b className="font-semibold text-zinc-700">Issue:</b> {idea.issue}</span>}
+        {idea.solution && <span className="block"><b className="font-semibold text-zinc-700">Solution:</b> {idea.solution}</span>}
+      </> : idea.why && <span className="block">{idea.why}</span>}
+      {links.length > 0 && <span className="flex flex-wrap gap-x-3">{links.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-0.5 text-blue-700 hover:underline">{label(u)}<ExternalIcon className="h-3 w-3" /></a>)}</span>}
+    </span>
+  );
+}
 function PricePill({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier }) {
   if (!useContext(PricesShown)) return null;
   const pkg = isPackageLine(line) && (() => { const g = packagesOf(line, picked)[0]; const t = g?.tiers.find((x) => g.picked.includes(x.id)); return g ? `${g.name} package · ${t?.price} ${t?.period}` : "Package"; })();
@@ -321,7 +336,7 @@ export function ProposalModal({ group, onClose, onLink }) {
                       <input type="checkbox" checked={!!l} onChange={() => change((d) => { const p = { ...d.picked }; if (p[i.key]) delete p[i.key]; else p[i.key] = lineFromIdea(i); return { ...d, picked: p }; })} className="h-4 w-4" />
                       <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${i.ai ? "bg-violet-100 text-violet-800" : "bg-zinc-100 text-zinc-700"}`}>{i.ai ? "AI" : "ICL"}</span>
                       {i.starred && <span className="text-amber-500">★</span>}
-                      <span className="min-w-[16rem] flex-1 leading-snug">{i.title}{i.why && <span className="mt-0.5 block text-xs leading-snug text-zinc-500">{i.why}</span>}</span>
+                      <span className="min-w-[16rem] flex-1 leading-snug">{i.title}<IdeaDetail idea={i} /></span>
                       {l && <><PricePill picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(i.key, f)} {...tierProps(l.key)} /><Effort pill={false} picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(i.key, f)} /></>}
                     </li>); })}
                   {Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key)).map((l) => (
