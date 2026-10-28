@@ -294,16 +294,14 @@ export function ProposalModal({ group, onClose, onLink }) {
           <div className="space-y-4 px-5 py-4">
             <ol className="flex flex-wrap gap-1.5">{STEPS.map((s, n) => (
               <li key={s}><button onClick={() => canGo(n) && change((d) => ({ ...d, step: n }))} disabled={!canGo(n)} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium disabled:opacity-40 ${step === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{n < step ? <CheckIcon className="h-3.5 w-3.5 text-emerald-500" /> : <span className="opacity-60">{n + 1}</span>}{s}</button></li>))}
-              <li className="ml-auto"><label className="inline-flex items-center gap-1 text-xs text-zinc-600" title={`This client's day rate: prices the hours on each slide. Empty uses the default (£${defaultRate}) from Settings → Proposals`}>Day rate £<input type="number" min={1} step={25} value={doc.dayRate ?? ""} placeholder={String(defaultRate)} onChange={(e) => change((d) => ({ ...d, dayRate: e.target.value === "" ? undefined : Number(e.target.value) }))} className={num} aria-label="Day rate for this client" /></label></li>
+              {/* Unticked: no prices or costs anywhere in the deck (hours and teams only; cost, package, support and tier slides left out). */}
+              <li className="ml-auto"><label className="inline-flex items-center gap-1.5 text-xs text-zinc-600" title="Untick for a deck with no prices or costs at all"><input type="checkbox" checked={!doc.noPrices} onChange={() => change((d) => ({ ...d, noPrices: !d.noPrices }))} className="h-3.5 w-3.5" />Include prices</label></li>
+              {!doc.noPrices && <li><label className="inline-flex items-center gap-1 text-xs text-zinc-600" title={`This client's day rate: prices the hours on each slide. Empty uses the default (£${defaultRate}) from Settings → Proposals`}>Day rate £<input type="number" min={1} step={25} value={doc.dayRate ?? ""} placeholder={String(defaultRate)} onChange={(e) => change((d) => ({ ...d, dayRate: e.target.value === "" ? undefined : Number(e.target.value) }))} className={num} aria-label="Day rate for this client" /></label></li>}
             </ol>
 
             {step === 0 && (
               <div className="space-y-2">
                 <p className="text-xs text-zinc-600">Tick the ideas to pitch. Starred ideas and the top ones that fit in about 3 days are ticked for you. Adjust the hours (for a person doing it by hand, not AI) and who does it. Aim for about <b>3 days</b>: it&apos;s an easy yes, and the retainer slide pitches the rest.</p>
-                <label className="flex items-start gap-2 rounded-lg border border-zinc-200 p-3 text-sm">
-                  <input type="checkbox" checked={!doc.noPrices} onChange={() => change((d) => ({ ...d, noPrices: !d.noPrices }))} className="mt-0.5 h-4 w-4" />
-                  <span><span className="font-semibold">Include prices</span> <span className="text-zinc-500">(untick for a deck with no prices or costs at all: estimates show hours and teams only, and the costs, package, support and Bronze / Silver / Gold slides are left out)</span></span>
-                </label>
                 <label className={`flex items-start gap-2 rounded-lg border border-zinc-200 p-3 text-sm ${doc.noPrices ? "opacity-50" : ""}`}>
                   <input type="checkbox" disabled={!!doc.noPrices} checked={!!doc.tiersOn} onChange={tiersToggle.onToggle} className="mt-0.5 h-4 w-4" />
                   <span><span className="font-semibold">Offer Bronze / Silver / Gold options</span> <span className="text-zinc-500">(a &quot;Choose your package&quot; slide built from these ideas; Silver is priced to be the easy choice)</span>
