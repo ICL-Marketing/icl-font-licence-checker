@@ -1,7 +1,7 @@
 "use client";
 // Proposal deck for one client, step by step: assess the ideas, add your own, Claude writes the copy,
 // then review it, add screenshots and download the ICL-branded .pptx.
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon } from "@/app/icons";
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
 import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, lineValue, priceFor, ideasText, tierPlan, copyEdits, withEdits, quarter, rateOf, DAY_RATE, withTeam, withoutTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
@@ -54,7 +54,10 @@ const PACKAGE_TEAM_KEYS = Object.keys(PACKAGE_TEAMS);
 const TIER_PILL = { bronze: "bg-[#f1dfc4] text-[#7a4f12]", silver: "bg-zinc-200 text-zinc-700", gold: "bg-[#fbefb0] text-[#7a6008]" };
 const NEXT_TIER = { bronze: "silver", silver: "gold", gold: "bronze" };
 // The idea's price (or package), in its tier's colour when Bronze / Silver / Gold is on: click to move it to the next tier.
+// Off when the deck leaves prices out ("Include prices" unticked): no price pills anywhere in the editor either.
+const PricesShown = createContext(true);
 function PricePill({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier }) {
+  if (!useContext(PricesShown)) return null;
   const pkg = isPackageLine(line) && (() => { const g = packagesOf(line, picked)[0]; const t = g?.tiers.find((x) => g.picked.includes(x.id)); return g ? `${g.name} package · ${t?.price} ${t?.period}` : "Package"; })();
   const pill = `whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${tier ? TIER_PILL[tier] : "bg-indigo-100 text-indigo-800"}`;
   const label = pkg || priceFor(line, rate);
@@ -289,6 +292,7 @@ export function ProposalModal({ group, onClose, onLink }) {
   const canGo = (n) => n === 0 || (n <= 2 ? lines.length > 0 : !!doc?.copy);
 
   return (
+    <PricesShown.Provider value={!doc?.noPrices}>
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
       <div className="w-full max-w-4xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3"><h3 className="text-lg font-semibold">Proposal deck: {group.name}</h3>{website && <a href={`https://${website}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-700 hover:underline">{website} <ExternalIcon /></a>}{deckUrl && <a href={deckUrl} target="_blank" rel="noopener" className="inline-flex items-center gap-1 rounded-md border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100" title="The finished deck on SharePoint">Saved deck <ExternalIcon /></a>}<span className="ml-auto text-xs text-zinc-400">{saved}</span><button onClick={onClose} aria-label="Close" className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100"><CloseIcon /></button></div>
@@ -304,12 +308,12 @@ export function ProposalModal({ group, onClose, onLink }) {
             {step === 0 && (
               <div className="space-y-2">
                 <p className="text-xs text-zinc-600">Tick the ideas to pitch. Starred ideas and the top ones that fit in about 3 days are ticked for you. Adjust the hours (for a person doing it by hand, not AI) and who does it. Aim for about <b>3 days</b>: it&apos;s an easy yes, and the retainer slide pitches the rest.</p>
-                <label className={`flex items-start gap-2 rounded-lg border border-zinc-200 p-3 text-sm ${doc.noPrices ? "opacity-50" : ""}`}>
-                  <input type="checkbox" disabled={!!doc.noPrices} checked={!!doc.tiersOn} onChange={tiersToggle.onToggle} className="mt-0.5 h-4 w-4" />
+                {!doc.noPrices && <label className="flex items-start gap-2 rounded-lg border border-zinc-200 p-3 text-sm">
+                  <input type="checkbox" checked={!!doc.tiersOn} onChange={tiersToggle.onToggle} className="mt-0.5 h-4 w-4" />
                   <span><span className="font-semibold">Offer Bronze / Silver / Gold options</span> <span className="text-zinc-500">(a &quot;Choose your package&quot; slide built from these ideas; Silver is priced to be the easy choice)</span>
                     {doc.tiersOn && <span className="mt-1 block text-xs text-zinc-600">{tierPreview}{plan && " · click a price pill to move that idea to another tier"}{doc.tierOf && Object.keys(doc.tierOf).length > 0 && <> · <button type="button" onClick={(e) => { e.preventDefault(); change((d) => ({ ...d, tierOf: {} })); }} className="underline hover:text-zinc-900">reset to auto</button></>}
                       {plan && <span className="mt-1 flex flex-wrap items-center gap-3" onClick={(e) => e.preventDefault()}>{["silver", "gold"].map((t) => <span key={t} className="inline-flex items-center gap-1" title={`Leave blank for the usual saving. Price = the ${t} items' total minus this saving`}>{t[0].toUpperCase()}{t.slice(1)} saving £<input type="number" min={0} step={50} value={doc.tierSavings?.[t] ?? ""} placeholder={String(Math.round(plan[t].full - plan[t].price))} onChange={(e) => { const v = e.target.value; change((d) => ({ ...d, tierSavings: { ...d.tierSavings, [t]: v === "" ? undefined : Number(v) } })); }} className="w-20 rounded border border-zinc-300 px-1.5 py-0.5 text-xs" /></span>)}<span className="text-zinc-500">Thin out Bronze or Silver by moving their biggest ideas up a tier.</span></span>}</span>}</span>
-                </label>
+                </label>}
                 <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
                   {pool.length === 0 && <li className="p-3 text-sm text-zinc-500">No ideas for this client yet. Add your own below.</li>}
                   {pool.map((i) => { const l = doc.picked[i.key]; return (
@@ -425,6 +429,7 @@ export function ProposalModal({ group, onClose, onLink }) {
         )}
       </div>
     </div>
+    </PricesShown.Provider>
   );
 }
 
