@@ -161,13 +161,15 @@ export function ProposalModal({ group, onClose, onLink }) {
   // Screenshots of the client's pages (the ones Claude picked), taken for you in the review step. Kept in this browser only.
   const [shotState, setShotState] = useState({}); // key -> "loading" | "failed"
   const asked = useRef(new Set());
+  // Where each picture came from: "shot" (their site, captioned "Current layout" in the deck), "stock" or "own".
+  const [shotKind, setShotKind] = useState({});
   // A stock photo for an idea with nothing to screenshot yet (a new page or feature), so every idea slide has a picture.
   const getStock = (key, q) => getShot(key, "", "", `/api/stock?q=${encodeURIComponent(q)}`);
   function getShot(key, url, sel = "", src = "") {
     asked.current.add(key);
     setShotState((o) => ({ ...o, [key]: "loading" }));
     fetch(src || `/api/shot?url=${encodeURIComponent(url)}${sel ? `&sel=${encodeURIComponent(sel)}` : ""}`).then((r) => (r.ok ? r.blob() : Promise.reject())).then(shrink)
-      .then((data) => { setImages((o) => ({ ...o, [key]: data })); setShotState((o) => ({ ...o, [key]: "" })); })
+      .then((data) => { setImages((o) => ({ ...o, [key]: data })); setShotKind((o) => ({ ...o, [key]: src ? "stock" : "shot" })); setShotState((o) => ({ ...o, [key]: "" })); })
       .catch(() => setShotState((o) => ({ ...o, [key]: "failed" })));
   }
   const [copied, setCopied] = useState(false);
@@ -268,7 +270,7 @@ export function ProposalModal({ group, onClose, onLink }) {
     try {
       const { buildDeck } = await import("@/app/proposalDeck");
       const template = await loadTemplate().catch(() => null);
-      await buildDeck({ client: group.name, website, lines, copy: doc.copy, images, packages: pkgIds, template, dayRate, tiers: doc.tiersOn ? doc.tierOf || {} : false, savings: doc.tierSavings || {}, prices: !doc.noPrices });
+      await buildDeck({ client: group.name, website, lines, copy: doc.copy, images, packages: pkgIds, template, dayRate, tiers: doc.tiersOn ? doc.tierOf || {} : false, savings: doc.tierSavings || {}, prices: !doc.noPrices, captions: Object.fromEntries(Object.entries(shotKind).filter(([, k]) => k === "shot").map(([key]) => [key, "Current layout"])) });
     }
     catch (e) { setErr(`Couldn't build the deck: ${e.message}`); }
     setBusy(false);
@@ -397,7 +399,7 @@ export function ProposalModal({ group, onClose, onLink }) {
                         <div className="flex flex-wrap items-center gap-2 pt-1"><Effort picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} {...tierProps(l.key)} />
                           {c?.max && c.max !== l.max && <button onClick={() => { const th = teamHours(l), tot = Object.values(th).reduce((x, y) => x + y, 0) || 1, hrs = Object.fromEntries(Object.entries(th).map(([k, h]) => [k, quarter((h * c.max) / tot)])); const t = Object.values(hrs).reduce((x, y) => x + y, 0); setLine(l.key, { hrs, min: t, max: t }); }} title={c.hoursNote} className="block w-full rounded-md bg-orange-50 px-2.5 py-1.5 text-left text-[11px] text-orange-800 ring-1 ring-orange-200 hover:bg-orange-100"><span className="font-semibold">Claude suggests {c.max} hrs · use</span>{c.hoursNote && <span className="mt-0.5 block">{c.hoursNote}</span>}</button>}</div>
                       </div>
-                      <ImageDrop value={images[l.key]} status={shotState[l.key]} onShot={c ? () => { setIdeaCopy(l.key, { noImage: false }); if (c.shot) getShot(l.key, c.shot, c.shotSel); else getStock(l.key, c.stock || c.title); } : null} shotLabel={c?.shot ? "Use the page screenshot" : "Use a stock photo"} onChange={(v) => { setImages((o) => ({ ...o, [l.key]: v })); if (!v && c) setIdeaCopy(l.key, { noImage: true }); }} label="No picture on this slide" />
+                      <ImageDrop value={images[l.key]} status={shotState[l.key]} onShot={c ? () => { setIdeaCopy(l.key, { noImage: false }); if (c.shot) getShot(l.key, c.shot, c.shotSel); else getStock(l.key, c.stock || c.title); } : null} shotLabel={c?.shot ? "Use the page screenshot" : "Use a stock photo"} onChange={(v) => { setImages((o) => ({ ...o, [l.key]: v })); setShotKind((o) => ({ ...o, [l.key]: "own" })); if (!v && c) setIdeaCopy(l.key, { noImage: true }); }} label="No picture on this slide" />
                     </div>); })}
                 </div>
                 <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Roadmap slide title<input value={doc.copy.roadmapTitle || ""} onChange={(e) => setCopy({ roadmapTitle: e.target.value })} placeholder="Too much in one go? Roadmap it over N months with a support retainer (N is worked out for you)" className={`${input} mt-0.5 font-normal normal-case tracking-normal`} /></label>

@@ -27,7 +27,7 @@ const teamList = (team = []) => TEAMS.filter(([k]) => team.includes(k)).map(([, 
 const hrs = (a, b) => `${range(a, b)}\u00A0hr${a === b && a === 1 ? "" : "s"}`;
 const fileSafe = (s) => String(s).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "Client";
 
-export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null, dayRate = DAY_RATE, tiers = false, savings = {}, prices = true }) {
+export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null, dayRate = DAY_RATE, tiers = false, savings = {}, prices = true, captions = {} }) {
   // prices: false leaves out every price, cost and hour: no estimate bars, investment summary, cost or package slides.
   const { default: PptxGenJS } = await import("pptxgenjs");
   const pres = new PptxGenJS();
@@ -214,8 +214,10 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     if (body.length) { delete body[body.length - 1].options.breakLine; s.addText(body, { x: 0.9, y: 2.3, w: textW, h: 6.6, fontFace: FONT, valign: "top", fit: "shrink", isTextBox: true, margin: 0 }); }
     // Every picture fills the same frame on the right (cropped to fit, not squashed), so the slides match.
     if (img) {
-      const sz = await sizeOf(img), bw = 8.6, bh = 5.4;
-      s.addImage({ data: img, x: W - 0.9 - bw, y: 2.2 + (7.2 - bh) / 2, w: bw, h: (bw * sz.h) / sz.w, sizing: { type: "cover", w: bw, h: bh } });
+      const sz = await sizeOf(img), bw = 8.6, bh = 5.4, iy = 2.2 + (7.2 - bh) / 2;
+      // A screenshot of their site is captioned above, e.g. "Current layout".
+      if (captions[l.key]) s.addText(captions[l.key], { x: W - 0.9 - bw, y: iy - 0.8, w: bw, h: 0.6, fontFace: FONT, fontSize: 24, color: NAVY, align: "center", valign: "bottom", isTextBox: true, margin: 0 });
+      s.addImage({ data: img, x: W - 0.9 - bw, y: iy, w: bw, h: (bw * sz.h) / sz.w, sizing: { type: "cover", w: bw, h: bh } });
     }
     // Effort box (left out of a deck without prices)
     if (prices) {
