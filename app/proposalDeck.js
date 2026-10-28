@@ -28,7 +28,7 @@ const hrs = (a, b) => `${range(a, b)}\u00A0hr${a === b && a === 1 ? "" : "s"}`;
 const fileSafe = (s) => String(s).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "Client";
 
 export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null, dayRate = DAY_RATE, tiers = false, savings = {}, prices = true }) {
-  // prices: false leaves out every price and cost (estimate bars show hours and teams only, no cost or package slides).
+  // prices: false leaves out every price, cost and hour: no estimate bars, investment summary, cost or package slides.
   const { default: PptxGenJS } = await import("pptxgenjs");
   const pres = new PptxGenJS();
   // Where each slide goes: null for one built here, or a slot name for a slide copied from the uploaded template.
@@ -109,7 +109,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   // 2. Agenda: the sections this deck actually has, in order.
   const fixedLines = lines.filter((l) => pkgOf(l)?.fixed);
   const showRoadmap = !hide.roadmap && lines.length > 1, showLinkedin = !hide.linkedin;
-  const showSummary = !hide.effort && (hourLines.length || fixedLines.length), showCosts = prices && !hide.costs && (picked.some((g) => !g.fixed) || showLinkedin);
+  const showSummary = prices && !hide.effort && (hourLines.length || fixedLines.length), showCosts = prices && !hide.costs && (picked.some((g) => !g.fixed) || showLinkedin);
   const showSupport = prices && !hide.support, showPackages = prices && !hide.packages;
   if (!hide.agenda) {
     const agenda = [
@@ -117,7 +117,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       showLinkedin && "LinkedIn suggestions",
       copy.background?.length && !hide.background && "Website ideas: the background",
       lines.length && "Your website ideas",
-      showSummary && (prices ? "Investment summary" : "Summary of work"),
+      showSummary && "Investment summary",
       showCosts && "Monthly costs",
       plan && "Choose your package",
       showRoadmap && "Six-month roadmap",
@@ -217,7 +217,8 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       const sz = await sizeOf(img), bw = 8.6, bh = 5.4;
       s.addImage({ data: img, x: W - 0.9 - bw, y: 2.2 + (7.2 - bh) / 2, w: bw, h: (bw * sz.h) / sz.w, sizing: { type: "cover", w: bw, h: bh } });
     }
-    // Effort box
+    // Effort box (left out of a deck without prices)
+    if (prices) {
     const pkg = pkgOf(l);
     // One line: ESTIMATE 14 HRS   TEAM: CONTENT (4 HOURS), DESIGN (8 HOURS), DEVELOPMENT (2 HOURS). Package work is named, not timed.
     const sp = split(l), hoursOf = (h) => `${h} ${h === 1 ? "HOUR" : "HOURS"}`;
@@ -230,11 +231,12 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const runs = seoTier ? [{ text: `${pkg.name} ${String(seoTier.name).split(":")[0].replace(new RegExp(`^${pkg.name}\\s*`, "i"), "")}${prices ? ` from ${seoTier.price} p.m.` : ""}`.replace(/\s+/g, " ").toUpperCase(), options: { color: NAVY, bold: true } }, { text: ",  TEAM:  ", options: { color: GREY, bold: true } }, { text: "MARKETING", options: { color: NAVY, bold: true } }] : [{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, bold: true } }, { text: (pkg ? (prices ? priceOf(pkg) : pkg.name) : `${hrs(l.min, l.max)}${prices || l.free ? ` · ${l.free ? "FREE OF CHARGE" : priceFor(l, dayRate)}` : ""}`).toUpperCase(), options: { color: NAVY, bold: true } }, { text: "      TEAM:  ", options: { color: GREY, bold: true } }, { text: teamText.toUpperCase(), options: { color: NAVY, bold: true } }];
     const chars = runs.reduce((n, r) => n + r.text.length, 0), fs = Math.max(11, Math.min(20, Math.floor(((W - 2.9) * 72) / (chars * 0.7))));
     s.addText(runs, { x: 1.4, y: 9.6, w: W - 2.9, h: 1.15, fontFace: FONT, fontSize: fs, valign: "middle", wrap: false, isTextBox: true, margin: 0 });
+    }
   }
   extrasAt("ideas");
   // 6. Investment summary: the hourly work, plus one-off packages (videography) at their set price.
   if (showSummary) {
-    const s = light(prices ? "Investment summary" : "Summary of work");
+    const s = light("Investment summary");
     const hd = (t, al = "center") => ({ text: t, options: { bold: true, color: WHITE, fill: { color: NAVY }, align: al, fontSize: many ? 12 : 16 } });
     const cell = (t, o = {}) => ({ text: t, options: { color: INK, fontSize: many ? 15 : 17, align: "center", ...o } });
     // Design, Dev and Content always get a column (a dash where empty), plus any other team this proposal uses.
