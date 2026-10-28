@@ -27,7 +27,8 @@ const teamList = (team = []) => TEAMS.filter(([k]) => team.includes(k)).map(([, 
 const hrs = (a, b) => `${range(a, b)}\u00A0hr${a === b && a === 1 ? "" : "s"}`;
 const fileSafe = (s) => String(s).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "Client";
 
-export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null, dayRate = DAY_RATE, tiers = false, savings = {} }) {
+export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null, dayRate = DAY_RATE, tiers = false, savings = {}, prices = true }) {
+  // prices: false leaves out every price and cost (estimate bars show hours and teams only, no cost or package slides).
   const { default: PptxGenJS } = await import("pptxgenjs");
   const pres = new PptxGenJS();
   // Where each slide goes: null for one built here, or a slot name for a slide copied from the uploaded template.
@@ -53,7 +54,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   const extrasAt = (anchor) => { (template?.extras || []).forEach((e, i) => { if (e.after === anchor && !NOT_IN_CLIENT_DECKS.test(e.title || "") && !hide[`extra:${i}`] && template.slots[`extra:${i}`]) order.push(`extra:${i}`); }); };
   const byKey = Object.fromEntries((copy.ideas || []).map((i) => [i.key, i]));
   const hide = copy.hide || {}; // slides taken out in the review step
-  const plan = tiers ? tierPlan(lines, picked, dayRate, typeof tiers === "object" ? tiers : {}, savings) : null;
+  const plan = tiers && prices ? tierPlan(lines, picked, dayRate, typeof tiers === "object" ? tiers : {}, savings) : null;
   const dark = () => { const s = pres.addSlide(); s.background = { data: bg }; s.addImage({ data: logoW, x: 0.9, y: H - 1.15, w: 2.3, h: 2.3 * (183 / 786) }); return s; };
   const light = (title) => {
     const s = pres.addSlide(); s.background = { color: WHITE };
@@ -108,21 +109,22 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   // 2. Agenda: the sections this deck actually has, in order.
   const fixedLines = lines.filter((l) => pkgOf(l)?.fixed);
   const showRoadmap = !hide.roadmap && lines.length > 1, showLinkedin = !hide.linkedin;
-  const showSummary = !hide.effort && (hourLines.length || fixedLines.length), showCosts = !hide.costs && (picked.some((g) => !g.fixed) || showLinkedin);
+  const showSummary = !hide.effort && (hourLines.length || fixedLines.length), showCosts = prices && !hide.costs && (picked.some((g) => !g.fixed) || showLinkedin);
+  const showSupport = prices && !hide.support, showPackages = prices && !hide.packages;
   if (!hide.agenda) {
     const agenda = [
       ...(template?.extras || []).filter((e, i) => e.after === "cover" && !NOT_IN_CLIENT_DECKS.test(e.title || "") && !hide[`extra:${i}`] && template.slots[`extra:${i}`] && e.title).map((e) => e.title),
       showLinkedin && "LinkedIn suggestions",
       copy.background?.length && !hide.background && "Website ideas: the background",
       lines.length && "Your website ideas",
-      showSummary && "Investment summary",
+      showSummary && (prices ? "Investment summary" : "Summary of work"),
       showCosts && "Monthly costs",
       plan && "Choose your package",
       showRoadmap && "Six-month roadmap",
       copy.retainer?.length && !hide.retainer && "Next: a support retainer",
-      !hide.support && "Support packages",
+      showSupport && "Support packages",
       !hide.services && "Service retainer offering",
-      ...(hide.packages ? [] : picked.filter((g) => !g.fixed && g.id !== "support").map((g) => g.title)),
+      ...(!showPackages ? [] : picked.filter((g) => !g.fixed && g.id !== "support").map((g) => g.title)),
     ].filter(Boolean);
     const s = light("Agenda");
     const per = Math.ceil(agenda.length / (agenda.length > 7 ? 2 : 1)), colW = agenda.length > 7 ? 8.6 : W - 1.8;
@@ -143,7 +145,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       { title: "Company page refresh", text: "A refreshed company page that matches your website, so it looks current and is easy to trust." },
       { title: "Partner profiles", text: "People engage with people, not companies. We bring each partner's profile up to date so it shows their experience." },
       { title: "Content roadmap", text: `${posts} posts per month. We strategise, write and schedule the content, put it on the website and design social banners, working with our Head of Marketing.` },
-      { title: "LinkedIn Automations", text: "We scrape data for your ideal customers and use AI automation to connect with and nurture each one through personalised messaging. From £650 per month (ex VAT) per team member." },
+      { title: "LinkedIn Automations", text: `We scrape data for your ideal customers and use AI automation to connect with and nurture each one through personalised messaging.${prices ? " From £650 per month (ex VAT) per team member." : ""}` },
     ]);
   }
   // 3. Background
@@ -169,7 +171,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   // A package slide (SEO, PPC, social media): with the other packages near the end of the deck.
   const shownPkg = new Set();
   const packageSlide = (g) => {
-    if (hide.packages || g.id === "support" || shownPkg.has(g.id) || !picked.includes(g)) return;
+    if (!showPackages || g.id === "support" || shownPkg.has(g.id) || !picked.includes(g)) return;
     shownPkg.add(g.id);
     if (fixedSlide(g.id)) return;
     const s = light(g.title);
@@ -225,14 +227,14 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: 0.18, h: 1.25, rectRadius: 0.05, fill: { color: TEAL }, line: { color: TEAL } });
     // The SEO idea: "SEO Bronze from £599 p.m., Team: Marketing".
     const seoTier = isSeoLine(l) && pkg && (pkg.tiers.find((x) => pkg.picked.includes(x.id)) || pkg.tiers[0]);
-    const runs = seoTier ? [{ text: `${pkg.name} ${String(seoTier.name).split(":")[0].replace(new RegExp(`^${pkg.name}\\s*`, "i"), "")} from ${seoTier.price} p.m.`.replace(/\s+/g, " ").toUpperCase(), options: { color: NAVY, bold: true } }, { text: ",  TEAM:  ", options: { color: GREY, bold: true } }, { text: "MARKETING", options: { color: NAVY, bold: true } }] : [{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, bold: true } }, { text: (pkg ? priceOf(pkg) : `${hrs(l.min, l.max)} · ${l.free ? "FREE OF CHARGE" : priceFor(l, dayRate)}`).toUpperCase(), options: { color: NAVY, bold: true } }, { text: "      TEAM:  ", options: { color: GREY, bold: true } }, { text: teamText.toUpperCase(), options: { color: NAVY, bold: true } }];
+    const runs = seoTier ? [{ text: `${pkg.name} ${String(seoTier.name).split(":")[0].replace(new RegExp(`^${pkg.name}\\s*`, "i"), "")}${prices ? ` from ${seoTier.price} p.m.` : ""}`.replace(/\s+/g, " ").toUpperCase(), options: { color: NAVY, bold: true } }, { text: ",  TEAM:  ", options: { color: GREY, bold: true } }, { text: "MARKETING", options: { color: NAVY, bold: true } }] : [{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, bold: true } }, { text: (pkg ? (prices ? priceOf(pkg) : pkg.name) : `${hrs(l.min, l.max)}${prices || l.free ? ` · ${l.free ? "FREE OF CHARGE" : priceFor(l, dayRate)}` : ""}`).toUpperCase(), options: { color: NAVY, bold: true } }, { text: "      TEAM:  ", options: { color: GREY, bold: true } }, { text: teamText.toUpperCase(), options: { color: NAVY, bold: true } }];
     const chars = runs.reduce((n, r) => n + r.text.length, 0), fs = Math.max(11, Math.min(20, Math.floor(((W - 2.9) * 72) / (chars * 0.7))));
     s.addText(runs, { x: 1.4, y: 9.6, w: W - 2.9, h: 1.15, fontFace: FONT, fontSize: fs, valign: "middle", wrap: false, isTextBox: true, margin: 0 });
   }
   extrasAt("ideas");
   // 6. Investment summary: the hourly work, plus one-off packages (videography) at their set price.
   if (showSummary) {
-    const s = light("Investment summary");
+    const s = light(prices ? "Investment summary" : "Summary of work");
     const hd = (t, al = "center") => ({ text: t, options: { bold: true, color: WHITE, fill: { color: NAVY }, align: al, fontSize: many ? 12 : 16 } });
     const cell = (t, o = {}) => ({ text: t, options: { color: INK, fontSize: many ? 15 : 17, align: "center", ...o } });
     // Design, Dev and Content always get a column (a dash where empty), plus any other team this proposal uses.
@@ -249,7 +251,9 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const fixedCost = fixedLines.reduce((n, l) => n + (Number(String(tierOf(pkgOf(l)).price).replace(/[^0-9.]/g, "")) || 0), 0), fromPrice = fixedLines.some((l) => /^from/i.test(tierOf(pkgOf(l)).price));
     rows.push([cell("TOTAL HANDS-ON WORK", { align: "left", bold: true, color: NAVY, fill: { color: PALE }, ...pad }), cell("", { fill: { color: PALE } }), ...used.map(([k]) => cell(t[k][1] ? range(t[k][0], t[k][1]) : "–", { bold: true, fill: { color: PALE } })), cell(`${range(t.min, t.max)} hrs`, { bold: true, color: NAVY, fill: { color: PALE } }), cell(`${fromPrice ? "From " : ""}${money(hourLines.reduce((n, l) => n + costOf(l), 0) + fixedCost)}`, { bold: true, color: NAVY, fill: { color: PALE } })]);
     const rh = Math.min(1, 7.6 / rows.length);
-    s.addTable(rows, { x: 0.9, y: 2.3, w: TW, colW: [...fixedW, ...used.map(() => (TW - fixedW[0] - fixedW[1] - EW - CW) / used.length), EW, CW], rowH: rh, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" }, margin: 0.08 });
+    if (!prices) rows.forEach((r) => r.pop()); // no Cost column
+    const colW = [...fixedW, ...used.map(() => (TW - fixedW[0] - fixedW[1] - EW - (prices ? CW : 0)) / used.length), EW, ...(prices ? [CW] : [])];
+    s.addTable(rows, { x: 0.9, y: 2.3, w: TW, colW, rowH: rh, fontFace: FONT, valign: "middle", border: { type: "solid", pt: 0.75, color: "DADAEA" }, margin: 0.08 });
   }
   // 6b. Costs: package work (SEO, PPC, videography, support) kept apart from the hours
   // One-off packages are on the investment summary, so this is the monthly costs only.
@@ -355,7 +359,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     blockGrid(s, copy.retainer.filter((b) => !/roadmap|\bmonths?\b/i.test(b.title)));
   }
   // 8. Support packages: the template's page 11 (tier headings in their colours, open table with rules)
-  if (!hide.support && !fixedSlide("support")) {
+  if (showSupport && !fixedSlide("support")) {
     const s = light();
     s.addText("SUPPORT PACKAGES", { x: 0.64, y: 0.52, w: 15.25, h: 0.91, fontFace: FONT, fontSize: 44, bold: true, color: NAVY, valign: "middle", isTextBox: true, margin: 0 });
     s.addImage({ data: icon9, x: 17.16, y: 0.79, w: 0.66, h: 0.53 });

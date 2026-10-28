@@ -240,7 +240,7 @@ export function ProposalModal({ group, onClose, onLink }) {
   if (lines.map((l) => l.key).join() !== (kept || []).join()) setOrder({ scope, keys: lines.map((l) => l.key) });
   const resort = () => setOrder({ scope, keys: sorted.map((l) => l.key) });
   const unsorted = lines.some((l, n) => l.key !== sorted[n]?.key);
-  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines, notes: doc.notes, points: chosen, packages: picked, keep: copyEdits(doc.copy) })) : "";
+  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines, notes: doc.notes, points: chosen, packages: picked, keep: copyEdits(doc.copy), prices: !doc.noPrices })) : "";
 
   function applyReply(text) {
     const copy = parseProposalReply(text);
@@ -268,7 +268,7 @@ export function ProposalModal({ group, onClose, onLink }) {
     try {
       const { buildDeck } = await import("@/app/proposalDeck");
       const template = await loadTemplate().catch(() => null);
-      await buildDeck({ client: group.name, website, lines, copy: doc.copy, images, packages: pkgIds, template, dayRate, tiers: doc.tiersOn ? doc.tierOf || {} : false, savings: doc.tierSavings || {} });
+      await buildDeck({ client: group.name, website, lines, copy: doc.copy, images, packages: pkgIds, template, dayRate, tiers: doc.tiersOn ? doc.tierOf || {} : false, savings: doc.tierSavings || {}, prices: !doc.noPrices });
     }
     catch (e) { setErr(`Couldn't build the deck: ${e.message}`); }
     setBusy(false);
@@ -301,7 +301,11 @@ export function ProposalModal({ group, onClose, onLink }) {
               <div className="space-y-2">
                 <p className="text-xs text-zinc-600">Tick the ideas to pitch. Starred ideas and the top ones that fit in about 3 days are ticked for you. Adjust the hours (for a person doing it by hand, not AI) and who does it. Aim for about <b>3 days</b>: it&apos;s an easy yes, and the retainer slide pitches the rest.</p>
                 <label className="flex items-start gap-2 rounded-lg border border-zinc-200 p-3 text-sm">
-                  <input type="checkbox" checked={!!doc.tiersOn} onChange={tiersToggle.onToggle} className="mt-0.5 h-4 w-4" />
+                  <input type="checkbox" checked={!doc.noPrices} onChange={() => change((d) => ({ ...d, noPrices: !d.noPrices }))} className="mt-0.5 h-4 w-4" />
+                  <span><span className="font-semibold">Include prices</span> <span className="text-zinc-500">(untick for a deck with no prices or costs at all: estimates show hours and teams only, and the costs, package, support and Bronze / Silver / Gold slides are left out)</span></span>
+                </label>
+                <label className={`flex items-start gap-2 rounded-lg border border-zinc-200 p-3 text-sm ${doc.noPrices ? "opacity-50" : ""}`}>
+                  <input type="checkbox" disabled={!!doc.noPrices} checked={!!doc.tiersOn} onChange={tiersToggle.onToggle} className="mt-0.5 h-4 w-4" />
                   <span><span className="font-semibold">Offer Bronze / Silver / Gold options</span> <span className="text-zinc-500">(a &quot;Choose your package&quot; slide built from these ideas; Silver is priced to be the easy choice)</span>
                     {doc.tiersOn && <span className="mt-1 block text-xs text-zinc-600">{tierPreview}{plan && " · click a price pill to move that idea to another tier"}{doc.tierOf && Object.keys(doc.tierOf).length > 0 && <> · <button type="button" onClick={(e) => { e.preventDefault(); change((d) => ({ ...d, tierOf: {} })); }} className="underline hover:text-zinc-900">reset to auto</button></>}
                       {plan && <span className="mt-1 flex flex-wrap items-center gap-3" onClick={(e) => e.preventDefault()}>{["silver", "gold"].map((t) => <span key={t} className="inline-flex items-center gap-1" title={`Leave blank for the usual saving. Price = the ${t} items' total minus this saving`}>{t[0].toUpperCase()}{t.slice(1)} saving £<input type="number" min={0} step={50} value={doc.tierSavings?.[t] ?? ""} placeholder={String(Math.round(plan[t].full - plan[t].price))} onChange={(e) => { const v = e.target.value; change((d) => ({ ...d, tierSavings: { ...d.tierSavings, [t]: v === "" ? undefined : Number(v) } })); }} className="w-20 rounded border border-zinc-300 px-1.5 py-0.5 text-xs" /></span>)}<span className="text-zinc-500">Thin out Bronze or Silver by moving their biggest ideas up a tier.</span></span>}</span>}</span>
