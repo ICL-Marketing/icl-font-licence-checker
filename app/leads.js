@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { PlayIcon, StopIcon, RefreshIcon, DownloadIcon, TrashIcon, ExternalIcon, PinIcon, CopyIcon, CheckIcon, SpinnerIcon, MailIcon, SearchIcon, CloseIcon } from "@/app/icons";
-import { LEAD_STATUSES, PROBLEMS, to100, businessLabel, subjectForText, draftBatchPrompt, parseDraftBatch, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, sortFindings, presetSubject, stripFlagLine, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck, footerOnly } from "@/lib/leadsShared";
+import { LEAD_STATUSES, PROBLEMS, to100, businessLabel, subjectForText, draftBatchPrompt, parseDraftBatch, DRAFT_VERSION, CONTACTS_VERSION, draftFollowUp, parkStatus, issuesFor, pickIssue, draftFor, fullEmail, dayGreeting, roleGroup, sicDescription, contactExhausted, rankCheckPrompt, parseRankReply, greetNames, inboxNames, optOutLine, emailTemplates, setEmailTemplates, DEFAULT_SUBJECTS_SHARED, iclFooter, withIclLine, MAPS_TYPES, parseSitesReply, findLeadsPrompt, parseFoundLeads, SEEN_ON_SITE, REVIEW_PATHS, suggestPath, sortFindings, findingRole, presetSubject, stripFlagLine, draftPrompt, parseDraftReply, firstNameOf, GENERIC_BOX_RE, websiteIsVerified, isFrozen, leadCheckPrompt, parseLeadCheck, footerOnly } from "@/lib/leadsShared";
 import SEED from "@/data/leads.json";
 import { mergeDoc } from "@/lib/merge";
 import { useClaudeHandler, useClaudeJob, openClaude, markSent, unmarkSent, sentIds, PasteHint, reportProgress, withTitle, ClaudeText } from "@/app/claudeInbox";
@@ -2263,7 +2263,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
     ...issues.map((i) => ({ key: `chk:${i.id}`, label: i.label, from: "Checker", issue: i })),
     // Claude's three findings, best first. High is a quick fix worth flagging, Low is a bigger
     // recommendation, so the list reads in the order the email should make its case.
-    ...sortFindings(l.claude?.findings).filter((x) => !(/footer|copyright/i.test(x.label) && !(l.year && l.year <= new Date().getFullYear() - 2))).map((x, i) => ({ key: `find:${i}`, label: `${x.label}: ${x.note}`, grade: x.grade, from: "Claude" })),
+    ...sortFindings(l.claude?.findings).map((x, i) => ({ key: `find:${i}`, label: `${x.label}: ${x.note}`, grade: x.grade, from: "Claude", second: findingRole(x.label) === "second" })), // never-mention ones (footer year, alt text…) are dropped
     ...(!(l.claude?.findings || []).length && l.claude && (l.claude.angle || l.claude.issue_note) ? [{ key: "claude", label: oneLine(l.claude.angle || l.claude.issue_note), from: "Claude" }] : []),
     // What you wrote in step 1 is an issue you can lead with too.
     ...(String(r.notes || "").trim() ? [{ key: "note", label: String(r.notes).trim().replace(/\s+/g, " "), from: "You" }] : []),
@@ -2274,7 +2274,7 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   cands.sort((a, b) => (included(b, r.lead) ? 1 : 0) - (included(a, r.lead) ? 1 : 0));
   // Claude's issue is preselected as the main one; tap another to change it.
   // A lead that was once in Web maintenance keeps that pick in its review; once it is back on the board the real issues take over.
-  const mainKey = r.lead && (maint || r.lead !== "chk:maintenance") && cands.some((c) => c.key === r.lead) ? r.lead : (cands.find((c) => c.key === "claude") || cands.find((c) => !c.standard))?.key;
+  const mainKey = r.lead && (maint || r.lead !== "chk:maintenance") && cands.some((c) => c.key === r.lead) ? r.lead : (cands.find((c) => c.key === "claude") || cands.find((c) => !c.standard && !c.second) || cands.find((c) => !c.standard))?.key; // a second-point finding (a typo…) never leads by default
   const lead = cands.find((c) => c.key === mainKey) || (maint ? cands.find((c) => c.key === "chk:maintenance") || { key: "chk:maintenance", label: "Website maintenance", from: "Checker" } : null);
   // The main issue decides the subject line (Settings → Emails holds the wording for each issue).
   const subjectOf = (c) => {
@@ -2287,9 +2287,8 @@ function ReviewSteps({ onHunter, l, onNoSite, onChange, issues, person, subjects
   const path = (r.path && (maint || r.path !== "maintenance") ? r.path : "") || suggestPath(lead?.issue?.id || lead?.label || "", l);
   const first = greetNames(l.contactName);
   // What the email should say: used for this lead's own prompt, and saved on the lead for the batch prompt.
-  const staleYear = l.year && l.year <= new Date().getFullYear() - 3 ? l.year : 0;
   const droppedLabels = dropped.map((k) => (issues.find((i) => `chk:${i.id}` === k) || {}).label || (k === "claude" ? oneLine(l.claude?.angle || l.claude?.issue_note || "Claude's point") : k.replace(/^(you|own|chk):/, ""))).filter(Boolean);
-  const brief = lead ? { dropped: droppedLabels, footerYear: staleYear, leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => c.key !== mainKey && included(c, mainKey)).map((c) => sentence(c.label)), /* what you noticed is always mentioned */ notes: r.notes || "", path, template: lead.issue?.body || "" } : null;
+  const brief = lead ? { dropped: droppedLabels, leadWith: lead.from === "Checker" && l.problemDetail && !/^chk:(fonts|image)/.test(lead.key) ? `${lead.label} (${l.problemDetail})` : lead.label, also: cands.filter((c) => c.key !== mainKey && included(c, mainKey)).map((c) => sentence(c.label)), /* what you noticed is always mentioned */ notes: r.notes || "", path, template: lead.issue?.body || "" } : null;
   const prompt = lead ? withTitle("Email draft", l.business, draftPrompt({ l, first, ...brief, subject: subjectOf(lead) })) : "";
   // Changing the main issue or the approach rewrites the email. A draft that argues a point you
   // have just dropped is worse than no draft at all. An email you have edited by hand is never
