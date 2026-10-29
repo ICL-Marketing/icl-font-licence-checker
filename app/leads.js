@@ -1236,6 +1236,14 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
   const areaTitle = areaState.outcodes ? `Every active trading company registered within ${areaMiles} miles of ${areaCentres.join(", ")}: ${areaState.outcodes} postcode areas, searched as ${areaState.places || 0} towns and districts. Anything registered further out is dropped. Type a town or postcode and press Enter to add it.` : "Type a town or postcode and press Enter. Until an area is set, the scan covers about 20 minutes around Richmond.";
   // Licence and search checks run on their own for any lead that never had them (older leads, or ones
   // parked as "site is current" before search visibility counted), a few at a time, when nothing else is running.
+  // The morning lead scan's result (it runs on the server before the working day): a banner until dismissed.
+  const [morning, setMorning] = useState(null);
+  useEffect(() => {
+    fetch("/api/cron").then((r) => r.json()).then((j) => {
+      const m = j.last; let seenAt = ""; try { seenAt = localStorage.getItem("flc-morning-seen") || ""; } catch {}
+      if (m?.finishedAt && m.startedAt !== seenAt && Date.now() - new Date(m.finishedAt).getTime() < 20 * 3600000) setMorning(m);
+    }).catch(() => {});
+  }, []);
   const catchingUpRef = useRef(false);
   useEffect(() => {
     if (running || catchingUpRef.current) return;
@@ -1288,6 +1296,12 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
 
   return (
     <div>
+      {morning && (
+        <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          <span><b>This morning&apos;s scan:</b> {morning.found} new lead{morning.found === 1 ? "" : "s"} from {morning.checked} companies checked{morning.tagged ? `, ${morning.tagged} existing leads with news` : ""}{morning.found ? `: ${morning.newLeads.slice(0, 5).map((x) => x.business).join(", ")}${morning.newLeads.length > 5 ? "…" : ""}` : ""}.</span>
+          <button onClick={() => { try { localStorage.setItem("flc-morning-seen", morning.startedAt); } catch {} setMorning(null); }} className="ml-auto rounded px-2 py-0.5 text-xs text-emerald-800 hover:bg-emerald-100">Dismiss</button>
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search leads" className="w-56 rounded-md border border-zinc-300 px-3 py-1.5 text-sm" />

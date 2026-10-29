@@ -171,6 +171,20 @@ export default function Settings() {
           <p className="mb-3 text-sm text-zinc-500">Occasional jobs for whoever looks after Website Leads. Each one opens the board and runs there; keep that tab open until it finishes.</p>
           <div className="space-y-3 text-sm">
             <CompanyFloor />
+          </div>
+        </section>
+      )}
+      {section === "leads" && (
+        <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+          <h2 className="font-semibold">Morning lead scan</h2>
+          <p className="mb-3 text-sm text-zinc-500">The Website Leads searches run by themselves early each weekday, before the working day, on the server (no tab needs to be open). New leads are on the board when you arrive. Google Maps and job ads stay manual.</p>
+          <MorningScan />
+        </section>
+      )}
+      {section === "leads" && (
+        <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+          <h2 className="font-semibold">More lead jobs</h2>
+          <div className="space-y-3 text-sm">
             <div className="flex flex-wrap items-center gap-3"><Link href="/?tab=leads&admin=rescan" className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-white">Rescan all open leads</Link><span className="text-zinc-500">Re-runs the website, accounts and contact checks on every open lead with the latest rules. Ready to send, Won, Lost and Not pursuing are skipped; statuses and notes are kept.</span></div>
             <div className="flex flex-wrap items-center gap-3"><Link href="/?tab=leads&admin=contacts" className="rounded-md border border-zinc-300 px-3 py-1.5 font-medium hover:bg-zinc-100">Retry contacts</Link><span className="text-zinc-500">Looks for an email address again on every lead in Contact not verified. Any that now have one move back to To assess.</span></div>
           </div>
@@ -645,10 +659,41 @@ function TemplatesEditor() {
 // Company size floor for Website Leads: only companies worth at least this (net assets in the
 // latest accounts) stay open. Kept in this browser, as it was on the board; the board picks it
 // up next time it opens and re-sorts parked and open leads around it.
+// Settings → Lead maintenance: the morning lead scan (which searches, on or off, last run, Run now, set-up steps).
+function MorningScan() {
+  const [s, setS] = useState(null);
+  const [msg, setMsg] = useState("");
+  const load = () => fetch("/api/cron").then((r) => r.json()).then(setS).catch(() => setS({ error: "Couldn't load" }));
+  useEffect(() => { load(); const t = setInterval(load, 20000); return () => clearInterval(t); }, []);
+  if (!s) return <p className="text-sm text-zinc-500">Checking…</p>;
+  if (s.error) return <p className="text-sm text-red-700">{s.error}</p>;
+  const cfg = s.config, last = s.last;
+  const saveCfg = (next) => fetch("/api/cron", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "config", ...next }) }).then((r) => r.json()).then((j) => setS((o) => ({ ...o, config: j.config }))).catch(() => {});
+  const runNow = async () => { setMsg("Starting…"); const j = await fetch("/api/cron", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "run" }) }).then((r) => r.json()).catch(() => ({})); setMsg(j.started ? "Running on the server: you can close this page." : j.reason || j.error || "Couldn't start"); load(); };
+  const when = (t) => (t ? new Date(t).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "");
+  return (
+    <div className="space-y-3 text-sm">
+      <label className="flex items-center gap-2"><input type="checkbox" checked={cfg.on} onChange={(e) => saveCfg({ on: e.target.checked, modes: cfg.modes })} className="h-4 w-4" /> Run every weekday morning</label>
+      <div className="flex flex-wrap gap-3">{s.modes.map(([k, name]) => <label key={k} className="inline-flex items-center gap-1.5"><input type="checkbox" checked={cfg.modes.includes(k)} onChange={(e) => saveCfg({ on: cfg.on, modes: e.target.checked ? [...cfg.modes, k] : cfg.modes.filter((x) => x !== k) })} className="h-3.5 w-3.5" /> {name}</label>)}</div>
+      <div className="flex flex-wrap items-center gap-3">
+        <button onClick={runNow} disabled={s.running || !cfg.modes.length} className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-white disabled:opacity-40">{s.running ? "Running…" : "Run now"}</button>
+        {msg && <span className="text-xs text-zinc-500">{msg}</span>}
+      </div>
+      {last && <p className="text-zinc-700">{last.running || s.running ? "Running now" : "Last run"} {when(last.startedAt)}{last.finishedAt && !s.running ? ` – ${last.found} new lead${last.found === 1 ? "" : "s"} from ${last.checked} companies checked${last.tagged ? `, ${last.tagged} existing leads with news` : ""}${last.stoppedEarly ? " (ran out of time: carries on tomorrow)" : ""}` : ` – ${last.checked} checked so far`}{last.errors?.length ? <span className="block text-xs text-amber-800">{last.errors.slice(0, 3).join(" · ")}</span> : null}</p>}
+      {s.secretSet ? <StatusRow ok label="Schedule key set" detail="the daily schedule can start the scan" /> : <>
+        <StatusRow ok={false} label="Schedule not set up yet" detail="Run now works; the daily start needs these two steps" />
+        <ol className="list-decimal space-y-1 pl-5 text-zinc-700">
+          <li>Make up a long random password (e.g. from a password manager). In Render: the <b>icl-sales</b> service → <b>Environment</b> → add <code>CRON_SECRET</code> with it → <b>Save changes</b>.</li>
+          <li>In GitHub: <b>ICL-Marketing/icl-font-licence-checker</b> → <b>Settings</b> → <b>Secrets and variables</b> → <b>Actions</b> → <b>New repository secret</b> → name <code>CRON_SECRET</code>, the same password. The schedule (<b>Actions</b> → <b>Morning lead scan</b>) then starts it at about 6am every weekday; <b>Run workflow</b> there tests it.</li>
+        </ol></>}
+    </div>
+  );
+}
+
 function CompanyFloor() {
   const [v, setV] = useState("");
   useEffect(() => { const t = setTimeout(() => { try { setV(localStorage.getItem("flc-leads-floor") || "20000"); } catch { setV("20000"); } }, 0); return () => clearTimeout(t); }, []);
-  const save = (n) => { setV(n); try { localStorage.setItem("flc-leads-floor", String(Number(n) || 0)); } catch {} };
+  const save = (n) => { setV(n); try { localStorage.setItem("flc-leads-floor", String(Number(n) || 0)); } catch {} fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "lead-floor", value: { value: Number(n) || 0 } }) }).catch(() => {}); }; // shared too, for the morning scan
   return (
     <div className="flex flex-wrap items-center gap-3">
       <label className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2 py-1.5">Company size ≥ £<input type="number" value={v} onChange={(e) => save(e.target.value)} step={5000} min={0} className="w-24 rounded border border-zinc-200 px-1.5 py-0.5" /></label>

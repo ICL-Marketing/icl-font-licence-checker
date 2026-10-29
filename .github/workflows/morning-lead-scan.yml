@@ -1,0 +1,23 @@
+# Starts the morning lead scan on the server (lib/morningScan.js) early every weekday, before the working day.
+# Needs the CRON_SECRET repository secret (the same value as CRON_SECRET in Render). "Run workflow" tests it.
+name: Morning lead scan
+on:
+  schedule:
+    - cron: "30 5 * * 1-5" # 05:30 UTC: 5:30am in winter, 6:30am in summer (UK)
+  workflow_dispatch:
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start the scan
+        env:
+          APP_URL: ${{ vars.APP_URL || 'https://icl-sales.onrender.com' }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "Add the CRON_SECRET repository secret first (Settings → Secrets and variables → Actions)."; exit 1; fi
+          # The app may be asleep: a few tries while it wakes up.
+          for i in 1 2 3 4 5; do
+            if curl -fsS --max-time 120 "$APP_URL/api/cron?key=$CRON_SECRET"; then echo; exit 0; fi
+            echo "Not awake yet, trying again in 30 seconds…"; sleep 30
+          done
+          exit 1

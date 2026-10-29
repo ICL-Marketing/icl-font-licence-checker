@@ -1,6 +1,8 @@
 import { obviousDomain, leadTriggers, jobsSearch, jobsConfigured, placesSearch, placesConfigured, placesUsage, leadsEnrichOutside } from "@/lib/leads";
 import { areaFor, setPatchOutcodes, siteAddress, townFromAddress, verifyWebsite, websiteIsVerified, searchUsage, findersUsage, applyTradingAddress, leadsConfigured, leadsSearch, worthEnriching, inArea, leadsEnrich, checkWebsite, findEmail, findEmailAt, emailFromPage, emailWhere, findContacts, seoCheck, leadsRefresh, licenceRisks, scoreLead, draftOutreach, AREA_PRESETS, SECTOR_PRESETS } from "@/lib/leads";
 
+import { licenceStep } from "@/lib/leadSteps";
+
 export const dynamic = "force-dynamic";
 export const maxDuration = 50;
 
@@ -60,16 +62,8 @@ export async function POST(request) {
     }
     if (b.step === "licence") {
       // Fonts and stock images we are certain are unlicensed; a current site with any becomes a "Licence risk" lead.
-      const lead = { ...(b.lead || {}) };
-      if (!lead.website) return Response.json({ error: "No website on this lead." }, { status: 400 });
-      lead.licence = await licenceRisks(lead.website);
-      const any = lead.licence.images.length || lead.licence.fonts.length;
-      if (!lead.problem && any) {
-        lead.problem = "Licence risk";
-        try { if (!lead.contactsTried) { const ct = await findContacts({ companyNumber: lead.companyNumber, website: lead.website, business: lead.business }); lead.contacts = ct.people; lead.channels = ct.channels; lead.contactsAt = ct.contactsAt; lead.contactsTried = true; const best = ct.people.find((p) => p.email); if (best && !lead.emailAddress) { lead.emailAddress = best.email; lead.contactName = lead.contactName || best.name.split(" ")[0]; } } } catch {}
-        if (!lead.emailAddress) { lead.contactUnverified = true; lead.status = "no-contact"; } lead.problemDetail = [lead.licence.images.length ? `${lead.licence.images.length} watermarked preview image${lead.licence.images.length === 1 ? "" : "s"}` : "", lead.licence.fonts.length ? `${lead.licence.fonts.length} unlicensed font${lead.licence.fonts.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(", "); if (lead.status === "not-pursuing" && /current/i.test(lead.likelihoodWhy || "")) lead.status = "new"; }
-      if (lead.problem) { Object.assign(lead, scoreLead(lead)); if (!lead.emailEdited) { const d = draftOutreach({ ...lead, links }); Object.assign(lead, { subject: d.subject, pitch: d.pitch, email: d.email, draftVersion: d.draftVersion }); } }
-      return Response.json({ lead });
+      if (!b.lead?.website) return Response.json({ error: "No website on this lead." }, { status: 400 });
+      return Response.json({ lead: await licenceStep(b.lead, links) });
     }
     if (b.step === "seo") {
       const l = b.lead || {};
