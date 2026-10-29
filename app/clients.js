@@ -108,7 +108,7 @@ export function ClientsEditor({ clients, team, onChange, shared }) {
       <p className="mt-2 text-xs text-zinc-500">
         {list.length} clients{unmatched ? `, ${unmatched} without a website (amber): add the domain so scans can find the client` : ""}. Websites and emails: one per line. {shared ? "Shared with everyone using the checker." : "Saved in this browser only."} {msg && <span className="font-medium text-green-700">{msg}</span>}
       </p>
-      <div className="mt-2 max-h-[60vh] overflow-auto">
+      <div className="mt-2 overflow-x-auto lg:overflow-visible">{/* no inner scroll: the page scrolls, and the header stays put on wide screens */}
         <table className="w-full min-w-[760px] text-xs">
           <thead className="sticky top-0 bg-white"><tr className="text-left text-zinc-500">
             <th className="py-1 pr-2">Client</th><th className="py-1 pr-2">Website(s)</th><th className="py-1 pr-2">Account manager</th><th className="py-1 pr-2">Contact</th><th className="py-1 pr-2">Email(s)</th><th />
