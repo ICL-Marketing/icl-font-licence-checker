@@ -312,7 +312,10 @@ export function ProposalModal({ group, onClose, onLink }) {
   if (lines.map((l) => l.key).join() !== (kept || []).join()) setOrder({ scope, keys: lines.map((l) => l.key) });
   const resort = () => setOrder({ scope, keys: sorted.map((l) => l.key) });
   const unsorted = lines.some((l, n) => l.key !== sorted[n]?.key);
-  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines: lines.map((l) => { const i = pool.find((x) => x.key === l.key); return i ? { ...l, issue: l.issue || i.issue || "", solution: l.solution || i.solution || "", links: l.links || [...new Set([...(i.links || []), i.evidenceUrl].filter(Boolean))] } : l; }), notes: doc.notes, points: chosen, packages: picked, keep: copyEdits(doc.copy), prices: !doc.noPrices, supportPlan: group.client?.plan === "none" ? "none" : (SUPPORT_PLANS.find(([k]) => k && k !== "none" && k === group.client?.plan) || [])[1] || "", ideaNotes: (doc.claudeNotes || "").trim() })) : "";
+  // Notes for Claude: one set, shown in steps 1 and 2 (an older deck's separate step 2 notes are carried over).
+  const claudeNotes = doc?.claudeNotes ?? doc?.notes ?? "";
+  const setNotes = (v) => change((d) => ({ ...d, claudeNotes: v, notes: "" }));
+  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines: lines.map((l) => { const i = pool.find((x) => x.key === l.key); return i ? { ...l, issue: l.issue || i.issue || "", solution: l.solution || i.solution || "", links: l.links || [...new Set([...(i.links || []), i.evidenceUrl].filter(Boolean))] } : l; }), notes: "", points: chosen, packages: picked, keep: copyEdits(doc.copy), prices: !doc.noPrices, supportPlan: group.client?.plan === "none" ? "none" : (SUPPORT_PLANS.find(([k]) => k && k !== "none" && k === group.client?.plan) || [])[1] || "", ideaNotes: claudeNotes.trim() })) : "";
 
   function applyReply(text) {
     const copy = parseProposalReply(text);
@@ -413,8 +416,8 @@ export function ProposalModal({ group, onClose, onLink }) {
                 {/* Notes for Claude: your own ideas, which Claude researches, turns into full ideas and adds to. */}
                 <div className="space-y-2 rounded-lg border border-zinc-200 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Notes for Claude</div>
-                  <Grow value={doc.claudeNotes || ""} onChange={(e) => change((d) => ({ ...d, claudeNotes: e.target.value }))} placeholder="Ideas you'd like Claude to look into, one per line, e.g. a members' area for investors, a German version of the energy pages" className={`${input} min-h-[4.5rem]`} />
-                  <p className="text-xs text-zinc-500">These go into the prompt in step 3: Claude researches each one and adds the ones that hold up as extra idea slides.</p>
+                  <Grow value={claudeNotes} onChange={(e) => setNotes(e.target.value)} placeholder="Ideas you'd like Claude to look into, one per line, e.g. a members' area for investors, a German version of the energy pages" className={`${input} min-h-[4.5rem]`} />
+                  <p className="text-xs text-zinc-500">Claude uses these as context, researches any ideas in them and adds the ones that hold up as extra idea slides.</p>
                 </div>
                 <div className="flex justify-end"><button onClick={() => change((d) => ({ ...d, step: 1 }))} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white">Next: packages & retainer</button></div>
               </div>
@@ -436,7 +439,9 @@ export function ProposalModal({ group, onClose, onLink }) {
                   <div className="flex flex-wrap gap-1.5">{points.map((x) => { const on = chosenIds.includes(x.id); return <button key={x.id} type="button" title={x.text} onClick={() => change((d) => ({ ...d, points: on ? chosenIds.filter((y) => y !== x.id) : [...chosenIds, x.id] }))} className={`rounded-full border px-2.5 py-1 text-xs font-medium ${on ? "border-emerald-600 bg-emerald-600 text-white" : "border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-100"}`}>{on ? "✓ " : ""}{x.title}</button>; })}</div>
                   <p className="mt-1.5 text-[11px] text-zinc-500">Claude builds the retainer slide from the ones ticked. Untick any that don&apos;t fit this client (e.g. Local to you).</p>
                 </div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Notes for Claude (optional)<textarea value={doc.notes} onChange={(e) => change((d) => ({ ...d, notes: e.target.value }))} rows={2} placeholder="e.g. They're launching a new service in spring; keep it to a refresh, not a rebuild" className={`${input} mt-0.5 font-normal normal-case tracking-normal`} /></label>
+                <div className="space-y-1"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Notes for Claude</div>
+                  <Grow value={claudeNotes} onChange={(e) => setNotes(e.target.value)} placeholder="Ideas you'd like Claude to look into, one per line, e.g. a members' area for investors, a German version of the energy pages" className={`${input} min-h-[4.5rem]`} />
+                  <p className="text-xs text-zinc-500">Claude uses these as context, researches any ideas in them and adds the ones that hold up as extra idea slides.</p></div>
                 <div className="flex justify-between"><button onClick={() => change((d) => ({ ...d, step: 0 }))} className="rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100">Back</button><button onClick={() => change((d) => ({ ...d, step: 2 }))} disabled={!lines.length} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Next: Claude writes it</button></div>
               </div>
             )}
