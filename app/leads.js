@@ -1339,6 +1339,7 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
         {lowCount > 0 && <button onClick={() => setShowLow((v) => !v)} title="Leads Claude rated Low are hidden from Assess until you ask for them" className={`rounded-full border px-2.5 py-1 text-xs ${showLow ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{showLow ? "Hide" : "Show"} Low ({lowCount})</button>}
         {pendingRescan.size ? <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-800">{pendingRescan.size} hidden until rescanned</span> : null}
         <span className="ml-auto flex items-center gap-2">
+          {synced && (() => { const jobs = allPending(list).total; return jobs > 0 && <button onClick={() => openClaude({ job: "all" })} title="Everything waiting for Claude: drafts, checks and research" className="inline-flex items-center gap-1.5 rounded-md bg-orange-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-orange-700">{jobs} job{jobs === 1 ? "" : "s"} for Claude</button>; })()}
           {boardTab !== "vetting" && <button onClick={() => setBoardTab("vetting")} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-100"><SearchIcon className="h-4 w-4" /> Find leads</button>}
           <details className="relative">
             <summary aria-label="More" title="More" className="cursor-pointer list-none rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm leading-none hover:bg-zinc-100">⋯</summary>
@@ -1364,29 +1365,6 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
           <button onClick={() => { if (confirm(`Delete ${selected.size} lead${selected.size === 1 ? "" : "s"}?`)) removeMany([...selected]); }} className="ml-auto inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50"><TrashIcon className="h-3.5 w-3.5" /> Delete</button>
         </div>
       )}
-      {/* Today: the next things that turn into sales, each one a click away. */}
-      {synced && boardTab !== "vetting" && (() => {
-        const open = list.filter((l) => !l.optedOut);
-        const first = (arr) => () => { const n = sorted(arr)[0]; if (n) setOpen(n.id); };
-        const toSend = open.filter((l) => l.status === "ready");
-        const toCheck = open.filter((l) => boardStatus(l) === "to-check" && !l.review?.done);
-        const due = open.filter((l) => needsChase(l, followUp));
-        const replies = open.filter((l) => l.status === "replied");
-        const jobs = allPending(list).total;
-        const items = [
-          [replies.length, `${replies.length} repl${replies.length === 1 ? "y" : "ies"} to answer`, first(replies), "bg-emerald-600 text-white hover:bg-emerald-700"],
-          [toSend.length, `${toSend.length} ready to send`, first(toSend), "bg-zinc-900 text-white hover:bg-zinc-800"],
-          [due.length, `${due.length} follow-up${due.length === 1 ? "" : "s"} due`, first(due), "bg-amber-500 text-white hover:bg-amber-600"],
-          [toCheck.length, `${toCheck.length} draft${toCheck.length === 1 ? "" : "s"} to check`, first(toCheck), "border border-violet-300 bg-violet-50 text-violet-900 hover:bg-violet-100"],
-          [jobs, `${jobs} job${jobs === 1 ? "" : "s"} for Claude`, () => openClaude({ job: "all" }), "bg-orange-600 text-white hover:bg-orange-700"],
-        ].filter(([n]) => n > 0);
-        return (
-          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Today</span>
-            {items.length ? items.map(([, label, go, cls]) => <button key={label} onClick={go} className={`rounded-full px-3 py-1 text-sm font-medium ${cls}`}>{label}</button>) : <span className="text-sm text-zinc-500">All caught up.</span>}
-          </div>
-        );
-      })()}
       {boardTab === "vetting" && (
         <div className="mt-3 flex flex-wrap items-baseline gap-3">
           <button onClick={() => setBoardTab("board")} className="text-sm text-zinc-500 hover:text-zinc-900">← Back to the board</button>
@@ -1499,7 +1477,7 @@ const contactsStamp = (cfg) => `${CONTACTS_VERSION}${cfg?.finders?.connected ? `
 const daysSince = (l) => (Date.now() - new Date(l.statusAt || l.updatedAt || l.addedAt || Date.now()).getTime()) / 86400000;
 // A lead's email draft is in once Claude (or you) has written it.
 const hasDraft = (l) => !!(l.email && (l.review?.drafted || l.claudeDraft));
-// "Draft in, check it" with no draft yet is still waiting for Claude.
+// "Drafted" with no draft yet is still waiting for Claude.
 const boardStatus = (l) => { const s = l.status || "new"; return s === "to-check" && !hasDraft(l) ? "to-draft" : s; };
 // Everything the Write column shows as "Claude to write", so the job counts match the board.
 const needsWriting = (l) => boardStatus(l) === "to-draft" && !l.optedOut;
@@ -1556,7 +1534,7 @@ function dropStatus(stage, l) {
 }
 const shortMoney = (n) => (n === null || n === undefined || n === "" || isNaN(Number(n)) ? "" : Math.abs(n) >= 1e6 ? `£${(n / 1e6).toFixed(1)}m` : `£${Math.round(n / 1000)}k`);
 const SUB = {
-  "to-check": ["Draft in: check it", "bg-emerald-100 text-emerald-800"], "to-draft": ["Claude to write", "bg-orange-100 text-orange-800"],
+  "to-check": ["Drafted", "bg-emerald-100 text-emerald-800"], "to-draft": ["Claude to write", "bg-orange-100 text-orange-800"],
   replied: ["Replied", "bg-emerald-100 text-emerald-800"], meeting: ["Meeting booked", "bg-violet-100 text-violet-800"],
   won: ["Won", "bg-emerald-600 text-white"], cold: ["Gone cold", "bg-zinc-200 text-zinc-700"], lost: ["Lost", "bg-zinc-200 text-zinc-700"], "not-pursuing": ["Not pursuing", "bg-red-100 text-red-800"],
 };
