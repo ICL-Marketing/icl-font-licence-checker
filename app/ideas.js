@@ -554,7 +554,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
 
       {view === "replies" && <IdeaBoard cards={shown.filter((c) => normStatus(c.status) !== "queued").map((c) => ({ ...c, status: normStatus(c.status) }))} filtering={!!(q || kind)} onOpen={(id, key) => setOpen({ id, key })} onMove={(id, key, status) => updateIdea(id, key, { status })} />}
 
-      {deckFor && <ProposalModal group={groups.find((x) => (x.clientId || x.name) === (deckFor.clientId || deckFor.name)) || deckFor} onClose={() => setDeckFor(null)} onLink={(url) => deckFor.clientId && linkProposal(deckFor.clientId, url)} />}
+      {deckFor && <ProposalModal group={groups.find((x) => (x.clientId || x.name) === (deckFor.clientId || deckFor.name)) || deckFor} onClose={() => setDeckFor(null)} onLink={(url) => deckFor.clientId && linkProposal(deckFor.clientId, url)} onRetitle={(list) => { for (const x of list) updateIdea(x.recId, x.key, { title: x.title }); }} />}
       {addFor && <AddIdeaModal group={addFor} onResearch={addFor.clientId ? () => { setAddFor(null); openClaude({ job: "client-research", preset: [addFor.clientId] }); } : null} onClose={() => setAddFor(null)} onSave={(data) => { addIdea(addFor, data); setAddFor(null); }} />}
 
       {current && currentIdea && (
