@@ -3,8 +3,8 @@ import { COOKIE, isConfigured, tokenIsValid } from "@/lib/auth";
 
 export function proxy(request) {
   const { pathname } = request.nextUrl;
-  // /api/cron checks its own secret key (the daily schedule) or the login itself.
-  if (pathname.startsWith("/login") || pathname.startsWith("/api/login") || pathname === "/api/cron") {
+  // /api/cron and /api/mcp (the Claude connector) check their own secret key (or, for cron, the login) themselves.
+  if (pathname.startsWith("/login") || pathname.startsWith("/api/login") || pathname === "/api/cron" || pathname === "/api/mcp") {
     return NextResponse.next();
   }
   // No password configured = open (local dev). Set CHECKER_PASSWORD in production.

@@ -1139,6 +1139,27 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
     return [`${r.done} lead${r.done === 1 ? "" : "s"} updated`, r.left && `${r.left} left alone (Ready to send or in conversation)`, r.moved.back && `${r.moved.back} back to To assess`, r.moved.draft && `${r.moved.draft} to Email to draft`, r.moved.skip && `${r.moved.skip} to Not pursuing`, r.rescanned && `${r.rescanned} rescanning on a new website`].filter(Boolean).join(" · ");
   };
   useClaudeHandler("lead-check", handleCheck);
+  // Checks saved through the Claude connector (e.g. the morning scheduled task) wait in an inbox. They are applied
+  // exactly like a pasted reply when the board has loaded, when the tab comes back into view (at most once a
+  // minute) and from the banner's button, then cleared from the inbox.
+  const [inboxMsg, setInboxMsg] = useState("");
+  const inboxAt = useRef(0);
+  async function pickUpChecks(force = false) {
+    if (!force && Date.now() - inboxAt.current < 60000) return;
+    inboxAt.current = Date.now();
+    const j = await fetch("/api/results?kind=lead-inbox").then((r) => r.json()).catch(() => null);
+    const rows = Object.entries(j?.results || {});
+    if (!rows.length) { if (force === "button") setInboxMsg("Nothing new from Claude yet."); return; }
+    try { setInboxMsg(`Claude's checks arrived: ${handleCheck(JSON.stringify(rows.map(([, v]) => v.row)))}`); } catch (e) { setInboxMsg(e.message); }
+    for (const [id] of rows) fetch("/api/results", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "lead-inbox", site: id }) }).catch(() => {});
+  }
+  useEffect(() => {
+    if (!synced) return;
+    const t = setTimeout(() => pickUpChecks(true), 1500);
+    const f = () => { if (document.visibilityState === "visible") pickUpChecks(); };
+    window.addEventListener("focus", f); document.addEventListener("visibilitychange", f);
+    return () => { clearTimeout(t); window.removeEventListener("focus", f); document.removeEventListener("visibilitychange", f); };
+  }, [synced]); // eslint-disable-line react-hooks/exhaustive-deps
   // Everything at once: one prompt with every pending job, one JSON reply split back to each job.
   useClaudeJob("all", { label: "All", order: 0, count: () => allPending(list).total, render: (o, close) => <AllModal leads={list} onClose={close} /> });
   useClaudeHandler("all", (text) => {
@@ -1296,6 +1317,12 @@ export default function LeadsArea({ onRunning, onCount, clients = [] }) {
 
   return (
     <div>
+      {inboxMsg && (
+        <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-900">
+          <span>{inboxMsg}</span>
+          <button onClick={() => setInboxMsg("")} className="ml-auto rounded px-2 py-0.5 text-xs text-orange-800 hover:bg-orange-100">Dismiss</button>
+        </div>
+      )}
       {morning && (
         <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
           <span><b>This morning&apos;s scan:</b> {morning.found} new lead{morning.found === 1 ? "" : "s"} from {morning.checked} companies checked{morning.tagged ? `, ${morning.tagged} existing leads with news` : ""}{morning.found ? `: ${morning.newLeads.slice(0, 5).map((x) => x.business).join(", ")}${morning.newLeads.length > 5 ? "…" : ""}` : ""}.</span>

@@ -9,7 +9,7 @@ const labelOf = (d) => d?.business || d?.name || d?.client || d?.site || "";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const KINDS = ["fonts", "images", "launch", "post", "design", "leads", "ideas", "proposals", "consent"];
+const KINDS = ["fonts", "images", "launch", "post", "design", "leads", "ideas", "proposals", "consent", "lead-inbox"]; // lead-inbox: checks saved by the Claude connector
 
 // Shared scan results. GET ?kind=… returns {site: data}. POST {kind, site, data} saves one site;
 // DELETE {kind, site} removes one, DELETE {kind} clears the kind.

@@ -183,6 +183,13 @@ export default function Settings() {
       )}
       {section === "leads" && (
         <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+          <h2 className="font-semibold">Claude connector: Check leads</h2>
+          <p className="mb-3 text-sm text-zinc-500">Lets Claude check the leads waiting in To assess by itself (website, issues, person, email draft), for example every morning on a schedule, with no copying and pasting. Its answers wait here until Website Leads is opened, then go in exactly as a pasted reply would.</p>
+          <ConnectorPanel />
+        </section>
+      )}
+      {section === "leads" && (
+        <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
           <h2 className="font-semibold">More lead jobs</h2>
           <div className="space-y-3 text-sm">
             <div className="flex flex-wrap items-center gap-3"><Link href="/?tab=leads&admin=rescan" className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-white">Rescan all open leads</Link><span className="text-zinc-500">Re-runs the website, accounts and contact checks on every open lead with the latest rules. Ready to send, Won, Lost and Not pursuing are skipped; statuses and notes are kept.</span></div>
@@ -659,6 +666,38 @@ function TemplatesEditor() {
 // Company size floor for Website Leads: only companies worth at least this (net assets in the
 // latest accounts) stay open. Kept in this browser, as it was on the board; the board picks it
 // up next time it opens and re-sorts parked and open leads around it.
+// Settings → Lead maintenance: the Claude connector for Check leads (its secret link, set-up steps and the scheduled task's prompt).
+const CONNECTOR_PROMPT = 'Check my Website Leads with the ICL Sales leads connector: call get_next_leads, research every lead in the batch as it says (use web search, split big batches between sub-agents), save with save_lead_checks, then call get_next_leads again. Repeat until it says all done. Never stop to ask whether to continue. At the end, tell me in one line how many leads you checked.';
+function ConnectorPanel() {
+  const [s, setS] = useState(null);
+  const [copied, setCopied] = useState("");
+  const load = () => fetch("/api/connector").then((r) => r.json()).then(setS).catch(() => setS({ error: "Couldn't load" }));
+  useEffect(() => { load(); }, []);
+  const copy = async (what, text) => { try { await navigator.clipboard.writeText(text); setCopied(what); setTimeout(() => setCopied(""), 2000); } catch {} };
+  const fresh = async () => {
+    if (s?.link && !window.confirm("Make a new link? The old one stops working in every Claude account it was added to.")) return;
+    const j = await fetch("/api/connector", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "new" }) }).then((r) => r.json()).catch(() => ({}));
+    if (j.link) setS((o) => ({ ...o, link: j.link }));
+  };
+  if (!s) return <p className="text-sm text-zinc-500">Checking…</p>;
+  if (s.error) return <p className="text-sm text-red-700">{s.error}</p>;
+  return (
+    <div className="space-y-3 text-sm">
+      {s.link
+        ? <div className="flex flex-wrap items-center gap-2"><code className="min-w-0 max-w-full flex-1 truncate rounded bg-zinc-100 px-2 py-1 text-xs">{s.link.replace(/key=.*/, "key=••••••••")}</code><button onClick={() => copy("link", s.link)} className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-white">{copied === "link" ? "Copied" : "Copy link"}</button><button onClick={fresh} className="rounded-md border border-zinc-300 px-3 py-1.5 hover:bg-zinc-100">New link</button></div>
+        : <button onClick={fresh} className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-white">Make the connector link</button>}
+      {s.waiting > 0 && <p className="text-zinc-700">{s.waiting} check{s.waiting === 1 ? "" : "s"} from Claude waiting: they go in when Website Leads is next opened.</p>}
+      <ol className="list-decimal space-y-1 pl-5 text-zinc-700">
+        <li>Copy the link (keep it private: it works without the team password).</li>
+        <li>In Claude: <b>Settings</b> → <b>Connectors</b> → <b>Add custom connector</b>, name it <b>ICL Sales leads</b> and paste the link.</li>
+        <li>In the Claude desktop app, make a <b>scheduled task</b> for weekdays at about 7am, with the ICL Sales leads connector and web search on, and this prompt: <button onClick={() => copy("prompt", CONNECTOR_PROMPT)} className="ml-1 rounded border border-zinc-300 px-1.5 py-0.5 text-xs hover:bg-zinc-100">{copied === "prompt" ? "Copied" : "Copy prompt"}</button></li>
+        <li>Or run it any time: paste the same prompt into a Claude chat with the connector on.</li>
+      </ol>
+      <p className="text-xs text-zinc-500">After adding or changing the connector, remove and re-add it in Claude if the tools don&apos;t show. Leads handed to Claude are held for 20 minutes, so two runs never take the same ones.</p>
+    </div>
+  );
+}
+
 // Settings → Lead maintenance: the morning lead scan (which searches, on or off, last run, Run now, set-up steps).
 function MorningScan() {
   const [s, setS] = useState(null);
