@@ -281,6 +281,20 @@ export default function Settings() {
                   </ol>
                 </>}
           </section>
+          <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
+            <h2 className="font-semibold">Pexels (stock photos)</h2>
+            <p className="mb-3 text-sm text-zinc-500">Free stock photos for proposal idea slides that have nothing on the client&apos;s site to screenshot. Free for commercial use, no credit needed.</p>
+            {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.pexels
+              ? <StatusRow ok label="Pexels key set" detail="ideas without a screenshot get a stock photo in the proposal review step" />
+              : <>
+                  <StatusRow ok={false} label="Pexels key not set" detail="stock photos fall back to public-domain Openverse pictures, which are often unavailable" />
+                  <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-700">
+                    <li>Sign up free at <a href="https://www.pexels.com/api/" target="_blank" rel="noreferrer" className="text-blue-700 underline">pexels.com/api</a> and request an API key (it shows straight away).</li>
+                    <li>In Render: the <b>icl-sales</b> service → <b>Environment</b> → add <code>PEXELS_API_KEY</code> with that key, then <b>Save changes</b> (it redeploys).</li>
+                    <li>Reload this page: this turns green.</li>
+                  </ol>
+                </>}
+          </section>
         </>
       )}
     </main>

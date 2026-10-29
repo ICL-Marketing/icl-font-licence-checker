@@ -38,5 +38,5 @@ export async function GET(request) {
       return new Response(out, { headers: { "content-type": "image/jpeg", "cache-control": "private, max-age=3600" } });
     } catch {}
   }
-  return Response.json({ error: "No stock photo found. Add your own." }, { status: 404 });
+  return Response.json({ error: process.env.PEXELS_API_KEY ? "No stock photo found. Add your own." : "No stock photo: add a free Pexels key in Settings, or add your own." }, { status: 404 });
 }
