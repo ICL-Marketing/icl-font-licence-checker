@@ -303,18 +303,23 @@ export default function Settings() {
                 </>}
           </section>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
-            <h2 className="font-semibold">Stock photos (Pixabay)</h2>
-            <p className="mb-3 text-sm text-zinc-500">Free stock photos for proposal idea slides that have nothing on the client&apos;s site to screenshot. Free for commercial use, no credit needed.</p>
-            {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.pexels
-              ? <StatusRow ok label="Stock photo key set" detail="ideas without a screenshot get a stock photo in the proposal review step" />
-              : <>
-                  <StatusRow ok={false} label="No stock photo key" detail="stock photos fall back to public-domain Openverse pictures, which are often unavailable" />
-                  <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-700">
-                    <li>Sign up free at <a href="https://pixabay.com/accounts/register/" target="_blank" rel="noreferrer" className="text-blue-700 underline">pixabay.com</a>, then open <a href="https://pixabay.com/api/docs/" target="_blank" rel="noreferrer" className="text-blue-700 underline">pixabay.com/api/docs</a>: your key is shown under <b>Parameters</b> → <b>key</b> once you&apos;re logged in.</li>
-                    <li>In Render: the <b>icl-sales</b> service → <b>Environment</b> → add <code>PIXABAY_API_KEY</code> with that key, then <b>Save changes</b> (it redeploys).</li>
-                    <li>Reload this page: this turns green. (A Pexels <code>PEXELS_API_KEY</code> or Unsplash <code>UNSPLASH_ACCESS_KEY</code> works too.)</li>
-                  </ol>
-                </>}
+            <h2 className="font-semibold">Photos for proposal slides</h2>
+            <p className="mb-3 text-sm text-zinc-500">Pictures for idea slides that have nothing on the client&apos;s site to screenshot. <b>Browse</b> under a slide&apos;s picture shows a grid to pick from: Google Images first, then the free photo libraries.</p>
+            {!status ? <p className="text-sm text-zinc-500">Checking…</p> : <>
+              {status.serper
+                ? <StatusRow ok label="Google Images on (Serper key set)" detail="each new search uses 1 of your Serper searches; searches are remembered for a week" />
+                : <>
+                    <StatusRow ok={false} label="Google Images off" detail="only the free photo libraries are searched" />
+                    <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-700">
+                      <li>Sign up free at <a href="https://serper.dev" target="_blank" rel="noreferrer" className="text-blue-700 underline">serper.dev</a> (2,500 free searches, no card), then copy your <b>API key</b> from the dashboard.</li>
+                      <li>In Render: the <b>icl-sales</b> service → <b>Environment</b> → add <code>SERPER_API_KEY</code> with that key, then <b>Save changes</b> (it redeploys).</li>
+                      <li>Reload this page: this turns green.</li>
+                    </ol>
+                  </>}
+              <div className="mt-2">{status.pexels
+                ? <StatusRow ok label="Free photo library key set" detail="Pixabay / Pexels / Unsplash photos are added to the grid" />
+                : <StatusRow ok={false} label="No free photo library key (optional)" detail={<>add a free <a href="https://pixabay.com/api/docs/" target="_blank" rel="noreferrer" className="text-blue-700 underline">Pixabay</a> key as <code>PIXABAY_API_KEY</code> in Render for more choice</>} />}</div>
+            </>}
           </section>
         </>
       )}

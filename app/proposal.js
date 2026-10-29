@@ -143,16 +143,53 @@ function CostTable({ table, pricing, own, extra, onRate, onMarkup, onExtra, onRe
     </div>
   );
 }
-// Under an idea slide's picture: one Retry button. With new words in the box it searches the stock libraries for
-// them; with the same words it brings the next photo (or a fresh screenshot of their site).
-function StockSearch({ q, busy, onSearch, onRetry }) {
+// Under an idea slide's picture: Retry (with new words in the box it searches for them; with the same words it brings
+// the next photo, or a fresh screenshot of their site) and Browse, a grid of photos to pick from (Google Images first).
+function StockSearch({ q, busy, onSearch, onRetry, onPick }) {
   const [text, setText] = useState(q);
+  const [browse, setBrowse] = useState(false);
   const go = () => (text.trim() && text.trim() !== q ? onSearch(text.trim()) : onRetry());
   return (
-    <form onSubmit={(e) => { e.preventDefault(); go(); }} className="flex items-center gap-1">
-      <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Search photos" aria-label="Search stock photos" className="min-w-0 flex-1 rounded border border-zinc-300 px-1.5 py-0.5 text-[11px]" />
-      <button type="submit" disabled={busy} title="Try another picture (or search for the words in the box)" className="rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[11px] hover:bg-zinc-100 disabled:opacity-40">Retry</button>
-    </form>
+    <>
+      <form onSubmit={(e) => { e.preventDefault(); go(); }} className="flex items-center gap-1">
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Search photos" aria-label="Search stock photos" className="min-w-0 flex-1 rounded border border-zinc-300 px-1.5 py-0.5 text-[11px]" />
+        <button type="submit" disabled={busy} title="Try another picture (or search for the words in the box)" className="rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[11px] hover:bg-zinc-100 disabled:opacity-40">Retry</button>
+        <button type="button" onClick={() => setBrowse(true)} title="See lots of photos for these words and pick one" className="rounded bg-zinc-900 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-zinc-700">Browse</button>
+      </form>
+      {browse && <PhotoPicker q={text.trim() || q} onClose={() => setBrowse(false)} onPick={(full, words) => { setBrowse(false); setText(words); onPick(full, words); }} />}
+    </>
+  );
+}
+function PhotoPicker({ q, onPick, onClose }) {
+  const [text, setText] = useState(q);
+  const [res, setRes] = useState(null); // { photos, google } | { error }
+  const [broken, setBroken] = useState(() => new Set());
+  const find = (words) => fetch(`/api/stock?list=1&q=${encodeURIComponent(words)}`).then((r) => r.json()).then(setRes).catch(() => setRes({ error: "Couldn't search. Try again." }));
+  const load = (words) => { setRes(null); setBroken(new Set()); find(words); };
+  useEffect(() => { find(q); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const esc = (e) => e.key === "Escape" && onClose(); window.addEventListener("keydown", esc); return () => window.removeEventListener("keydown", esc); }, [onClose]);
+  const photos = (res?.photos || []).filter((p) => !broken.has(p.full));
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <form onSubmit={(e) => { e.preventDefault(); if (text.trim()) load(text.trim()); }} className="flex items-center gap-2 border-b border-zinc-200 p-3">
+          <input value={text} onChange={(e) => setText(e.target.value)} autoFocus aria-label="Search photos" className="min-w-0 flex-1 rounded-md border border-zinc-300 px-2 py-1 text-sm" />
+          <button type="submit" className="rounded-md bg-zinc-900 px-3 py-1 text-sm font-medium text-white hover:bg-zinc-700">Search</button>
+          <button type="button" onClick={onClose} aria-label="Close" className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100"><CloseIcon className="h-4 w-4" /></button>
+        </form>
+        <div className="overflow-y-auto p-3">
+          {!res ? <p className="flex items-center gap-2 text-sm text-zinc-500"><SpinnerIcon className="h-4 w-4 animate-spin" /> Finding photos…</p>
+            : res.error ? <p className="text-sm text-red-700">{res.error}</p>
+            : !photos.length ? <p className="text-sm text-zinc-500">No photos for those words. Try simpler ones, e.g. &quot;dentist reception&quot;.</p>
+            : <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">{photos.map((p) => (
+                <button key={p.full} onClick={() => onPick(p.full, text.trim() || q)} title={`Use this photo (${p.from})`} className="group relative aspect-[16/10] overflow-hidden rounded-md bg-zinc-100 ring-blue-500 hover:ring-2">
+                  <img src={p.thumb} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken((b) => new Set(b).add(p.full))} className="h-full w-full object-cover" />
+                  <span className="absolute bottom-0 left-0 right-0 truncate bg-black/50 px-1.5 py-0.5 text-left text-[10px] text-white opacity-0 group-hover:opacity-100">{p.from}</span>
+                </button>))}</div>}
+          {res && !res.error && !res.google && <p className="mt-3 text-[11px] text-zinc-500">Only the free photo libraries are being searched. Add a free Serper key (Settings → Photos) for Google Images.</p>}
+        </div>
+      </div>
+    </div>
   );
 }
 function ImageDrop({ value, onChange, label, status, onShot, shotLabel = "Use the page screenshot" }) {
@@ -484,7 +521,7 @@ export function ProposalModal({ group, onClose, onLink }) {
                       </div>
                       <div className="w-48 shrink-0 space-y-1.5">
                       <ImageDrop value={images[l.key]} status={shotState[l.key]} onShot={c ? () => { setIdeaCopy(l.key, { noImage: false }); if (c.shot) getShot(l.key, c.shot, c.shotSel); else getStock(l.key, c.stock || c.title); } : null} shotLabel={c?.shot ? "Use the page screenshot" : "Use a stock photo"} onChange={(v) => { setImages((o) => ({ ...o, [l.key]: v })); setShotKind((o) => ({ ...o, [l.key]: "own" })); if (!v && c) setIdeaCopy(l.key, { noImage: true }); }} label="No picture on this slide" />
-                      {c && <StockSearch q={stockAt[l.key]?.q ?? (c.stock || c.title)} busy={shotState[l.key] === "loading"} onSearch={(q) => { setIdeaCopy(l.key, { noImage: false, stock: q }); getStock(l.key, q); }} onRetry={() => { setIdeaCopy(l.key, { noImage: false }); if (shotKind[l.key] === "shot" && c.shot) getShot(l.key, c.shot, c.shotSel); else { const at = stockAt[l.key]; getStock(l.key, at?.q ?? (c.stock || c.title), at ? at.n + 1 : 0); } }} />}
+                      {c && <StockSearch q={stockAt[l.key]?.q ?? (c.stock || c.title)} busy={shotState[l.key] === "loading"} onSearch={(q) => { setIdeaCopy(l.key, { noImage: false, stock: q }); getStock(l.key, q); }} onRetry={() => { setIdeaCopy(l.key, { noImage: false }); if (shotKind[l.key] === "shot" && c.shot) getShot(l.key, c.shot, c.shotSel); else { const at = stockAt[l.key]; getStock(l.key, at?.q ?? (c.stock || c.title), at ? at.n + 1 : 0); } }} onPick={(full, q) => { setIdeaCopy(l.key, { noImage: false, stock: q }); setStockAt((o) => ({ ...o, [l.key]: { q, n: 0 } })); getShot(l.key, "", "", `/api/stock?src=${encodeURIComponent(full)}`); }} />}
                       </div>
                     </div>); })}
                 </div>
