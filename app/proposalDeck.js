@@ -289,7 +289,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const money = (n) => `£${Math.round(n).toLocaleString("en-GB")}`, name = (l) => byKey[l.key]?.title || l.title;
     // Every tier lists all of its items (not "Everything in Bronze"), each with its own price.
     const tiers = ["bronze", "silver", "gold"].map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1), t: plan[id] }));
-    s.addText("Three ways to get started. Silver gives you the most for your budget and can be split over multiple payments if needed.", { x: 0.9, y: 1.95, w: W - 1.8, h: 0.8, fontFace: FONT, fontSize: 20, color: GREY, isTextBox: true, margin: 0 });
+    s.addText("Silver gives you the most for your budget, and any option can be split over multiple payments if needed.", { x: 0.9, y: 1.95, w: W - 1.8, h: 0.8, fontFace: FONT, fontSize: 20, color: GREY, isTextBox: true, margin: 0 });
     const gap = 0.35, cw = (W - 1.8 - gap * 2) / 3;
     const itemsOf = (x) => [...x.t.lines.map((l) => [name(l), tierPrice(l) || money(plan.costOf(l))]), ...plan.free.map((l) => [name(l), "Free"])];
     const longest = Math.max(...tiers.map((x) => itemsOf(x).length));
