@@ -226,17 +226,6 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     return rec;
   }
 
-  // Notes for Claude (proposal deck): the research prompt for one client with our team's ideas to look into first.
-  // Claude's reply goes in "Paste a reply", like any client research, and the new ideas join the client's list.
-  function notesPrompt(clientId, ideasFromUs) {
-    const c = clients.find((x) => x.id === clientId); if (!c) return "";
-    const rec = Object.values(recsRef.current).find((r) => r.clientId === c.id && r.checkedAt);
-    const current = Object.values(recsRef.current).filter((r) => r.clientId === c.id).flatMap((r) => (r.ideas || []).filter((i) => i.status === "queued" && !i.internal && !i.claudeCheck)).slice(0, 15)
-      .map((i) => ({ key: i.key, title: i.title, why: i.why || "", service: i.service || serviceFor(i.title), hours: hoursFor(i) }));
-    const liked = Object.values(recsRef.current).flatMap((r) => (r.ideas || []).filter((i) => i.starred).map((i) => ({ title: i.title, service: i.service })));
-    return withTitle("Client research", c.name, researchPrompt([{ id: c.id, name: c.name, websites: c.websites || [], notes: c.notes || "", plan: c.plan ? PLANS[c.plan] : "", findings: findingsLine(rec), current, ideasFromUs }], allFeedback, liked));
-  }
-
   async function checkAll(force = false, onlyNew = false, onlyClient = "") {
     stopRef.current = false; onRunning?.(true);
     const jobs = clients.filter((c) => !onlyClient || c.id === onlyClient).flatMap((c) => (c.websites || []).map((w) => [c, w])).filter(([c, w]) => (onlyClient ? true : onlyNew ? !recsRef.current[recId(c, w)]?.checkedAt : force || daysAgo(recsRef.current[recId(c, w)]?.checkedAt) > RECHECK_DAYS));
@@ -565,7 +554,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
 
       {view === "replies" && <IdeaBoard cards={shown.filter((c) => normStatus(c.status) !== "queued").map((c) => ({ ...c, status: normStatus(c.status) }))} filtering={!!(q || kind)} onOpen={(id, key) => setOpen({ id, key })} onMove={(id, key, status) => updateIdea(id, key, { status })} />}
 
-      {deckFor && <ProposalModal group={groups.find((x) => (x.clientId || x.name) === (deckFor.clientId || deckFor.name)) || deckFor} onClose={() => setDeckFor(null)} onLink={(url) => deckFor.clientId && linkProposal(deckFor.clientId, url)} notesPrompt={(notes) => notesPrompt(deckFor.clientId, notes)} />}
+      {deckFor && <ProposalModal group={groups.find((x) => (x.clientId || x.name) === (deckFor.clientId || deckFor.name)) || deckFor} onClose={() => setDeckFor(null)} onLink={(url) => deckFor.clientId && linkProposal(deckFor.clientId, url)} />}
       {addFor && <AddIdeaModal group={addFor} onResearch={addFor.clientId ? () => { setAddFor(null); openClaude({ job: "client-research", preset: [addFor.clientId] }); } : null} onClose={() => setAddFor(null)} onSave={(data) => { addIdea(addFor, data); setAddFor(null); }} />}
 
       {current && currentIdea && (

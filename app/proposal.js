@@ -167,7 +167,7 @@ function BlockList({ label, items, onChange, hidden, onToggle }) {
   );
 }
 
-export function ProposalModal({ group, onClose, onLink, notesPrompt }) {
+export function ProposalModal({ group, onClose, onLink }) {
   const id = group.clientId || group.name;
   const website = (group.recs.find((x) => x.website) || {}).website || "";
   // Ideas worth pitching: not declined or done, not our own internal jobs.
@@ -190,13 +190,6 @@ export function ProposalModal({ group, onClose, onLink, notesPrompt }) {
     fetch(src || `/api/shot?url=${encodeURIComponent(url)}${sel ? `&sel=${encodeURIComponent(sel)}` : ""}`).then((r) => (r.ok ? r.blob() : Promise.reject())).then(shrink)
       .then((data) => { setImages((o) => ({ ...o, [key]: data })); setShotKind((o) => ({ ...o, [key]: src ? "stock" : "shot" })); setShotState((o) => ({ ...o, [key]: "" })); })
       .catch(() => setShotState((o) => ({ ...o, [key]: "failed" })));
-  }
-  // Notes for Claude: copy the research prompt (with these notes) to Claude; the reply goes in "Paste a reply".
-  const [notesCopied, setNotesCopied] = useState(false);
-  async function copyNotes(open) {
-    const text = notesPrompt?.(doc.claudeNotes.trim()); if (!text) return;
-    try { await navigator.clipboard.writeText(text); setNotesCopied(true); setTimeout(() => setNotesCopied(false), 2500); } catch {}
-    if (open) window.open("https://claude.ai/new", "_blank", "noopener");
   }
   const [copied, setCopied] = useState(false);
   const [textCopied, setTextCopied] = useState(false);
@@ -267,14 +260,17 @@ export function ProposalModal({ group, onClose, onLink, notesPrompt }) {
   if (lines.map((l) => l.key).join() !== (kept || []).join()) setOrder({ scope, keys: lines.map((l) => l.key) });
   const resort = () => setOrder({ scope, keys: sorted.map((l) => l.key) });
   const unsorted = lines.some((l, n) => l.key !== sorted[n]?.key);
-  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines: lines.map((l) => { const i = pool.find((x) => x.key === l.key); return i ? { ...l, issue: l.issue || i.issue || "", solution: l.solution || i.solution || "", links: l.links || [...new Set([...(i.links || []), i.evidenceUrl].filter(Boolean))] } : l; }), notes: doc.notes, points: chosen, packages: picked, keep: copyEdits(doc.copy), prices: !doc.noPrices })) : "";
+  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines: lines.map((l) => { const i = pool.find((x) => x.key === l.key); return i ? { ...l, issue: l.issue || i.issue || "", solution: l.solution || i.solution || "", links: l.links || [...new Set([...(i.links || []), i.evidenceUrl].filter(Boolean))] } : l; }), notes: doc.notes, points: chosen, packages: picked, keep: copyEdits(doc.copy), prices: !doc.noPrices, ideaNotes: (doc.claudeNotes || "").trim() })) : "";
 
   function applyReply(text) {
     const copy = parseProposalReply(text);
     if (!copy.ideas.length) throw new Error("No ideas in that reply. Paste Claude's whole JSON block.");
-    change((d) => ({ ...d, copy: { ...withEdits(copy, copyEdits(d.copy)), hide: d.copy?.hide || {} }, step: 3 }));
+    // Ideas Claude added from Notes for Claude ("new:…" keys) join the deck as your own ideas.
+    const known = new Set(lines.map((l) => l.key));
+    const added = copy.ideas.filter((x) => !known.has(x.key) && /^new:/.test(x.key));
+    change((d) => ({ ...d, own: [...d.own.filter((l) => !added.some((x) => x.key === l.key)), ...added.map((x) => ({ ...lineFromIdea({ key: x.key, title: x.title, why: x.intro, service: x.service || serviceFor(x.title), hours: x.max }), custom: true }))], copy: { ...withEdits(copy, copyEdits(d.copy)), hide: d.copy?.hide || {} }, step: 3 }));
     setReply(""); setErr("");
-    return `Proposal copy for ${group.name}: ${copy.ideas.length} idea slides`;
+    return `Proposal copy for ${group.name}: ${copy.ideas.length} idea slides${added.length ? ` (${added.length} new from your notes)` : ""}`;
   }
   useClaudeHandler("proposal", applyReply);
   useEffect(() => {
@@ -359,11 +355,7 @@ export function ProposalModal({ group, onClose, onLink, notesPrompt }) {
                 <div className="space-y-2 rounded-lg border border-zinc-200 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Notes for Claude</div>
                   <Grow value={doc.claudeNotes || ""} onChange={(e) => change((d) => ({ ...d, claudeNotes: e.target.value }))} placeholder="Ideas you'd like Claude to look into, one per line, e.g. a members' area for investors, a German version of the energy pages" className={`${input} min-h-[4.5rem]`} />
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button onClick={() => copyNotes(true)} disabled={!(doc.claudeNotes || "").trim() || !notesPrompt} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"><CopyIcon /> {notesCopied ? "Copied: paste it into Claude" : "Copy prompt and open Claude"}</button>
-                    <button onClick={() => copyNotes(false)} disabled={!(doc.claudeNotes || "").trim() || !notesPrompt} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-100 disabled:opacity-40">Copy only</button>
-                  </div>
-                  <p className="text-xs text-zinc-500">Claude checks each note against their site and the web, writes up the ones that hold up as full ideas and adds a few of its own. Paste its reply in <b>Paste a reply</b> (top of the page): the new ideas appear in the list above and in Client Ideas.</p>
+                  <p className="text-xs text-zinc-500">These go into the prompt in step 3: Claude researches each one and adds the ones that hold up as extra idea slides.</p>
                 </div>
                 <div className="flex justify-end"><button onClick={() => change((d) => ({ ...d, step: 1 }))} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white">Next: packages & retainer</button></div>
               </div>
