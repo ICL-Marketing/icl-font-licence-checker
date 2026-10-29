@@ -56,20 +56,13 @@ const NEXT_TIER = { bronze: "silver", silver: "gold", gold: "bronze" };
 // The idea's price (or package), in its tier's colour when Bronze / Silver / Gold is on: click to move it to the next tier.
 // Off when the deck leaves prices out ("Include prices" unticked): no price pills anywhere in the editor either.
 const PricesShown = createContext(true);
-// Under an idea's title: Issue and Solution (or the older one-line explanation), and links to the pages on
-// their current site that show it, each opening in a new tab.
+// Under an idea's title: links to the pages on their current site that show it, each opening in a new tab.
+// The title is the one line of detail; Issue and Solution show on hover.
 function IdeaDetail({ idea }) {
   const links = [...new Set([...(idea.links || []), idea.evidenceUrl].filter((u) => /^https?:\/\//.test(u || "")))];
   const label = (u) => { try { const x = new URL(u); return x.pathname === "/" ? x.hostname.replace(/^www\./, "") : x.pathname.replace(/\/$/, ""); } catch { return u; } };
-  return (
-    <span className="mt-0.5 block space-y-0.5 text-xs leading-snug text-zinc-500">
-      {idea.issue || idea.solution ? <>
-        {idea.issue && <span className="block"><b className="font-semibold text-zinc-700">Issue:</b> {idea.issue}</span>}
-        {idea.solution && <span className="block"><b className="font-semibold text-zinc-700">Solution:</b> {idea.solution}</span>}
-      </> : idea.why && <span className="block">{idea.why}</span>}
-      {links.length > 0 && <span className="flex flex-wrap gap-x-3">{links.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-0.5 text-blue-700 hover:underline">{label(u)}<ExternalIcon className="h-3 w-3" /></a>)}</span>}
-    </span>
-  );
+  if (!links.length) return null;
+  return <span className="mt-0.5 flex flex-wrap gap-x-3 text-xs">{links.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-0.5 text-blue-700 hover:underline">{label(u)}<ExternalIcon className="h-3 w-3" /></a>)}</span>;
 }
 function PricePill({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier }) {
   if (!useContext(PricesShown)) return null;
@@ -92,7 +85,7 @@ function Effort({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier, pi
   const setTeam = (next) => onChange(withTeam(line, next));
   const setHours = (k, v) => {
     if (v === "" || Number(v) === 0) return team.includes(k) && onChange(withoutTeam(line, k)); // blank or 0 takes the team off
-    const h = Math.max(0.5, Math.round(Number(v) * 2) / 2); if (!Number.isFinite(h)) return; // half hours only
+    const h = quarter(Number(v)); if (!Number.isFinite(h)) return; // whole hours (a half hour only under an hour)
     if (!team.includes(k)) { const t = withTeam(line, [...team, k]); return onChange({ ...t, ...withHours({ ...line, ...t }, k, h) }); }
     onChange(withHours(line, k, h));
   };
@@ -243,7 +236,7 @@ export function ProposalModal({ group, onClose, onLink }) {
     saveT.current = setTimeout(flush, 300);
     return next;
   });
-  const allLines = (doc ? [...pool.filter((i) => doc.picked[i.key]).map((i) => doc.picked[i.key]), ...Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key) && !l.custom), ...doc.own] : []).filter((l) => l.custom || (!supportKeys.has(l.key) && l.service !== "Support")).map((l) => (l.min === l.max ? l : { ...l, min: l.max })) // one set figure (older drafts had a range); support jobs never. New ideas start with design beside development, but you can take it off
+  const allLines = (doc ? [...pool.filter((i) => doc.picked[i.key]).map((i) => doc.picked[i.key]), ...Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key) && !l.custom), ...doc.own] : []).filter((l) => l.custom || (!supportKeys.has(l.key) && l.service !== "Support")).map((l) => { const t = Object.values(teamHours(l)).reduce((x, y) => x + y, 0); return t && !isPackageLine(l) ? { ...l, min: t, max: t } : l.min === l.max ? l : { ...l, min: l.max }; }) // the total is always the rounded team hours // one set figure (older drafts had a range); support jobs never. New ideas start with design beside development, but you can take it off
 ;
   // Take an idea out of this proposal (yours are deleted; Client Ideas ones are just unticked).
   const removeLine = (key) => change((d) => { const picked = { ...d.picked }; delete picked[key]; return { ...d, picked, own: d.own.filter((x) => x.key !== key) }; });
@@ -338,19 +331,19 @@ export function ProposalModal({ group, onClose, onLink }) {
                       <input type="checkbox" checked={!!l} onChange={() => change((d) => { const p = { ...d.picked }; if (p[i.key]) delete p[i.key]; else p[i.key] = lineFromIdea(i); return { ...d, picked: p }; })} className="h-4 w-4" />
                       <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${i.ai ? "bg-violet-100 text-violet-800" : "bg-zinc-100 text-zinc-700"}`}>{i.ai ? "AI" : "ICL"}</span>
                       {i.starred && <span className="text-amber-500">★</span>}
-                      <span className="min-w-[16rem] flex-1 leading-snug">{i.title}<IdeaDetail idea={i} /></span>
+                      <span className="min-w-[16rem] flex-1 leading-snug" title={[i.issue && `Issue: ${i.issue}`, i.solution && `Solution: ${i.solution}`].filter(Boolean).join("\n") || i.why}>{i.title}<IdeaDetail idea={i} /></span>
                       {l && <><PricePill picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(i.key, f)} {...tierProps(l.key)} /><Effort pill={false} picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(i.key, f)} /></>}
                     </li>); })}
                   {Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key)).map((l) => (
                     <li key={l.key} className="flex flex-wrap items-center gap-2 bg-amber-50/60 px-3 py-2 text-sm">
                       <input type="checkbox" checked onChange={() => removeLine(l.key)} className="h-4 w-4" title="Untick to take it out of this proposal" />
                       <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800" title="Still in this proposal, but no longer on the Client Ideas list (done, declined or removed)">Not in Client Ideas now</span>
-                      <span className="min-w-[16rem] flex-1 leading-snug">{l.title}{l.why && <span className="mt-0.5 block text-xs leading-snug text-zinc-500">{l.why}</span>}</span>
+                      <span className="min-w-[16rem] flex-1 leading-snug" title={l.why}>{l.title}</span>
                       <PricePill picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} {...tierProps(l.key)} /><Effort pill={false} picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} />
                     </li>))}
                 </ul>
                 {doc.own.length > 0 && <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{doc.own.map((l) => (
-                  <li key={l.key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"><span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">Yours</span><span className="min-w-[16rem] flex-1 leading-snug">{l.title}{l.why && <span className="mt-0.5 block text-xs leading-snug text-zinc-500">{l.why}</span>}</span><PricePill picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} {...tierProps(l.key)} /><button onClick={() => change((d) => ({ ...d, own: d.own.filter((x) => x.key !== l.key) }))} aria-label="Remove" className="rounded p-1 text-zinc-400 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button><Effort pill={false} picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} /></li>))}
+                  <li key={l.key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"><span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">Yours</span><span className="min-w-[16rem] flex-1 leading-snug" title={l.why}>{l.title}</span><PricePill picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} {...tierProps(l.key)} /><button onClick={() => change((d) => ({ ...d, own: d.own.filter((x) => x.key !== l.key) }))} aria-label="Remove" className="rounded p-1 text-zinc-400 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button><Effort pill={false} picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} /></li>))}
                 </ul>}
                 <div className="space-y-2 rounded-lg border border-zinc-200 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Add an improvement</div>
