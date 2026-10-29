@@ -295,7 +295,13 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     let cardSize = 16; while (cardSize > 10 && listH(cardSize, 0.14) > room) cardSize -= 1;
     tiers.forEach((x, i) => {
       const on = x.id === "silver", cx = 0.9 + i * (cw + gap), fg = on ? WHITE : INK, metal = METAL[x.id];
-      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx, y: 3.3, w: cw, h: plan.monthly.length ? 5.6 : 6.4, rectRadius: 0.25, fill: { color: on ? NAVY : PALE }, line: { color: on ? metal : PALE, width: on ? 2.5 : 1 } });
+      const items = itemsOf(x);
+      // 0.18" under each item (0.14" on the longest list); the text size drops until the longest list fits its card.
+      const marB = items.length === longest && longest > 1 && tiers.some((y) => itemsOf(y).length < longest) ? 0.14 : 0.18, fs = cardSize;
+      // Each card wraps its own list: as tall as its items need (with room at the bottom), never past the space there is.
+      const ownH = items.reduce((h, [t]) => h + Math.ceil((t.length * fs * 0.55) / 72 / textW) * (fs * 1.2) / 72 + marB, 0);
+      const cardH = Math.min(plan.monthly.length ? 5.6 : 6.4, Math.max(3, 5.65 - 3.3 + ownH + 0.35));
+      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx, y: 3.3, w: cw, h: cardH, rectRadius: 0.25, fill: { color: on ? NAVY : PALE }, line: { color: on ? metal : PALE, width: on ? 2.5 : 1 } });
       if (on) {
         s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, rectRadius: 0.25, fill: { color: TEAL }, line: { color: TEAL } });
         s.addText("RECOMMENDED", { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, fontFace: FONT, fontSize: 13, bold: true, color: NAVY, align: "center", valign: "middle", charSpacing: 1, isTextBox: true, margin: 0 });
@@ -309,9 +315,6 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
         ...(save > 0 ? [{ text: `Save ${money(save)}`, options: { fontSize: 16, bold: true, color: on ? TEAL : METAL_DARK[x.id] } }] : []),
       ], { x: cx + 0.45, y: 3.8, w: cw - 0.9, h: 1.7, fontFace: FONT, valign: "top", isTextBox: true, margin: 0 });
       // Item prices match the investment summary exactly (a package at its own price wording).
-      const items = itemsOf(x);
-      // 0.18" under each item (0.14" on the longest list); the text size drops until the longest list fits its card.
-      const marB = items.length === longest && longest > 1 && tiers.some((y) => itemsOf(y).length < longest) ? 0.14 : 0.18, fs = cardSize;
       const cell = { fontFace: FONT, fontSize: fs, color: fg, valign: "top", margin: [0, 0, marB, 0] };
       // Real check-mark bullets with a hanging indent, so wrapped lines sit under the text, not the tick.
       s.addTable(items.map(([t, p]) => [{ text: [{ text: t, options: { bullet: { code: "2713", indent: 18 } } }], options: cell }, { text: p, options: { ...cell, align: "right", bold: true } }]), { x: cx + 0.45, y: 5.65, w: cw - 0.9, colW: [cw - 0.9 - 1.6, 1.6], border: { type: "none" }, fill: { color: on ? NAVY : PALE } });
