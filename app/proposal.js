@@ -6,6 +6,8 @@ import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon, C
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
 import { FIXED_SLIDES, TEAMS, lineFromIdea, proposalPrompt, parseProposalReply, teamHours, lineValue, priceFor, ideasText, tierPlan, tierOptions, slideOff, costRates, costTable, RESOURCES, copyEdits, withEdits, quarter, snapHours, rateOf, DAY_RATE, withTeam, withoutTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
 import Link from "next/link";
+import { deckOutline } from "@/lib/deckOutline";
+import { AgendaPreview, LinkedinPreview, SummaryPreview, CostsPreview, TiersPreview, RoadmapPreview, SupportPreview, ServicesPreview, PackagePreview, TemplateSlidePreview } from "@/app/slidePreview";
 import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY, ANCHORS } from "@/lib/deckTemplate";
 import { PACKAGE_GROUPS, PACKAGE_TEAMS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER, isSeoLine } from "@/lib/packages";
 import { ideaType, serviceFor, IDEA_SERVICES } from "@/lib/clientIdeas";
@@ -251,6 +253,17 @@ function BlockList({ label, items, onChange, hidden, onToggle }) {
   );
 }
 
+// A standard slide in the review step: its name, Hide / Show, and a preview of the slide as it will download.
+// note: why it isn't in the deck even though it's switched on (e.g. prices are off).
+function SlideCard({ label, hidden, onToggle, note, controls, children }) {
+  return (
+    <div><div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500"><span className={hidden ? "line-through" : ""}>{label}</span>{hidden && <span className="normal-case tracking-normal text-zinc-400">Hidden: not in the deck</span>}<span className="ml-auto"><SlideToggle hidden={hidden} onToggle={onToggle} /></span></div>
+      {!hidden && <div className="space-y-2">{controls}{note ? <p className="rounded-md bg-zinc-50 px-3 py-2 text-xs text-zinc-500">{note}</p> : children}</div>}
+    </div>
+  );
+}
+const decode = (t) => String(t || "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+
 export function ProposalModal({ group, onClose, onLink }) {
   const id = group.clientId || group.name;
   const website = (group.recs.find((x) => x.website) || {}).website || "";
@@ -299,7 +312,8 @@ export function ProposalModal({ group, onClose, onLink }) {
   useEffect(() => { const f = () => flushRef.current(); window.addEventListener("pagehide", f); return () => { window.removeEventListener("pagehide", f); f(); }; }, []);
   const [points, setPoints] = useState(RETAINER_DEFAULTS);
   const [tplExtras, setTplExtras] = useState([]); // extra slides from the uploaded template, so they can be left out of this deck
-  useEffect(() => { templateMeta().then((m) => setTplExtras((m?.extras || []).map((e, i) => ({ ...e, i })).filter((e) => !/^\s*our clients\b/i.test(e.title || "")))).catch(() => {}); }, []);
+  const [tplSlots, setTplSlots] = useState({}); // your own designs that replace a built-in slide (support, services, SEO…)
+  useEffect(() => { templateMeta().then((m) => { setTplExtras((m?.extras || []).map((e, i) => ({ ...e, i, title: decode(e.title) })).filter((e) => !/^\s*our clients\b/i.test(e.title || ""))); setTplSlots(m?.slots || {}); }).catch(() => {}); }, []);
   useEffect(() => { fetch("/api/settings?key=retainer-points").then((r) => r.json()).then((j) => { if (j.shared && j.value?.items) setPoints(normalisePoints(j.value)); }).catch(() => {}); }, []);
   // Cost rates and markup (Settings → Proposals); each client can have their own in the cost table.
   const [defaultPricing, setDefaultPricing] = useState(() => costRates(null));
@@ -399,8 +413,10 @@ export function ProposalModal({ group, onClose, onLink }) {
   const options = doc && doc.tiersOn !== false && !doc.noPrices ? (ownSplit ? [tierPlan(lines, picked, dayRate, doc.tierOf, doc.tierSavings || {})].filter(Boolean) : tierOptions(lines, picked, dayRate, doc.tierSavings || {})) : [];
   const plan = options[0] || null;
   const tierProps = (key) => (plan?.tierOf[key] ? { tier: plan.tierOf[key], onTier: (t) => change((d) => ({ ...d, tierOf: { ...plan.tierOf, ...d.tierOf, [key]: t } })) } : {}); // moving one idea makes the (first) option your own split
-  const optText = (p) => ["bronze", "silver", "gold"].map((t) => `${t[0].toUpperCase()}${t.slice(1)} £${p[t].price.toLocaleString("en-GB")} (${p[t].lines.length})`).join(" · ");
-  const tierPreview = !plan ? "needs at least three paid ideas" : options.length > 1 ? `${options.length} options, one slide each (keep the best, delete the others): ${options.map((p, n) => `${n + 1}) ${optText(p)}`).join("  |  ")}` : optText(plan);
+  // What each standard slide will show, worked out exactly as the download does (for the slide previews).
+  const outline = doc?.step === 3 && doc.copy ? deckOutline({ lines, copy: doc.copy, packages: pkgIds, dayRate, tiers: doc.tiersOn !== false ? doc.tierOf || {} : false, savings: doc.tierSavings || {}, prices: !doc.noPrices, overhead: costTable(lines, pricing, doc.extraHours || {}).overhead, extras: tplExtras }) : null;
+  const extrasAt = (anchor) => tplExtras.filter((e) => e.after === anchor).map((e) => <SlideCard key={`extra:${e.i}`} label={`Your slide: ${e.title.slice(0, 60)}`} {...toggle(`extra:${e.i}`)}><TemplateSlidePreview text={e.title} /></SlideCard>);
+  const needPrices = doc?.noPrices ? "Not in this deck: Include prices is off." : "";
   const setIdeaCopy = (key, fields) => setCopy({ ideas: doc.copy.ideas.map((x) => (x.key === key ? { ...x, ...fields } : x)) });
   const step = doc?.step || 0;
   const canGo = (n) => n === 0 || (n <= 2 ? lines.length > 0 : !!doc?.copy);
@@ -503,9 +519,14 @@ export function ProposalModal({ group, onClose, onLink }) {
                   <ImageDrop value={images.cover} status={shotState.cover} onShot={website ? () => { setCopy({ noCover: false }); getShot("cover", `https://${website}`); } : null} onChange={(v) => { setImages((o) => ({ ...o, cover: v })); if (!v) setCopy({ noCover: true }); }} label="Cover image (their homepage is added for you)" />
                   <label className="min-w-[14rem] flex-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Deck title<input value={doc.copy.deckTitle} onChange={(e) => setCopy({ deckTitle: e.target.value.toUpperCase() })} className={`${input} mt-0.5`} /><span className="mt-1 block font-normal normal-case tracking-normal text-zinc-500">Images stay in this browser only (not saved), so add them just before you download.</span></label>
                 </div>
+                <SlideCard label="Agenda" {...toggle("agenda")}><AgendaPreview items={outline.agenda} client={group.name} /></SlideCard>
+                {extrasAt("cover")}
+                <SlideCard label="LinkedIn suggestions (and LinkedIn Automations in monthly costs)" {...toggle("linkedin")} controls={<label className="block text-xs text-zinc-600">Posts a month <input type="number" min={1} value={doc.copy.linkedinPosts ?? ""} placeholder="8" onChange={(e) => setCopy({ linkedinPosts: e.target.value === "" ? undefined : Number(e.target.value) })} className="ml-1 w-14 rounded border border-zinc-300 px-1.5 py-0.5 text-xs" /></label>}><LinkedinPreview posts={Number(doc.copy.linkedinPosts) > 0 ? Number(doc.copy.linkedinPosts) : 8} prices={!doc.noPrices} client={group.name} /></SlideCard>
                 <BlockList label="Background" items={doc.copy.background} onChange={(background) => setCopy({ background })} {...toggle("background")} />
+                {extrasAt("background")}
                 <BlockList label="Where the biggest wins are" items={doc.copy.wins} onChange={(wins) => setCopy({ wins })} {...toggle("wins")} />
-                <div className="space-y-2"><div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Idea slides{unsorted && <button type="button" onClick={resort} className="rounded px-1.5 py-0.5 font-normal normal-case tracking-normal text-blue-700 hover:bg-blue-50">Sort biggest first</button>}</div>
+                {extrasAt("wins")}
+                <div className="space-y-2"><div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Idea slides{unsorted && <button type="button" onClick={resort} className="rounded px-1.5 py-0.5 font-normal normal-case tracking-normal text-blue-700 hover:bg-blue-50">Sort biggest first</button>}<label className="ml-auto inline-flex items-center gap-1.5 font-normal normal-case tracking-normal text-zinc-600" title="Untick for idea slides with text only"><input type="checkbox" checked={!hidden.pictures} onChange={() => setCopy({ hide: { ...hidden, pictures: !hidden.pictures } })} className="h-3.5 w-3.5" />Pictures on idea slides</label></div>
                   {lines.map((l, n) => { const c = doc.copy.ideas.find((x) => x.key === l.key); return (
                     <div key={l.key} className="relative flex flex-wrap gap-3 rounded-lg border border-zinc-200 p-3 pr-10">
                       <button onClick={() => { if (window.confirm(`Take “${c?.title || l.title}” out of this proposal?`)) removeLine(l.key); }} aria-label="Remove from deck" title="Remove this idea from the deck" className="absolute right-2 top-2 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button>
@@ -525,13 +546,25 @@ export function ProposalModal({ group, onClose, onLink }) {
                       </div>
                     </div>); })}
                 </div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Roadmap slide title<input value={doc.copy.roadmapTitle || ""} onChange={(e) => setCopy({ roadmapTitle: e.target.value })} placeholder="Too much in one go? Roadmap it over N months with a support retainer (N is worked out for you)" className={`${input} mt-0.5 font-normal normal-case tracking-normal`} /></label>
+                {extrasAt("ideas")}
+                <SlideCard label="Investment summary table" {...toggle("effort")} note={needPrices}><SummaryPreview summary={outline.summary} client={group.name} /></SlideCard>
+                <SlideCard label="Monthly costs table" {...toggle("costs")} note={needPrices || (!outline.show.costs && "Not in this deck: no monthly packages (SEO, PPC…) or LinkedIn suggestions.")}><CostsPreview costs={outline.costs} client={group.name} /></SlideCard>
+                {extrasAt("costs")}
+                <SlideCard label="Bronze / Silver / Gold options" {...tiersToggle} note={needPrices || (!outline.tierSlides.length && "Not in this deck: needs at least three paid ideas.")}>
+                  {outline.tierSlides.length > 1 && <p className="text-xs text-zinc-500">{outline.tierSlides.length} pricing options, one slide each: keep the one you like best in PowerPoint and delete the others.</p>}
+                  {outline.tierSlides.map((sl, n) => <div key={n}>{outline.tierSlides.length > 1 && <div className="mb-1 text-xs font-medium text-zinc-600">Option {n + 1}</div>}<TiersPreview slide={sl} upsell={outline.retainerUpsell} client={group.name} /></div>)}
+                </SlideCard>
+                <SlideCard label="Month-by-month roadmap" {...toggle("roadmap")} note={lines.length < 2 && "Not in this deck: needs at least two ideas."} controls={<input value={doc.copy.roadmapTitle || ""} onChange={(e) => setCopy({ roadmapTitle: e.target.value })} placeholder="Too much in one go? Roadmap it over N months with a support retainer (N is worked out for you)" aria-label="Roadmap slide title" className={input} />}>{outline.roadmap && <RoadmapPreview roadmap={outline.roadmap} />}</SlideCard>
                 <BlockList label="Support retainer (on: its own slide, plus an Ongoing retainer pill on Gold)" items={doc.copy.retainer} onChange={(retainer) => setCopy({ retainer })} {...toggle("retainer")} />
-                <div><div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Standard slides</div>
-                  <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["agenda", "Agenda"], ["linkedin", "LinkedIn suggestions (and LinkedIn Automations in monthly costs)"], ["pictures", "Pictures on idea slides"], ["effort", "Investment summary table"], ["tiers", "Bronze / Silver / Gold options"], ["roadmap", "Month-by-month roadmap"], ["costs", "Monthly / one-off costs table"], ["services", "Our service retainer offering"], ["support", "Support packages (Bronze, Silver, Gold)"], ["packages", "SEO / PPC package slides"], ...tplExtras.map((e) => [`extra:${e.i}`, `Your slide: ${e.title.slice(0, 50)}`])].map(([k, name]) => (
-                    <li key={k} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className={(k === "tiers" ? tiersToggle.hidden : slideOff(hidden, k)) ? "text-zinc-400 line-through" : ""}>{name}{k === "tiers" && !tiersToggle.hidden && <span className="ml-2 text-xs text-zinc-500">{tierPreview}</span>}</span>{k === "linkedin" && !hidden.linkedin && <label className="text-xs text-zinc-600">Posts a month <input type="number" min={1} value={doc.copy.linkedinPosts ?? ""} placeholder="8" onChange={(e) => setCopy({ linkedinPosts: e.target.value === "" ? undefined : Number(e.target.value) })} className="ml-1 w-14 rounded border border-zinc-300 px-1.5 py-0.5 text-xs" /></label>}<span className="ml-auto"><SlideToggle {...(k === "tiers" ? tiersToggle : toggle(k))} /></span></li>))}
-                  </ul>
-                </div>
+                {extrasAt("retainer")}
+                <SlideCard label="Support packages (Bronze, Silver, Gold)" {...toggle("support")} note={needPrices}>{tplSlots.support !== undefined ? <TemplateSlidePreview text="Support packages (your own design from the template)" /> : <SupportPreview supportPlan={group.client?.plan || ""} client={group.name} />}</SlideCard>
+                {extrasAt("support")}
+                <SlideCard label="Our service retainer offering" {...toggle("services")}>{tplSlots.services !== undefined ? <TemplateSlidePreview text="Our service retainer offering (your own design from the template)" /> : <ServicesPreview />}</SlideCard>
+                {extrasAt("services")}
+                <SlideCard label="SEO / PPC package slides" {...toggle("packages")} note={needPrices || (!outline.packageGroups.length && "Not in this deck: no monthly packages (SEO, PPC, social media) picked.")}>
+                  {outline.packageGroups.map((g) => <div key={g.id}>{tplSlots[g.id] !== undefined ? <TemplateSlidePreview text={`${g.title} (your own design from the template)`} /> : <PackagePreview group={g} client={group.name} />}</div>)}
+                </SlideCard>
+                {extrasAt("packages")}
                 {err && <p className="text-sm text-red-700">{err}</p>}
                 <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Link to the saved deck (SharePoint)
                   <span className="mt-0.5 flex gap-2"><input defaultValue={deckUrl} key={deckUrl} onBlur={(e) => saveLink(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder="Paste the SharePoint link after you upload the deck" className={`${input} font-normal normal-case tracking-normal`} />
