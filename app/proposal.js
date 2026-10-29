@@ -327,11 +327,9 @@ export function ProposalModal({ group, onClose, onLink }) {
                 <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
                   {pool.length === 0 && <li className="p-3 text-sm text-zinc-500">No ideas for this client yet. Add your own below.</li>}
                   {pool.map((i) => { const l = doc.picked[i.key]; return (
-                    <li key={i.key} className={`flex flex-wrap items-center gap-2 px-3 py-2 text-sm ${l ? "bg-emerald-50/50" : ""}`}>
-                      <input type="checkbox" checked={!!l} onChange={() => change((d) => { const p = { ...d.picked }; if (p[i.key]) delete p[i.key]; else p[i.key] = lineFromIdea(i); return { ...d, picked: p }; })} className="h-4 w-4" />
-                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${i.ai ? "bg-violet-100 text-violet-800" : "bg-zinc-100 text-zinc-700"}`}>{i.ai ? "AI" : "ICL"}</span>
-                      {i.starred && <span className="text-amber-500">★</span>}
-                      <span className="min-w-[16rem] flex-1 leading-snug" title={[i.issue && `Issue: ${i.issue}`, i.solution && `Solution: ${i.solution}`].filter(Boolean).join("\n") || i.why}>{i.title}<IdeaDetail idea={i} /></span>
+                    <li key={i.key} className={`flex flex-wrap items-start gap-2 px-3 py-2 text-sm ${l ? "bg-emerald-50/50" : ""}`}>
+                      <input type="checkbox" checked={!!l} onChange={() => change((d) => { const p = { ...d.picked }; if (p[i.key]) delete p[i.key]; else p[i.key] = lineFromIdea(i); return { ...d, picked: p }; })} className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span className="min-w-[16rem] flex-1 leading-snug" title={[i.issue && `Issue: ${i.issue}`, i.solution && `Solution: ${i.solution}`].filter(Boolean).join("\n") || i.why}>{i.title}{i.starred && <span className="ml-1.5 text-amber-500">★</span>}<span className={`ml-1.5 inline-block rounded-full px-1.5 py-0.5 align-[1px] text-[10px] font-semibold leading-none ${i.ai ? "bg-violet-100 text-violet-800" : "bg-zinc-100 text-zinc-700"}`}>{i.ai ? "AI" : "ICL"}</span><IdeaDetail idea={i} /></span>
                       {l && <><PricePill picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(i.key, f)} {...tierProps(l.key)} /><Effort pill={false} picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(i.key, f)} /></>}
                     </li>); })}
                   {Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key)).map((l) => (
