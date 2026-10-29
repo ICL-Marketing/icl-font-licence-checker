@@ -9,6 +9,7 @@ import Link from "next/link";
 import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY, ANCHORS } from "@/lib/deckTemplate";
 import { PACKAGE_GROUPS, PACKAGE_TEAMS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER, isSeoLine } from "@/lib/packages";
 import { ideaType, serviceFor, IDEA_SERVICES } from "@/lib/clientIdeas";
+import { SUPPORT_PLANS } from "@/lib/clients";
 
 function Grow({ value, className = "", ...rest }) {
   const ref = useRef(null);
@@ -273,7 +274,7 @@ export function ProposalModal({ group, onClose, onLink }) {
   if (lines.map((l) => l.key).join() !== (kept || []).join()) setOrder({ scope, keys: lines.map((l) => l.key) });
   const resort = () => setOrder({ scope, keys: sorted.map((l) => l.key) });
   const unsorted = lines.some((l, n) => l.key !== sorted[n]?.key);
-  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines: lines.map((l) => { const i = pool.find((x) => x.key === l.key); return i ? { ...l, issue: l.issue || i.issue || "", solution: l.solution || i.solution || "", links: l.links || [...new Set([...(i.links || []), i.evidenceUrl].filter(Boolean))] } : l; }), notes: doc.notes, points: chosen, packages: picked, keep: copyEdits(doc.copy), prices: !doc.noPrices, ideaNotes: (doc.claudeNotes || "").trim() })) : "";
+  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines: lines.map((l) => { const i = pool.find((x) => x.key === l.key); return i ? { ...l, issue: l.issue || i.issue || "", solution: l.solution || i.solution || "", links: l.links || [...new Set([...(i.links || []), i.evidenceUrl].filter(Boolean))] } : l; }), notes: doc.notes, points: chosen, packages: picked, keep: copyEdits(doc.copy), prices: !doc.noPrices, supportPlan: group.client?.plan === "none" ? "none" : (SUPPORT_PLANS.find(([k]) => k && k !== "none" && k === group.client?.plan) || [])[1] || "", ideaNotes: (doc.claudeNotes || "").trim() })) : "";
 
   function applyReply(text) {
     const copy = parseProposalReply(text);
