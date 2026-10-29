@@ -1,6 +1,6 @@
 // Builds the ICL proposal deck (.pptx) in the browser with pptxgenjs, in the house style:
 // dark gradient slides with the white logo, white slides with navy titles, teal accents, Obviously.
-import { TEAMS, range, split, totals, priceFor, DAY_RATE, lineValue, tierPlan, tierOptions, salePrice } from "@/lib/proposal";
+import { TEAMS, range, split, totals, DAY_RATE, lineValue, tierPlan, tierOptions, salePrice, slideOff } from "@/lib/proposal";
 import { pickedPackages, packageFor, packagesOf, hourTeams, isSeoLine } from "@/lib/packages";
 
 const W = 19.44, H = 12.5;
@@ -55,6 +55,8 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   const extrasAt = (anchor) => { (template?.extras || []).forEach((e, i) => { if (e.after === anchor && !NOT_IN_CLIENT_DECKS.test(e.title || "") && !hide[`extra:${i}`] && template.slots[`extra:${i}`]) order.push(`extra:${i}`); }); };
   const byKey = Object.fromEntries((copy.ideas || []).map((i) => [i.key, i]));
   const hide = copy.hide || {}; // slides taken out in the review step
+  const off = (k) => slideOff(hide, k);
+  const retainerUpsell = !off("retainer") && copy.retainer?.length > 0; // the retainer slide, pitched on the Gold card
   // Bronze / Silver / Gold: your own split when you've moved ideas between tiers, otherwise three options to choose from
   // (one slide each: keep the one you like and delete the others).
   const plans = !(tiers && prices) ? [] : typeof tiers === "object" && Object.keys(tiers).length ? [tierPlan(lines, picked, dayRate, tiers, savings)].filter(Boolean) : tierOptions(lines, picked, dayRate, savings);
@@ -112,22 +114,22 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   }
   // 2. Agenda: the sections this deck actually has, in order.
   const fixedLines = lines.filter((l) => pkgOf(l)?.fixed);
-  const showRoadmap = !hide.roadmap && lines.length > 1, showLinkedin = !hide.linkedin;
-  const showSummary = prices && !hide.effort && (hourLines.length || fixedLines.length), showCosts = prices && !hide.costs && (picked.some((g) => !g.fixed) || showLinkedin);
-  const showSupport = prices && !hide.support, showPackages = prices && !hide.packages;
-  if (!hide.agenda) {
+  const showRoadmap = !off("roadmap") && lines.length > 1, showLinkedin = !off("linkedin");
+  const showSummary = prices && !off("effort") && (hourLines.length || fixedLines.length), showCosts = prices && !off("costs") && (picked.some((g) => !g.fixed) || showLinkedin);
+  const showSupport = prices && !off("support"), showPackages = prices && !off("packages");
+  if (!off("agenda")) {
     const agenda = [
       ...(template?.extras || []).filter((e, i) => e.after === "cover" && !NOT_IN_CLIENT_DECKS.test(e.title || "") && !hide[`extra:${i}`] && template.slots[`extra:${i}`] && e.title).map((e) => e.title),
       showLinkedin && "LinkedIn suggestions",
-      copy.background?.length && !hide.background && "Website ideas: the background",
+      copy.background?.length && !off("background") && "Website ideas: the background",
       lines.length && "Your website ideas",
       showSummary && "Investment summary",
       showCosts && "Monthly costs",
       plan && "Choose your one-off package",
       showRoadmap && "Six-month roadmap",
-      copy.retainer?.length && !hide.retainer && "Next: a support retainer",
+      copy.retainer?.length && !off("retainer") && "Next: a support retainer",
       showSupport && "Support packages",
-      !hide.services && "Service retainer offering",
+      !off("services") && "Service retainer offering",
       ...(!showPackages ? [] : picked.filter((g) => !g.fixed && g.id !== "support").map((g) => g.title)),
     ].filter(Boolean);
     const s = light("Agenda");
@@ -153,13 +155,13 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     ]);
   }
   // 3. Background
-  if (copy.background?.length && !hide.background) {
+  if (copy.background?.length && !off("background")) {
     const s = light("Website ideas: the background");
     blockGrid(s, copy.background);
   }
   extrasAt("background");
   // 4. Where the biggest wins are
-  if (copy.wins?.length && !hide.wins) {
+  if (copy.wins?.length && !off("wins")) {
     const s = dark();
     s.addText("WHERE THE BIGGEST WINS ARE", { x: 0.9, y: 0.9, w: W - 1.8, h: 1.1, fontFace: FONT, fontSize: 44, bold: true, color: WHITE, isTextBox: true, margin: 0 });
     const n = copy.wins.length, gap = 0.45, cw = (W - 1.8 - gap * (n - 1)) / n;
@@ -232,9 +234,10 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const teamText = teamBits.length ? teamBits.join(", ") : teamList(l.team); // only the teams with hours, each with its hours
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: W - 1.8, h: 1.25, rectRadius: 0.2, fill: { color: PALE }, line: { color: PALE } });
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.55, w: 0.18, h: 1.25, rectRadius: 0.05, fill: { color: TEAL }, line: { color: TEAL } });
-    // The SEO idea: "SEO Bronze from £599 p.m., Team: Marketing".
+    // The SEO idea: "SEO Bronze from £599 p.m., Team: Marketing". Other ideas show hours and team only (no £: prices are on
+    // the package slide).
     const seoTier = isSeoLine(l) && pkg && (pkg.tiers.find((x) => pkg.picked.includes(x.id)) || pkg.tiers[0]);
-    const runs = seoTier ? [{ text: `${pkg.name} ${String(seoTier.name).split(":")[0].replace(new RegExp(`^${pkg.name}\\s*`, "i"), "")}${prices ? ` from ${seoTier.price} p.m.` : ""}`.replace(/\s+/g, " ").toUpperCase(), options: { color: NAVY, bold: true } }, { text: ",  TEAM:  ", options: { color: GREY, bold: true } }, { text: "MARKETING", options: { color: NAVY, bold: true } }] : [{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, bold: true } }, { text: (pkg ? (prices ? priceOf(pkg) : pkg.name) : `${hrs(l.min, l.max)}${prices || l.free ? ` · ${l.free ? "FREE OF CHARGE" : priceFor(l, dayRate)}` : ""}`).toUpperCase(), options: { color: NAVY, bold: true } }, { text: "      TEAM:  ", options: { color: GREY, bold: true } }, { text: teamText.toUpperCase(), options: { color: NAVY, bold: true } }];
+    const runs = seoTier ? [{ text: `${pkg.name} ${String(seoTier.name).split(":")[0].replace(new RegExp(`^${pkg.name}\\s*`, "i"), "")}${prices ? ` from ${seoTier.price} p.m.` : ""}`.replace(/\s+/g, " ").toUpperCase(), options: { color: NAVY, bold: true } }, { text: ",  TEAM:  ", options: { color: GREY, bold: true } }, { text: "MARKETING", options: { color: NAVY, bold: true } }] : [{ text: pkg ? "PACKAGE  " : "ESTIMATE  ", options: { color: GREY, bold: true } }, { text: (pkg ? pkg.name : `${hrs(l.min, l.max)}${l.free ? " · FREE OF CHARGE" : ""}`).toUpperCase(), options: { color: NAVY, bold: true } }, { text: "      TEAM:  ", options: { color: GREY, bold: true } }, { text: teamText.toUpperCase(), options: { color: NAVY, bold: true } }];
     const chars = runs.reduce((n, r) => n + r.text.length, 0), fs = Math.max(11, Math.min(20, Math.floor(((W - 2.9) * 72) / (chars * 0.7))));
     s.addText(runs, { x: 1.4, y: 9.6, w: W - 2.9, h: 1.15, fontFace: FONT, fontSize: fs, valign: "middle", wrap: false, isTextBox: true, margin: 0 });
     }
@@ -298,12 +301,12 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const below = { silver: "bronze", gold: "silver" };
     const itemsOf = (x) => {
       const prev = below[x.id] ? new Set(plan[below[x.id]].lines.map((l) => l.key)) : null;
-      const own = x.t.lines.filter((l) => !prev?.has(l.key)).map((l) => [name(l), tierPrice(l) || money(plan.costOf(l))]);
-      return prev ? [[`Everything in ${below[x.id][0].toUpperCase()}${below[x.id].slice(1)}, plus:`, "", true], ...own] : [...own, ...plan.free.map((l) => [name(l), "Free"])];
+      const own = x.t.lines.filter((l) => !prev?.has(l.key)).map((l) => [name(l)]);
+      return prev ? own : [...own, ...plan.free.map((l) => [`${name(l)} (free)`])];
     };
     const longest = Math.max(...tiers.map((x) => itemsOf(x).length));
     // Fit check: the longest list (by height) must fit between the price and the bottom of the card.
-    const room = 3.3 + (plan.monthly.length ? 5.6 : 6.4) - 5.65 - 0.2, textW = cw - 0.9 - 1.6 - 0.3;
+    const room = 3.3 + (plan.monthly.length ? 5.6 : 6.4) - 5.65 - 0.2, textW = cw - 0.9 - 0.3;
     const listH = (fs, marB) => Math.max(...tiers.map((x) => itemsOf(x).reduce((h, [t]) => h + Math.ceil((t.length * fs * 0.55) / 72 / textW) * (fs * 1.2) / 72 + marB, 0)));
     let cardSize = 16; while (cardSize > 10 && listH(cardSize, 0.14) > room) cardSize -= 1;
     tiers.forEach((x, i) => {
@@ -319,18 +322,25 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
         s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, rectRadius: 0.25, fill: { color: TEAL }, line: { color: TEAL } });
         s.addText("RECOMMENDED", { x: cx + 0.45, y: 3.05, w: 2.4, h: 0.5, fontFace: FONT, fontSize: 13, bold: true, color: NAVY, align: "center", valign: "middle", charSpacing: 1, isTextBox: true, margin: 0 });
       }
-      // Bronze has no saving; Silver and Gold show theirs. "From" when a package with a "From" price is included.
-      const save = x.id === "bronze" ? 0 : x.t.full - x.t.price;
+      // Support retainer switched on: Gold carries an upsell pill (like Recommended) for continuous work after the build.
+      if (x.id === "gold" && retainerUpsell) {
+        s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx + 0.45, y: 3.05, w: 3.4, h: 0.5, rectRadius: 0.25, fill: { color: METAL.gold }, line: { color: METAL.gold } });
+        s.addText("+ ONGOING RETAINER", { x: cx + 0.45, y: 3.05, w: 3.4, h: 0.5, fontFace: FONT, fontSize: 13, bold: true, color: NAVY, align: "center", valign: "middle", charSpacing: 1, isTextBox: true, margin: 0 });
+      }
+      // Under the price: "The essentials", "Everything in Bronze, plus", "Everything in Silver, plus". "From" when a
+      // package with a "From" price is included.
+      const tagline = { bronze: "The essentials", silver: "Everything in Bronze, plus", gold: "Everything in Silver, plus" }[x.id];
       const from = x.t.lines.some((l) => /^from/i.test(tierPrice(l)));
       s.addText([
         { text: x.label.toUpperCase(), options: { fontSize: 22, bold: true, color: on ? metal : METAL_DARK[x.id], breakLine: true } },
-        { text: `${from ? "From " : ""}${money(x.t.price)}`, options: { fontSize: from ? 42 : 50, bold: true, color: fg, breakLine: save > 0 } },
-        ...(save > 0 ? [{ text: `Save ${money(save)}`, options: { fontSize: 16, bold: true, color: on ? TEAL : METAL_DARK[x.id] } }] : []),
+        { text: `${from ? "From " : ""}${money(x.t.price)}`, options: { fontSize: from ? 42 : 50, bold: true, color: fg, breakLine: true } },
+        { text: " ", options: { fontSize: 8, breakLine: true } },
+        { text: tagline, options: { fontSize: 15, color: on ? "DCDCF5" : GREY } },
       ], { x: cx + 0.45, y: 3.8, w: cw - 0.9, h: 1.7, fontFace: FONT, valign: "top", isTextBox: true, margin: 0 });
       // Item prices match the investment summary exactly (a package at its own price wording).
       const cell = { fontFace: FONT, fontSize: fs, color: fg, valign: "top", margin: [0, 0, marB, 0] };
       // Real check-mark bullets with a hanging indent, so wrapped lines sit under the text, not the tick.
-      s.addTable(items.map(([t, p, lead]) => (lead ? [{ text: t, options: { ...cell, bold: true, colspan: 2 } }] : [{ text: [{ text: t, options: { bullet: { code: "2713", indent: 18 } } }], options: cell }, { text: p, options: { ...cell, align: "right", bold: true } }])), { x: cx + 0.45, y: 5.65, w: cw - 0.9, colW: [cw - 0.9 - 1.6, 1.6], border: { type: "none" }, fill: { color: on ? NAVY : PALE } });
+      s.addTable(items.map(([t]) => [{ text: [{ text: t, options: { bullet: { code: "2713", indent: 18 } } }], options: cell }]), { x: cx + 0.45, y: 5.65, w: cw - 0.9, colW: [cw - 0.9], border: { type: "none" }, fill: { color: on ? NAVY : PALE } });
     });
     // Monthly packages (SEO, PPC) aren't in the tiers: they sit underneath as an extra on top of any option.
     const extras = [...new Map(plan.monthly.map((l) => packagesOf(l, picked)[0]).filter(Boolean).map((g) => [g.id, [`${g.name} package`, priceOf(g)]])).values()];
@@ -373,7 +383,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     });
   }
   // 7. Retainer
-  if (copy.retainer?.length && !hide.retainer) {
+  if (copy.retainer?.length && !off("retainer")) {
     const s = light("Next: a support retainer");
     // The roadmap slide is the plan; a roadmap block in older copy would disagree with it, so it's left out.
     blockGrid(s, copy.retainer.filter((b) => !/roadmap|\bmonths?\b/i.test(b.title)));
@@ -408,7 +418,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   extrasAt("retainer"); // your own slides placed after the retainer follow the support packages, which come straight after it
   extrasAt("support");
   // 9. Service retainer offering: the brand layout, staggered rows of service names (positions taken from the design, in px of a 1900px-wide slide)
-  if (!hide.services && !fixedSlide("services")) {
+  if (!off("services") && !fixedSlide("services")) {
     const s = pres.addSlide(); s.background = { data: bg };
     const px = W / 1900;
     s.addText("OUR SERVICE RETAINER OFFERING", { x: 0.9, y: 0.75, w: W - 1.8, h: 1.1, fontFace: FONT, fontSize: 58, bold: true, color: TEAL, align: "center", valign: "middle", isTextBox: true, margin: 0 });

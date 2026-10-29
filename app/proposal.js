@@ -4,7 +4,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon } from "@/app/icons";
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
-import { FIXED_SLIDES, TEAMS, lineFromIdea, proposalPrompt, parseProposalReply, teamHours, lineValue, priceFor, ideasText, tierPlan, tierOptions, costRates, costTable, RESOURCES, copyEdits, withEdits, quarter, snapHours, rateOf, DAY_RATE, withTeam, withoutTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
+import { FIXED_SLIDES, TEAMS, lineFromIdea, proposalPrompt, parseProposalReply, teamHours, lineValue, priceFor, ideasText, tierPlan, tierOptions, slideOff, costRates, costTable, RESOURCES, copyEdits, withEdits, quarter, snapHours, rateOf, DAY_RATE, withTeam, withoutTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
 import Link from "next/link";
 import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY, ANCHORS } from "@/lib/deckTemplate";
 import { PACKAGE_GROUPS, PACKAGE_TEAMS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER, isSeoLine } from "@/lib/packages";
@@ -339,7 +339,7 @@ export function ProposalModal({ group, onClose, onLink }) {
     try {
       const { buildDeck } = await import("@/app/proposalDeck");
       const template = await loadTemplate().catch(() => null);
-      await buildDeck({ client: group.name, supportPlan: group.client?.plan || "", website, lines, copy: doc.copy, images, packages: pkgIds, template, dayRate, tiers: doc.tiersOn ? doc.tierOf || {} : false, savings: doc.tierSavings || {}, prices: !doc.noPrices, overhead: costTable(lines, pricing, doc.extraHours || {}).overhead, captions: Object.fromEntries(Object.entries(shotKind).filter(([, k]) => k === "shot").map(([key]) => [key, "Current layout"])) });
+      await buildDeck({ client: group.name, supportPlan: group.client?.plan || "", website, lines, copy: doc.copy, images, packages: pkgIds, template, dayRate, tiers: doc.tiersOn !== false ? doc.tierOf || {} : false, savings: doc.tierSavings || {}, prices: !doc.noPrices, overhead: costTable(lines, pricing, doc.extraHours || {}).overhead, captions: Object.fromEntries(Object.entries(shotKind).filter(([, k]) => k === "shot").map(([key]) => [key, "Current layout"])) });
     }
     catch (e) { setErr(`Couldn't build the deck: ${e.message}`); }
     setBusy(false);
@@ -347,11 +347,12 @@ export function ProposalModal({ group, onClose, onLink }) {
   // Drafts from before hand edits were tracked get Claude's text as it stands now as their starting point.
   const setCopy = (fields) => change((d) => ({ ...d, copy: { ...d.copy, original: d.copy?.original || withEdits(d.copy, null).original, ...fields } }));
   const hidden = doc?.copy?.hide || {};
-  const toggle = (k) => ({ hidden: !!hidden[k], onToggle: () => setCopy({ hide: { ...hidden, [k]: !hidden[k] } }) });
+  // Optional slides (agenda, summary, roadmap, retainer…) are off until switched on; storing false switches one on.
+  const toggle = (k) => ({ hidden: slideOff(hidden, k), onToggle: () => setCopy({ hide: { ...hidden, [k]: !slideOff(hidden, k) } }) });
   // The Bronze / Silver / Gold slide is off unless switched on (hide.tiers === false).
-  const tiersToggle = { hidden: !doc?.tiersOn, onToggle: () => change((d) => ({ ...d, tiersOn: !d.tiersOn })) };
+  const tiersToggle = { hidden: doc?.tiersOn === false, onToggle: () => change((d) => ({ ...d, tiersOn: d.tiersOn === false })) }; // on unless switched off
   const ownSplit = Object.keys(doc?.tierOf || {}).length > 0;
-  const options = doc?.tiersOn && !doc.noPrices ? (ownSplit ? [tierPlan(lines, picked, dayRate, doc.tierOf, doc.tierSavings || {})].filter(Boolean) : tierOptions(lines, picked, dayRate, doc.tierSavings || {})) : [];
+  const options = doc && doc.tiersOn !== false && !doc.noPrices ? (ownSplit ? [tierPlan(lines, picked, dayRate, doc.tierOf, doc.tierSavings || {})].filter(Boolean) : tierOptions(lines, picked, dayRate, doc.tierSavings || {})) : [];
   const plan = options[0] || null;
   const tierProps = (key) => (plan?.tierOf[key] ? { tier: plan.tierOf[key], onTier: (t) => change((d) => ({ ...d, tierOf: { ...plan.tierOf, ...d.tierOf, [key]: t } })) } : {}); // moving one idea makes the (first) option your own split
   const optText = (p) => ["bronze", "silver", "gold"].map((t) => `${t[0].toUpperCase()}${t.slice(1)} £${p[t].price.toLocaleString("en-GB")} (${p[t].lines.length})`).join(" · ");
@@ -377,9 +378,9 @@ export function ProposalModal({ group, onClose, onLink }) {
               <div className="space-y-2">
                 {doc.noPrices ? <p className="text-xs text-zinc-600">Tick the ideas to pitch. Starred ideas are ticked for you.</p> : <p className="text-xs text-zinc-600">Tick the ideas to pitch. Starred ideas and the top ones that fit in about 3 days are ticked for you. Adjust the hours (for a person doing it by hand, not AI) and who does it. Aim for about <b>3 days</b>: it&apos;s an easy yes, and the retainer slide pitches the rest.</p>}
                 {!doc.noPrices && <label className="flex items-start gap-2 rounded-lg border border-zinc-200 p-3 text-sm">
-                  <input type="checkbox" checked={!!doc.tiersOn} onChange={tiersToggle.onToggle} className="mt-0.5 h-4 w-4" />
+                  <input type="checkbox" checked={doc.tiersOn !== false} onChange={tiersToggle.onToggle} className="mt-0.5 h-4 w-4" />
                   <span className="font-semibold">Offer Bronze / Silver / Gold options</span>
-                  {doc.tiersOn && ownSplit && <button type="button" onClick={(e) => { e.preventDefault(); change((d) => ({ ...d, tierOf: {} })); }} className="ml-auto text-xs text-zinc-500 underline hover:text-zinc-900">reset to auto</button>}
+                  {doc.tiersOn !== false && ownSplit && <button type="button" onClick={(e) => { e.preventDefault(); change((d) => ({ ...d, tierOf: {} })); }} className="ml-auto text-xs text-zinc-500 underline hover:text-zinc-900">reset to auto</button>}
                 </label>}
                 <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
                   {pool.length === 0 && <li className="p-3 text-sm text-zinc-500">No ideas for this client yet. Add your own below.</li>}
@@ -479,10 +480,10 @@ export function ProposalModal({ group, onClose, onLink }) {
                     </div>); })}
                 </div>
                 <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Roadmap slide title<input value={doc.copy.roadmapTitle || ""} onChange={(e) => setCopy({ roadmapTitle: e.target.value })} placeholder="Too much in one go? Roadmap it over N months with a support retainer (N is worked out for you)" className={`${input} mt-0.5 font-normal normal-case tracking-normal`} /></label>
-                <BlockList label="Support retainer" items={doc.copy.retainer} onChange={(retainer) => setCopy({ retainer })} {...toggle("retainer")} />
+                <BlockList label="Support retainer (on: its own slide, plus an Ongoing retainer pill on Gold)" items={doc.copy.retainer} onChange={(retainer) => setCopy({ retainer })} {...toggle("retainer")} />
                 <div><div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Standard slides</div>
                   <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{[["agenda", "Agenda"], ["linkedin", "LinkedIn suggestions (and LinkedIn Automations in monthly costs)"], ["pictures", "Pictures on idea slides"], ["effort", "Investment summary table"], ["tiers", "Bronze / Silver / Gold options (switch on to add)"], ["roadmap", "Month-by-month roadmap"], ["costs", "Monthly / one-off costs table"], ["services", "Our service retainer offering"], ["support", "Support packages (Bronze, Silver, Gold)"], ["packages", "SEO / PPC package slides"], ...tplExtras.map((e) => [`extra:${e.i}`, `Your slide: ${e.title.slice(0, 50)}`])].map(([k, name]) => (
-                    <li key={k} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className={(k === "tiers" ? tiersToggle.hidden : hidden[k]) ? "text-zinc-400 line-through" : ""}>{name}{k === "tiers" && !tiersToggle.hidden && <span className="ml-2 text-xs text-zinc-500">{tierPreview}</span>}</span>{k === "linkedin" && !hidden.linkedin && <label className="text-xs text-zinc-600">Posts a month <input type="number" min={1} value={doc.copy.linkedinPosts ?? ""} placeholder="8" onChange={(e) => setCopy({ linkedinPosts: e.target.value === "" ? undefined : Number(e.target.value) })} className="ml-1 w-14 rounded border border-zinc-300 px-1.5 py-0.5 text-xs" /></label>}<span className="ml-auto"><SlideToggle {...(k === "tiers" ? tiersToggle : toggle(k))} /></span></li>))}
+                    <li key={k} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className={(k === "tiers" ? tiersToggle.hidden : slideOff(hidden, k)) ? "text-zinc-400 line-through" : ""}>{name}{k === "tiers" && !tiersToggle.hidden && <span className="ml-2 text-xs text-zinc-500">{tierPreview}</span>}</span>{k === "linkedin" && !hidden.linkedin && <label className="text-xs text-zinc-600">Posts a month <input type="number" min={1} value={doc.copy.linkedinPosts ?? ""} placeholder="8" onChange={(e) => setCopy({ linkedinPosts: e.target.value === "" ? undefined : Number(e.target.value) })} className="ml-1 w-14 rounded border border-zinc-300 px-1.5 py-0.5 text-xs" /></label>}<span className="ml-auto"><SlideToggle {...(k === "tiers" ? tiersToggle : toggle(k))} /></span></li>))}
                   </ul>
                 </div>
                 {err && <p className="text-sm text-red-700">{err}</p>}
