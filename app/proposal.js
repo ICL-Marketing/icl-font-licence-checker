@@ -88,8 +88,10 @@ function PricePill({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier 
 // With Bronze / Silver / Gold on, the price pill takes its tier's colour; click it to move the idea to the next tier.
 function Effort({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier, pill = true }) {
   const shown = useContext(PricesShown); // no prices: no time estimates either
+  // Only the teams on this idea show; "+ Service" lists the others to add one.
+  const [adding, setAdding] = useState(false);
   const team = line.team || [], th = teamHours(line), total = Object.values(th).reduce((a, b) => a + b, 0);
-  const setTeam = (next) => onChange(withTeam(line, next));
+  const setTeam = (next) => { onChange(withTeam(line, next)); setAdding(false); };
   const setHours = (k, v) => {
     if (v === "" || Number(v) === 0) return team.includes(k) && onChange(withoutTeam(line, k)); // blank or 0 takes the team off
     const h = quarter(Number(v)); if (!Number.isFinite(h)) return; // whole hours (a half hour only under an hour)
@@ -99,12 +101,13 @@ function Effort({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier, pi
   if (!shown) return null;
   return (
     <span className="flex w-full flex-wrap items-center gap-1 text-xs text-zinc-500">
-      {TEAMS.map(([k, name, short]) => {
+      {TEAMS.filter(([k]) => adding || team.includes(k)).map(([k, name, short]) => {
         const on = team.includes(k), cls = `inline-flex items-center gap-1 rounded-full border py-0.5 text-[11px] font-semibold ${on ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-500"}`;
         if (PACKAGE_TEAM_KEYS.includes(k)) return <button key={k} type="button" onClick={() => (on ? onChange(withoutTeam(line, k)) : setTeam([...team, k]))} className={`${cls} px-2 ${on ? "" : "hover:bg-zinc-100"}`} title={`${name} is priced by its package`}>{name}</button>;
         // Click the name to take the team off (clears its hours) or put it back.
         return <span key={k} className={`${cls} pl-0.5 pr-0.5`}><button type="button" onClick={() => (on ? onChange(withoutTeam(line, k)) : setTeam([...team, k]))} title={on ? `Take ${name} off this idea` : `Add ${name}`} className={`rounded-full px-1.5 ${on ? "hover:bg-zinc-700" : "hover:bg-zinc-100"}`}>{short}</button><HoursBox value={on ? th[k] : ""} on={on} onCommit={(v) => setHours(k, v)} label={`${name} hours`} /></span>;
       })}
+      <button type="button" onClick={() => setAdding((v) => !v)} title={adding ? "Hide the other services" : "Add a service to this idea"} className="rounded-full border border-dashed border-zinc-300 px-2 py-0.5 text-[11px] font-semibold text-zinc-500 hover:bg-zinc-100">{adding ? "Done" : "+ Service"}</button>
       {!isPackageLine(line) && <span className="ml-1">= {total} {total === 1 ? "hr" : "hrs"}</span>}
       {pill && <PricePill line={line} onChange={onChange} picked={picked} rate={rate} tier={tier} onTier={onTier} />}
     </span>
