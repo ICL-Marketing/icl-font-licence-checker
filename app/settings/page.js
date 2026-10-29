@@ -282,16 +282,16 @@ export default function Settings() {
                 </>}
           </section>
           <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
-            <h2 className="font-semibold">Pexels (stock photos)</h2>
+            <h2 className="font-semibold">Stock photos (Pixabay)</h2>
             <p className="mb-3 text-sm text-zinc-500">Free stock photos for proposal idea slides that have nothing on the client&apos;s site to screenshot. Free for commercial use, no credit needed.</p>
             {!status ? <p className="text-sm text-zinc-500">Checking…</p> : status.pexels
-              ? <StatusRow ok label="Pexels key set" detail="ideas without a screenshot get a stock photo in the proposal review step" />
+              ? <StatusRow ok label="Stock photo key set" detail="ideas without a screenshot get a stock photo in the proposal review step" />
               : <>
-                  <StatusRow ok={false} label="Pexels key not set" detail="stock photos fall back to public-domain Openverse pictures, which are often unavailable" />
+                  <StatusRow ok={false} label="No stock photo key" detail="stock photos fall back to public-domain Openverse pictures, which are often unavailable" />
                   <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-700">
-                    <li>Sign up free at <a href="https://www.pexels.com/api/" target="_blank" rel="noreferrer" className="text-blue-700 underline">pexels.com/api</a> and request an API key (it shows straight away).</li>
-                    <li>In Render: the <b>icl-sales</b> service → <b>Environment</b> → add <code>PEXELS_API_KEY</code> with that key, then <b>Save changes</b> (it redeploys).</li>
-                    <li>Reload this page: this turns green.</li>
+                    <li>Sign up free at <a href="https://pixabay.com/accounts/register/" target="_blank" rel="noreferrer" className="text-blue-700 underline">pixabay.com</a>, then open <a href="https://pixabay.com/api/docs/" target="_blank" rel="noreferrer" className="text-blue-700 underline">pixabay.com/api/docs</a>: your key is shown under <b>Parameters</b> → <b>key</b> once you&apos;re logged in.</li>
+                    <li>In Render: the <b>icl-sales</b> service → <b>Environment</b> → add <code>PIXABAY_API_KEY</code> with that key, then <b>Save changes</b> (it redeploys).</li>
+                    <li>Reload this page: this turns green. (A Pexels <code>PEXELS_API_KEY</code> or Unsplash <code>UNSPLASH_ACCESS_KEY</code> works too.)</li>
                   </ol>
                 </>}
           </section>

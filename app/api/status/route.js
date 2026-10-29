@@ -11,5 +11,5 @@ export const dynamic = "force-dynamic";
 // login (CHECKER_PASSWORD) and the shared store (Upstash Redis via Vercel).
 export async function GET() {
   const store = await pingStore();
-  return Response.json({ login: isConfigured(), store: { ...store, vars: storeVarsSeen() }, figma: figmaConfigured(), companiesHouse: leadsConfigured(), adzuna: jobsConfigured(), places: placesConfigured(), googleSearch: Boolean(process.env.GOOGLE_CSE_KEY && process.env.GOOGLE_CSE_CX), braveSearch: Boolean(process.env.BRAVE_SEARCH_KEY || process.env.BRAVE_API_KEY), keywords: keywordsConfigured(), pexels: Boolean(process.env.PEXELS_API_KEY), finders: anyFinder(), finderCount: FINDERS.filter((f) => finderConfigured(f.id)).length });
+  return Response.json({ login: isConfigured(), store: { ...store, vars: storeVarsSeen() }, figma: figmaConfigured(), companiesHouse: leadsConfigured(), adzuna: jobsConfigured(), places: placesConfigured(), googleSearch: Boolean(process.env.GOOGLE_CSE_KEY && process.env.GOOGLE_CSE_CX), braveSearch: Boolean(process.env.BRAVE_SEARCH_KEY || process.env.BRAVE_API_KEY), keywords: keywordsConfigured(), pexels: Boolean(process.env.PIXABAY_API_KEY || process.env.PEXELS_API_KEY || process.env.UNSPLASH_ACCESS_KEY), finders: anyFinder(), finderCount: FINDERS.filter((f) => finderConfigured(f.id)).length });
 }

@@ -1,8 +1,9 @@
-// A stock photo for an idea slide that has nothing on the client's site to screenshot yet.
-// Pexels when PEXELS_API_KEY is set (free key, free for commercial use, no credit needed); otherwise
-// Openverse, limited to public-domain (CC0) pictures so no credit is needed either.
+// A stock photo for an idea slide that has nothing on the client's site to screenshot yet. Free libraries whose
+// photos are free for commercial use with no credit needed, tried in turn: Pixabay (PIXABAY_API_KEY), Pexels
+// (PEXELS_API_KEY, new keys currently paused), Unsplash (UNSPLASH_ACCESS_KEY), then public-domain Openverse.
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
+const stockConfigured = () => Boolean(process.env.PIXABAY_API_KEY || process.env.PEXELS_API_KEY || process.env.UNSPLASH_ACCESS_KEY);
 
 const get = async (url, opts = {}) => {
   const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), 12000);
@@ -16,6 +17,20 @@ async function pexels(q) {
   if (!r.ok) return [];
   return ((await r.json()).photos || []).map((p) => p.src?.large2x || p.src?.large).filter(Boolean);
 }
+async function pixabay(q) {
+  const key = process.env.PIXABAY_API_KEY;
+  if (!key) return [];
+  const r = await get(`https://pixabay.com/api/?key=${encodeURIComponent(key)}&q=${encodeURIComponent(q)}&image_type=photo&orientation=horizontal&safesearch=true&per_page=5`);
+  if (!r.ok) return [];
+  return ((await r.json()).hits || []).map((h) => h.largeImageURL || h.webformatURL).filter(Boolean);
+}
+async function unsplash(q) {
+  const key = process.env.UNSPLASH_ACCESS_KEY;
+  if (!key) return [];
+  const r = await get(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(q)}&orientation=landscape&per_page=5`, { headers: { authorization: `Client-ID ${key}` } });
+  if (!r.ok) return [];
+  return ((await r.json()).results || []).map((p) => p.urls?.regular).filter(Boolean);
+}
 async function openverse(q) {
   const r = await get(`https://api.openverse.org/v1/images/?q=${encodeURIComponent(q)}&license=cc0,pdm&aspect_ratio=wide&mature=false&page_size=5`);
   if (!r.ok) return [];
@@ -26,8 +41,10 @@ export async function GET(request) {
   const q = (new URL(request.url).searchParams.get("q") || "").trim().slice(0, 60);
   if (!q) return Response.json({ error: "q required" }, { status: 400 });
   let urls = [];
-  try { urls = await pexels(q); } catch {}
-  if (!urls.length) try { urls = await openverse(q); } catch {}
+  for (const find of [pixabay, pexels, unsplash, openverse]) {
+    if (urls.length) break;
+    try { urls = await find(q); } catch {}
+  }
   for (const u of urls) {
     try {
       const r = await get(u);
@@ -38,5 +55,5 @@ export async function GET(request) {
       return new Response(out, { headers: { "content-type": "image/jpeg", "cache-control": "private, max-age=3600" } });
     } catch {}
   }
-  return Response.json({ error: process.env.PEXELS_API_KEY ? "No stock photo found. Add your own." : "No stock photo: add a free Pexels key in Settings, or add your own." }, { status: 404 });
+  return Response.json({ error: stockConfigured() ? "No stock photo found. Add your own." : "No stock photo: add a free Pixabay key in Settings, or add your own." }, { status: 404 });
 }
