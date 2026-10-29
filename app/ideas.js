@@ -226,6 +226,25 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
     return rec;
   }
 
+  // Notes for Claude (proposal deck): Claude researches our team's ideas for one client, turns each that holds
+  // up into a full idea and adds a few of its own. The new ideas join the client's existing ones (nothing is lost).
+  async function researchNotes(clientId, ideasFromUs) {
+    const c = clients.find((x) => x.id === clientId), w = c?.websites?.[0];
+    if (!c || !w) throw new Error("This client has no website on file.");
+    const id = recId(c, w), prev = recsRef.current[id] || {};
+    const findings = { problem: prev.problem || "", detail: prev.problemDetail || "", platform: prev.platform || "", signals: prev.signals || null };
+    const r = await fetch("/api/ideas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ step: "research", name: c.name, websites: c.websites || [], notes: c.notes || "", ideasFromUs, findings }) });
+    const j = await r.json();
+    if (!j.research) throw new Error(j.error || "Claude couldn't research these notes");
+    const fresh = j.research.ideas || [], seen = new Set(fresh.map((a) => slug(a.title)));
+    const rec = { ...prev, clientId: c.id, name: c.name, website: prev.website || w, ai: { ...(prev.ai || {}), ...j.research, ideas: [...fresh, ...(prev.ai?.ideas || []).filter((a) => !seen.has(slug(a.title)))] }, aiError: "" };
+    rec.ideas = ideasFor(rec, prev.ideas || []);
+    rec.ideasVersion = IDEAS_VERSION;
+    update(id, rec);
+    fetch("/api/ideas").then((x) => x.json()).then(setCfg).catch(() => {});
+    return fresh.length;
+  }
+
   async function checkAll(force = false, onlyNew = false, onlyClient = "") {
     stopRef.current = false; onRunning?.(true);
     const jobs = clients.filter((c) => !onlyClient || c.id === onlyClient).flatMap((c) => (c.websites || []).map((w) => [c, w])).filter(([c, w]) => (onlyClient ? true : onlyNew ? !recsRef.current[recId(c, w)]?.checkedAt : force || daysAgo(recsRef.current[recId(c, w)]?.checkedAt) > RECHECK_DAYS));
@@ -554,7 +573,7 @@ export default function IdeasArea({ clients = [], onRunning, onCount, onClientsC
 
       {view === "replies" && <IdeaBoard cards={shown.filter((c) => normStatus(c.status) !== "queued").map((c) => ({ ...c, status: normStatus(c.status) }))} filtering={!!(q || kind)} onOpen={(id, key) => setOpen({ id, key })} onMove={(id, key, status) => updateIdea(id, key, { status })} />}
 
-      {deckFor && <ProposalModal group={groups.find((x) => (x.clientId || x.name) === (deckFor.clientId || deckFor.name)) || deckFor} onClose={() => setDeckFor(null)} onLink={(url) => deckFor.clientId && linkProposal(deckFor.clientId, url)} onRetitle={(list) => { for (const x of list) updateIdea(x.recId, x.key, { title: x.title }); }} />}
+      {deckFor && <ProposalModal group={groups.find((x) => (x.clientId || x.name) === (deckFor.clientId || deckFor.name)) || deckFor} onClose={() => setDeckFor(null)} onLink={(url) => deckFor.clientId && linkProposal(deckFor.clientId, url)} onRetitle={(list) => { for (const x of list) updateIdea(x.recId, x.key, { title: x.title }); }} onResearch={(notes) => researchNotes(deckFor.clientId, notes)} />}
       {addFor && <AddIdeaModal group={addFor} onResearch={addFor.clientId ? () => { setAddFor(null); openClaude({ job: "client-research", preset: [addFor.clientId] }); } : null} onClose={() => setAddFor(null)} onSave={(data) => { addIdea(addFor, data); setAddFor(null); }} />}
 
       {current && currentIdea && (

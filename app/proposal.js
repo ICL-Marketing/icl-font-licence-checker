@@ -4,7 +4,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon } from "@/app/icons";
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
-import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parseProposalReply, teamHours, lineValue, priceFor, ideasText, tierPlan, copyEdits, withEdits, quarter, rateOf, DAY_RATE, withTeam, withoutTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
+import { FIXED_SLIDES, TEAMS, lineFromIdea, proposalPrompt, parseProposalReply, teamHours, lineValue, priceFor, ideasText, tierPlan, copyEdits, withEdits, quarter, rateOf, DAY_RATE, withTeam, withoutTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
 import Link from "next/link";
 import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY, ANCHORS } from "@/lib/deckTemplate";
 import { PACKAGE_GROUPS, PACKAGE_TEAMS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER, isSeoLine } from "@/lib/packages";
@@ -167,7 +167,7 @@ function BlockList({ label, items, onChange, hidden, onToggle }) {
   );
 }
 
-export function ProposalModal({ group, onClose, onLink, onRetitle }) {
+export function ProposalModal({ group, onClose, onLink, onRetitle, onResearch }) {
   const id = group.clientId || group.name;
   const website = (group.recs.find((x) => x.website) || {}).website || "";
   // Ideas worth pitching: not declined or done, not our own internal jobs.
@@ -206,6 +206,13 @@ export function ProposalModal({ group, onClose, onLink, onRetitle }) {
       setRetitleMsg(`${Object.keys(t).length} titles rewritten`);
     } catch (e) { setRetitleMsg(e.message); } finally { setRetitling(false); }
   }
+  const [researching, setResearching] = useState(false);
+  const [researchMsg, setResearchMsg] = useState("");
+  async function research() {
+    setResearching(true); setResearchMsg("");
+    try { const n = await onResearch(doc.claudeNotes.trim()); setResearchMsg(`${n} idea${n === 1 ? "" : "s"} added to the list above (and to Client Ideas). Tick the ones to pitch.`); }
+    catch (e) { setResearchMsg(e.message); } finally { setResearching(false); }
+  }
   const [copied, setCopied] = useState(false);
   const [textCopied, setTextCopied] = useState(false);
   // Where the finished deck lives once it's uploaded (e.g. SharePoint), kept on the client for the whole team.
@@ -214,7 +221,6 @@ export function ProposalModal({ group, onClose, onLink, onRetitle }) {
   const [reply, setReply] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState({ title: "", why: "", min: 2, max: 2, team: ["dev"] });
   const saveT = useRef(null);
   const pending = useRef(null);
   const [saved, setSaved] = useState("");
@@ -368,12 +374,14 @@ export function ProposalModal({ group, onClose, onLink, onRetitle }) {
                 {doc.own.length > 0 && <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{doc.own.map((l) => (
                   <li key={l.key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"><span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">Yours</span><span className="min-w-[16rem] flex-1 leading-snug" title={l.why}>{l.title}</span><PricePill picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} {...tierProps(l.key)} /><button onClick={() => change((d) => ({ ...d, own: d.own.filter((x) => x.key !== l.key) }))} aria-label="Remove" className="rounded p-1 text-zinc-400 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button><Effort pill={false} picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} /></li>))}
                 </ul>}
+                {/* Notes for Claude: your own ideas, which Claude researches, turns into full ideas and adds to. */}
                 <div className="space-y-2 rounded-lg border border-zinc-200 p-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Add an improvement</div>
-                  <input value={draft.title} onChange={(e) => setDraft((o) => ({ ...o, title: e.target.value }))} placeholder="e.g. Mobile and final QA" className={input} />
-                  <input value={draft.why} onChange={(e) => setDraft((o) => ({ ...o, why: e.target.value }))} placeholder="What it involves, in a line (Claude turns it into the slide)" className={input} />
-                  <div className="flex flex-wrap items-center gap-3"><Effort picked={picked} rate={dayRate} line={draft} onChange={(f) => setDraft((o) => ({ ...o, ...f }))} />
-                    <button onClick={() => { if (!draft.title.trim()) return; change((d) => ({ ...d, own: [...d.own, ownLine(draft)] })); setDraft({ title: "", why: "", min: 2, max: 2, team: ["dev"] }); }} disabled={!draft.title.trim()} className="ml-auto rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm hover:bg-zinc-100 disabled:opacity-40">+ Add</button></div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Notes for Claude</div>
+                  <Grow value={doc.claudeNotes || ""} onChange={(e) => change((d) => ({ ...d, claudeNotes: e.target.value }))} placeholder="Ideas you'd like Claude to look into, one per line, e.g. a members' area for investors, a German version of the energy pages" className={`${input} min-h-[4.5rem]`} />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button onClick={research} disabled={researching || !(doc.claudeNotes || "").trim() || !onResearch} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">{researching ? <><SpinnerIcon className="h-3.5 w-3.5 animate-spin" /> Claude is researching… (about a minute)</> : "Research and add ideas"}</button>
+                    <span className="text-xs text-zinc-500">{researchMsg || "Claude checks each note against their site and the web, adds the ones that hold up as full ideas, plus a few of its own."}</span>
+                  </div>
                 </div>
                 <div className="flex justify-end"><button onClick={() => change((d) => ({ ...d, step: 1 }))} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white">Next: packages & retainer</button></div>
               </div>
