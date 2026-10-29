@@ -58,7 +58,7 @@ function ClientRow({ c, team, onChange, onRemove }) {
 }
 
 export function ClientsEditor({ clients, team, onChange, shared }) {
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(() => { try { return new URLSearchParams(window.location.search).get("client") || ""; } catch { return ""; } }); // ?client= from Client Ideas' edit link
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState("");
   const [draft, setDraft] = useState(clients);
