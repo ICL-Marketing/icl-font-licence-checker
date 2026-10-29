@@ -4,7 +4,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon } from "@/app/icons";
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
-import { FIXED_SLIDES, TEAMS, lineFromIdea, proposalPrompt, parseProposalReply, teamHours, lineValue, priceFor, ideasText, tierPlan, tierOptions, copyEdits, withEdits, quarter, snapHours, rateOf, DAY_RATE, withTeam, withoutTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
+import { FIXED_SLIDES, TEAMS, lineFromIdea, proposalPrompt, parseProposalReply, teamHours, lineValue, priceFor, ideasText, tierPlan, tierOptions, costRates, costTable, RESOURCES, copyEdits, withEdits, quarter, snapHours, rateOf, DAY_RATE, withTeam, withoutTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
 import Link from "next/link";
 import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY, ANCHORS } from "@/lib/deckTemplate";
 import { PACKAGE_GROUPS, PACKAGE_TEAMS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER, isSeoLine } from "@/lib/packages";
@@ -78,7 +78,7 @@ function PricePill({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier 
   const label = pkg || priceFor(line, rate);
   return (
     <span className="inline-flex items-center gap-1">
-      {tier && onTier ? <button type="button" onClick={() => onTier(NEXT_TIER[tier])} title={`${tier[0].toUpperCase()}${tier.slice(1)} option. Click to move it to ${NEXT_TIER[tier]}`} className={`${pill} hover:opacity-80`}>{label} · {tier[0].toUpperCase()}{tier.slice(1)}</button> : <span className={pill} title={pkg ? "Priced by the package, not by the hour. Change the tier in step 2" : "The hours at this client's day rate"}>{label}</span>}
+      {tier && onTier ? <button type="button" onClick={() => onTier(NEXT_TIER[tier])} title={`${tier[0].toUpperCase()}${tier.slice(1)} option. Click to move it to ${NEXT_TIER[tier]}`} className={`${pill} hover:opacity-80`}>{label} · {tier[0].toUpperCase()}{tier.slice(1)}</button> : <span className={pill} title={pkg ? "Priced by the package, not by the hour. Change the tier in step 2" : "Each team's hours at its cost rate, plus the markup"}>{label}</span>}
       {line.free && <button type="button" onClick={() => onChange({ free: false })} title="Marked free earlier. Click to charge for it" className="rounded-full border border-emerald-600 bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white">Free ×</button>}
     </span>
   );
@@ -108,6 +108,36 @@ function Effort({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier, pi
       {!isPackageLine(line) && <span className="ml-1">= {total} {total === 1 ? "hr" : "hrs"}</span>}
       {pill && <PricePill line={line} onChange={onChange} picked={picked} rate={rate} tier={tier} onTier={onTier} />}
     </span>
+  );
+}
+// The Budget Allocation sheet for this proposal: hours per department from the ticked ideas (project management and
+// management added by hand), days at 8 hours, each department's cost rate (editable for this client), then cost,
+// markup, sales price and profit.
+function CostTable({ table, pricing, own, extra, onRate, onMarkup, onExtra, onReset }) {
+  const gbp = (n) => `£${n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const box = "w-20 rounded border border-zinc-300 px-1.5 py-0.5 text-right text-xs";
+  const numIn = (v) => (v === "" ? undefined : Number(v));
+  return (
+    <div className="rounded-lg border border-zinc-200 p-3">
+      <div className="mb-2 flex items-center gap-2"><span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Costs and price</span>{own && <button type="button" onClick={onReset} className="ml-auto text-xs text-zinc-500 underline hover:text-zinc-900">reset to the defaults</button>}</div>
+      <table className="w-full text-xs">
+        <thead><tr className="bg-zinc-900 text-left text-white"><th className="px-2 py-1">Totals</th><th className="px-2 py-1 text-right">No. of hours</th><th className="px-2 py-1 text-right">No. of days</th><th className="px-2 py-1 text-right">Hourly rate</th><th className="px-2 py-1 text-right">Total cost</th></tr></thead>
+        <tbody>
+          {table.rows.map((r) => (
+            <tr key={r.k} className="border-b border-zinc-100">
+              <td className="px-2 py-1">{r.name}</td>
+              <td className="px-2 py-1 text-right">{r.k === "pm" || r.k === "mgmt" ? <input type="number" min={0} step={1} value={extra[r.k] ?? ""} placeholder="0" onChange={(e) => onExtra(r.k, numIn(e.target.value))} aria-label={`${r.name} hours`} className={box} /> : r.hours.toFixed(2)}</td>
+              <td className="px-2 py-1 text-right">{r.days.toFixed(2)}</td>
+              <td className="px-2 py-1 text-right">£ <input type="number" min={0} step={1} value={pricing.rates[r.k]} onChange={(e) => onRate(r.k, numIn(e.target.value))} aria-label={`${r.name} hourly cost`} className={box} /></td>
+              <td className="px-2 py-1 text-right">{r.cost ? gbp(r.cost) : "£ -"}</td>
+            </tr>))}
+          <tr className="font-semibold"><td className="px-2 py-1">Total</td><td className="px-2 py-1 text-right">{table.hours.toFixed(2)}</td><td className="px-2 py-1 text-right">{table.days.toFixed(2)}</td><td className="px-2 py-1 text-right">Cost</td><td className="px-2 py-1 text-right">{gbp(table.cost)}</td></tr>
+          <tr><td colSpan={3} /><td className="px-2 py-1 text-right">Markup</td><td className="px-2 py-1 text-right"><input type="number" min={0} step={5} value={Math.round(pricing.markup * 1000) / 10} onChange={(e) => onMarkup(e.target.value === "" ? undefined : Number(e.target.value) / 100)} aria-label="Markup %" className={box} /> %</td></tr>
+          <tr className="font-semibold"><td colSpan={3} /><td className="px-2 py-1 text-right">Sales price</td><td className="px-2 py-1 text-right">{gbp(table.sale)}</td></tr>
+          <tr><td colSpan={3} /><td className="px-2 py-1 text-right">Profit</td><td className="px-2 py-1 text-right">{gbp(table.profit)} <span className="text-zinc-500">({Math.round(table.margin * 1000) / 10}%)</span></td></tr>
+        </tbody>
+      </table>
+    </div>
   );
 }
 // Under an idea slide's picture: one Retry button. With new words in the box it searches the stock libraries for
@@ -230,8 +260,9 @@ export function ProposalModal({ group, onClose, onLink }) {
   const [tplExtras, setTplExtras] = useState([]); // extra slides from the uploaded template, so they can be left out of this deck
   useEffect(() => { templateMeta().then((m) => setTplExtras((m?.extras || []).map((e, i) => ({ ...e, i })).filter((e) => !/^\s*our clients\b/i.test(e.title || "")))).catch(() => {}); }, []);
   useEffect(() => { fetch("/api/settings?key=retainer-points").then((r) => r.json()).then((j) => { if (j.shared && j.value?.items) setPoints(normalisePoints(j.value)); }).catch(() => {}); }, []);
-  const [defaultRate, setDefaultRate] = useState(DAY_RATE); // Settings → Proposals; each client can have its own
-  useEffect(() => { fetch("/api/settings?key=day-rate").then((r) => r.json()).then((j) => setDefaultRate(rateOf(j.value))).catch(() => {}); }, []);
+  // Cost rates and markup (Settings → Proposals); each client can have their own in the cost table.
+  const [defaultPricing, setDefaultPricing] = useState(() => costRates(null));
+  useEffect(() => { fetch("/api/settings?key=cost-rates").then((r) => r.json()).then((j) => setDefaultPricing(costRates(j.value))).catch(() => {}); }, []);
 
   useEffect(() => {
     let live = true;
@@ -268,7 +299,9 @@ export function ProposalModal({ group, onClose, onLink }) {
   // Biggest first by value (hours at the day rate, packages at their price), free work last, when a step opens.
   // After that each idea keeps its place while you change its hours or teams; new ideas join at the end.
   const [order, setOrder] = useState(null); // { scope, keys }
-  const dayRate = Number(doc?.dayRate) > 0 ? Number(doc.dayRate) : defaultRate;
+  // Every price comes from the cost table: each department's cost rate plus the markup (this client's, or the defaults).
+  const pricing = costRates({ rates: { ...defaultPricing.rates, ...(doc?.pricing?.rates || {}) }, markup: doc?.pricing?.markup ?? defaultPricing.markup });
+  const dayRate = pricing;
   const sorted = [...allLines].sort((a, b) => isSeoLine(a) - isSeoLine(b) || lineValue(b, picked, dayRate) - lineValue(a, picked, dayRate)); // the SEO idea always last
   const scope = `${id}:${doc?.step}`, kept = order?.scope === scope ? order.keys : null;
   const lines = kept ? [...kept.map((k) => allLines.find((l) => l.key === k)).filter(Boolean), ...sorted.filter((l) => !kept.includes(l.key))] : sorted;
@@ -306,7 +339,7 @@ export function ProposalModal({ group, onClose, onLink }) {
     try {
       const { buildDeck } = await import("@/app/proposalDeck");
       const template = await loadTemplate().catch(() => null);
-      await buildDeck({ client: group.name, supportPlan: group.client?.plan || "", website, lines, copy: doc.copy, images, packages: pkgIds, template, dayRate, tiers: doc.tiersOn ? doc.tierOf || {} : false, savings: doc.tierSavings || {}, prices: !doc.noPrices, captions: Object.fromEntries(Object.entries(shotKind).filter(([, k]) => k === "shot").map(([key]) => [key, "Current layout"])) });
+      await buildDeck({ client: group.name, supportPlan: group.client?.plan || "", website, lines, copy: doc.copy, images, packages: pkgIds, template, dayRate, tiers: doc.tiersOn ? doc.tierOf || {} : false, savings: doc.tierSavings || {}, prices: !doc.noPrices, overhead: costTable(lines, pricing, doc.extraHours || {}).overhead, captions: Object.fromEntries(Object.entries(shotKind).filter(([, k]) => k === "shot").map(([key]) => [key, "Current layout"])) });
     }
     catch (e) { setErr(`Couldn't build the deck: ${e.message}`); }
     setBusy(false);
@@ -338,7 +371,6 @@ export function ProposalModal({ group, onClose, onLink }) {
               <li key={s}><button onClick={() => canGo(n) && change((d) => ({ ...d, step: n }))} disabled={!canGo(n)} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium disabled:opacity-40 ${step === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{n < step ? <CheckIcon className="h-3.5 w-3.5 text-emerald-500" /> : <span className="opacity-60">{n + 1}</span>}{s}</button></li>))}
               {/* Unticked: no prices, costs or hours anywhere in the deck (no estimate bars, summary, cost, package, support or tier slides). */}
               <li className="ml-auto mr-3 flex items-center"><label className="inline-flex items-center gap-1.5 text-xs leading-none text-zinc-600" title="Untick for a deck with no prices, costs or hours at all"><input type="checkbox" checked={!doc.noPrices} onChange={() => change((d) => ({ ...d, noPrices: !d.noPrices }))} className="h-3.5 w-3.5" />Include prices</label></li>
-              {!doc.noPrices && <li className="flex items-center"><label className="inline-flex items-center gap-1 text-xs text-zinc-600" title={`This client's day rate: prices the hours on each slide. Empty uses the default (£${defaultRate}) from Settings → Proposals`}>Day rate £<input type="number" min={1} step={25} value={doc.dayRate ?? ""} placeholder={String(defaultRate)} onChange={(e) => change((d) => ({ ...d, dayRate: e.target.value === "" ? undefined : Number(e.target.value) }))} className={num} aria-label="Day rate for this client" /></label></li>}
             </ol>
 
             {step === 0 && (
@@ -368,6 +400,11 @@ export function ProposalModal({ group, onClose, onLink }) {
                 {doc.own.length > 0 && <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">{doc.own.map((l) => (
                   <li key={l.key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"><span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">Yours</span><span className="min-w-[16rem] flex-1 leading-snug" title={l.why}>{l.title}</span><PricePill picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} {...tierProps(l.key)} /><button onClick={() => change((d) => ({ ...d, own: d.own.filter((x) => x.key !== l.key) }))} aria-label="Remove" className="rounded p-1 text-zinc-400 hover:text-red-700"><TrashIcon className="h-4 w-4" /></button><Effort pill={false} picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} /></li>))}
                 </ul>}
+                {!doc.noPrices && <CostTable table={costTable(allLines, pricing, doc.extraHours || {})} pricing={pricing} own={!!doc.pricing} extra={doc.extraHours || {}}
+                  onRate={(k, v) => change((d) => ({ ...d, pricing: { ...d.pricing, rates: { ...(d.pricing?.rates || {}), [k]: v } } }))}
+                  onMarkup={(v) => change((d) => ({ ...d, pricing: { ...d.pricing, markup: v } }))}
+                  onExtra={(k, v) => change((d) => ({ ...d, extraHours: { ...(d.extraHours || {}), [k]: v } }))}
+                  onReset={() => change((d) => ({ ...d, pricing: undefined }))} />}
                 {/* Notes for Claude: your own ideas, which Claude researches, turns into full ideas and adds to. */}
                 <div className="space-y-2 rounded-lg border border-zinc-200 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Notes for Claude</div>
@@ -468,23 +505,26 @@ export function ProposalModal({ group, onClose, onLink }) {
   );
 }
 
-// Settings → Proposals: the day rate that prices the hours on each idea slide and orders the ideas.
-export function DayRateEditor() {
-  const [rate, setRate] = useState("");
+// Settings → Proposals: the default cost rate for each department and the markup, which price every idea
+// (each client can change them in their proposal's cost table).
+export function CostRatesEditor() {
+  const [v, setV] = useState(null);
   const [state, setState] = useState("");
-  useEffect(() => { fetch("/api/settings?key=day-rate").then((r) => r.json()).then((j) => setRate(String(rateOf(j.value)))).catch(() => setRate(String(DAY_RATE))); }, []);
-  async function save() {
-    const n = Number(rate);
-    if (!(n > 0)) { setState("Enter a number above 0"); return; }
-    setState("Saving…");
-    const r = await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "day-rate", value: { rate: n } }) }).then((x) => x.json()).catch(() => ({}));
+  useEffect(() => { fetch("/api/settings?key=cost-rates").then((r) => r.json()).then((j) => setV(costRates(j.value))).catch(() => setV(costRates(null))); }, []);
+  async function save(next) {
+    setV(next); setState("Saving…");
+    const r = await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "cost-rates", value: next }) }).then((x) => x.json()).catch(() => ({}));
     setState(r.shared ? "Saved" : "Couldn't save to the shared store");
   }
+  if (!v) return <p className="text-sm text-zinc-500">Loading…</p>;
+  const box = "w-20 rounded-md border border-zinc-300 px-2 py-1 text-right text-sm";
   return (
-    <div className="flex flex-wrap items-center gap-2 text-sm">
-      <span className="text-zinc-600">£</span><input type="number" min={1} step={25} value={rate} onChange={(e) => setRate(e.target.value)} onBlur={save} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} className="w-28 rounded-md border border-zinc-300 px-2 py-1 text-sm" aria-label="Day rate in pounds" />
-      <span className="text-zinc-500">per 7.5-hour day{rate > 0 ? ` (£${Math.round(Number(rate) / 7.5)} an hour)` : ""}</span>
-      {state && <span className="text-xs text-zinc-500">{state}</span>}
+    <div className="space-y-2 text-sm">
+      <table className="text-sm"><tbody>
+        {RESOURCES.map(([k, name]) => <tr key={k}><td className="py-0.5 pr-4 text-zinc-700">{name}</td><td className="py-0.5">£ <input type="number" min={0} step={1} defaultValue={v.rates[k]} onBlur={(e) => save({ ...v, rates: { ...v.rates, [k]: Number(e.target.value) || 0 } })} aria-label={`${name} hourly cost`} className={box} /> <span className="text-zinc-500">an hour</span></td></tr>)}
+        <tr><td className="py-0.5 pr-4 font-medium text-zinc-700">Markup</td><td className="py-0.5"><input type="number" min={0} step={5} defaultValue={Math.round(v.markup * 1000) / 10} onBlur={(e) => save({ ...v, markup: (Number(e.target.value) || 0) / 100 })} aria-label="Markup %" className={box} /> % <span className="text-zinc-500">({Math.round((v.markup / (1 + v.markup)) * 1000) / 10}% profit)</span></td></tr>
+      </tbody></table>
+      {state && <p className="text-xs text-zinc-500">{state}</p>}
     </div>
   );
 }

@@ -8,7 +8,7 @@ import { normaliseClients } from "@/lib/clients";
 import { keysFor } from "@/app/launch";
 import { DEFAULT_SUBJECTS_SHARED, ICL_LINE, MAINTENANCE_DEFAULT, OPT_OUT_DEFAULT, OLD_ICL } from "@/lib/leadsShared";
 import { MAIL_KEY } from "@/app/mail";
-import { RetainerPointsEditor, TemplateEditor, DayRateEditor } from "@/app/proposal";
+import { RetainerPointsEditor, TemplateEditor, CostRatesEditor } from "@/app/proposal";
 
 export default function Settings() {
   const [team, setTeam] = useState([]);
@@ -136,9 +136,9 @@ export default function Settings() {
       {section === "activity" && <ActivityLog />}
       {section === "proposals" && (<>
         <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
-          <h2 className="font-semibold">Default day rate</h2>
-          <p className="mb-3 text-sm text-zinc-500">Used for every client unless you set their own in the proposal window (top right). Prices the hours on each idea slide, and puts the ideas in order of value alongside the packages (free work always goes last).</p>
-          <DayRateEditor />
+          <h2 className="font-semibold">Cost rates and markup</h2>
+          <p className="mb-3 text-sm text-zinc-500">What an hour of each department costs us, and the markup on top. Every idea&apos;s price is its hours at these rates plus the markup (50% markup is 33% profit). Each client can have their own in the proposal&apos;s cost table.</p>
+          <CostRatesEditor />
         </section>
         <section className="mt-5 rounded-xl border border-zinc-200 bg-white p-4">
           <h2 className="font-semibold">Retainer selling points</h2>

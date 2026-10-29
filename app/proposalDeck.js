@@ -1,6 +1,6 @@
 // Builds the ICL proposal deck (.pptx) in the browser with pptxgenjs, in the house style:
 // dark gradient slides with the white logo, white slides with navy titles, teal accents, Obviously.
-import { TEAMS, range, split, totals, priceFor, DAY_RATE, DAY_HOURS, lineValue, tierPlan, tierOptions } from "@/lib/proposal";
+import { TEAMS, range, split, totals, priceFor, DAY_RATE, lineValue, tierPlan, tierOptions, salePrice } from "@/lib/proposal";
 import { pickedPackages, packageFor, packagesOf, hourTeams, isSeoLine } from "@/lib/packages";
 
 const W = 19.44, H = 12.5;
@@ -27,7 +27,8 @@ const teamList = (team = []) => TEAMS.filter(([k]) => team.includes(k)).map(([, 
 const hrs = (a, b) => `${range(a, b)}\u00A0hr${a === b && a === 1 ? "" : "s"}`;
 const fileSafe = (s) => String(s).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "Client";
 
-export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null, dayRate = DAY_RATE, tiers = false, savings = {}, prices = true, captions = {}, supportPlan = "" }) {
+export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null, dayRate = DAY_RATE, tiers = false, savings = {}, prices = true, captions = {}, supportPlan = "", overhead = null }) {
+  // overhead: project management and management hours from the cost table ({ hours, price }), a line of its own in the summary.
   // prices: false leaves out every price, cost and hour: no estimate bars, investment summary, cost or package slides.
   const { default: PptxGenJS } = await import("pptxgenjs");
   const pres = new PptxGenJS();
@@ -249,14 +250,16 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     // The Team column follows the hours columns: teams with hours, plus any package team.
     const teamsOf = (l) => { const sp = split(l); return teamList((l.team || []).filter((k) => sp[k] || !hourTeams({ team: [k] }).length)); };
     const many = used.length > 3, fixedW = many ? [4.6, 3.0] : [5.4, 3.4], TW = W - 1.8, EW = 2.2, CW = 2.2; // CW: the cost column
-    const money = (n) => `£${Math.round(n).toLocaleString("en-GB")}`, costOf = (l) => (l.free ? 0 : (l.max * dayRate) / DAY_HOURS);
+    const money = (n) => `£${Math.round(n).toLocaleString("en-GB")}`, costOf = (l) => (l.free ? 0 : salePrice(l, dayRate));
     const pad = { margin: [0.08, 0.1, 0.08, 0.35] }; // breathing room on the left of the first column
     const rows = [[{ ...hd("Improvement", "left"), options: { ...hd("Improvement", "left").options, ...pad } }, hd("Team"), ...used.map(([, , short]) => hd(short)), hd("Estimate"), hd("Cost")]];
     for (const l of hourLines) { const sp = split(l); rows.push([cell((byKey[l.key]?.title || l.title).toUpperCase(), { align: "left", bold: true, color: NAVY, ...pad }), cell(teamsOf(l)), ...used.map(([k]) => cell(sp[k] && !l.free ? range(...sp[k]) : "–")), cell(l.free ? `FREE (${hrs(l.min, l.max)})` : hrs(l.min, l.max), { bold: true, ...(l.free ? { color: TEAL } : {}) }), cell(l.free ? "FREE" : money(costOf(l)), { bold: true, ...(l.free ? { color: TEAL } : {}) })]); }
     const tierOf = (g) => g.tiers.find((x) => g.picked.includes(x.id)) || g.tiers[0];
     for (const l of fixedLines) { const g = pkgOf(l), tr = tierOf(g); rows.push([cell((byKey[l.key]?.title || l.title).toUpperCase(), { align: "left", bold: true, color: NAVY, ...pad }), cell(teamsOf(l)), ...used.map(() => cell("–")), cell(String(tr.period || "").replace(/^for an? /i, "").replace(/^./, (c) => c.toUpperCase())), cell(tr.price, { bold: true })]); }
+    const oh = overhead?.hours > 0 ? overhead : null;
+    if (oh) rows.push([cell("PROJECT MANAGEMENT", { align: "left", bold: true, color: NAVY, ...pad }), cell("Project management"), ...used.map(() => cell("–")), cell(hrs(oh.hours, oh.hours), { bold: true }), cell(money(oh.price), { bold: true })]);
     const fixedCost = fixedLines.reduce((n, l) => n + (Number(String(tierOf(pkgOf(l)).price).replace(/[^0-9.]/g, "")) || 0), 0), fromPrice = fixedLines.some((l) => /^from/i.test(tierOf(pkgOf(l)).price));
-    rows.push([cell("TOTAL HANDS-ON WORK", { align: "left", bold: true, color: NAVY, fill: { color: PALE }, ...pad }), cell("", { fill: { color: PALE } }), ...used.map(([k]) => cell(t[k][1] ? range(t[k][0], t[k][1]) : "–", { bold: true, fill: { color: PALE } })), cell(`${range(t.min, t.max)} hrs`, { bold: true, color: NAVY, fill: { color: PALE } }), cell(`${fromPrice ? "From " : ""}${money(hourLines.reduce((n, l) => n + costOf(l), 0) + fixedCost)}`, { bold: true, color: NAVY, fill: { color: PALE } })]);
+    rows.push([cell("TOTAL HANDS-ON WORK", { align: "left", bold: true, color: NAVY, fill: { color: PALE }, ...pad }), cell("", { fill: { color: PALE } }), ...used.map(([k]) => cell(t[k][1] ? range(t[k][0], t[k][1]) : "–", { bold: true, fill: { color: PALE } })), cell(`${range(t.min + (oh?.hours || 0), t.max + (oh?.hours || 0))} hrs`, { bold: true, color: NAVY, fill: { color: PALE } }), cell(`${fromPrice ? "From " : ""}${money(hourLines.reduce((n, l) => n + costOf(l), 0) + fixedCost + (oh?.price || 0))}`, { bold: true, color: NAVY, fill: { color: PALE } })]);
     const rh = Math.min(1, 7.6 / rows.length);
     if (!prices) rows.forEach((r) => r.pop()); // no Cost column
     const colW = [...fixedW, ...used.map(() => (TW - fixedW[0] - fixedW[1] - EW - (prices ? CW : 0)) / used.length), EW, ...(prices ? [CW] : [])];
@@ -291,7 +294,13 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const tiers = ["bronze", "silver", "gold"].map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1), t: plan[id] }));
     s.addText("Silver gives you the most for your budget, and any option can be split over multiple payments if needed.", { x: 0.9, y: 1.95, w: W - 1.8, h: 0.8, fontFace: FONT, fontSize: 20, color: GREY, isTextBox: true, margin: 0 });
     const gap = 0.35, cw = (W - 1.8 - gap * 2) / 3;
-    const itemsOf = (x) => [...x.t.lines.map((l) => [name(l), tierPrice(l) || money(plan.costOf(l))]), ...plan.free.map((l) => [name(l), "Free"])];
+    // Bronze lists its ideas (and any free extras); Silver and Gold start "Everything in Bronze / Silver, plus:" and list only what they add.
+    const below = { silver: "bronze", gold: "silver" };
+    const itemsOf = (x) => {
+      const prev = below[x.id] ? new Set(plan[below[x.id]].lines.map((l) => l.key)) : null;
+      const own = x.t.lines.filter((l) => !prev?.has(l.key)).map((l) => [name(l), tierPrice(l) || money(plan.costOf(l))]);
+      return prev ? [[`Everything in ${below[x.id][0].toUpperCase()}${below[x.id].slice(1)}, plus:`, "", true], ...own] : [...own, ...plan.free.map((l) => [name(l), "Free"])];
+    };
     const longest = Math.max(...tiers.map((x) => itemsOf(x).length));
     // Fit check: the longest list (by height) must fit between the price and the bottom of the card.
     const room = 3.3 + (plan.monthly.length ? 5.6 : 6.4) - 5.65 - 0.2, textW = cw - 0.9 - 1.6 - 0.3;
@@ -321,7 +330,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       // Item prices match the investment summary exactly (a package at its own price wording).
       const cell = { fontFace: FONT, fontSize: fs, color: fg, valign: "top", margin: [0, 0, marB, 0] };
       // Real check-mark bullets with a hanging indent, so wrapped lines sit under the text, not the tick.
-      s.addTable(items.map(([t, p]) => [{ text: [{ text: t, options: { bullet: { code: "2713", indent: 18 } } }], options: cell }, { text: p, options: { ...cell, align: "right", bold: true } }]), { x: cx + 0.45, y: 5.65, w: cw - 0.9, colW: [cw - 0.9 - 1.6, 1.6], border: { type: "none" }, fill: { color: on ? NAVY : PALE } });
+      s.addTable(items.map(([t, p, lead]) => (lead ? [{ text: t, options: { ...cell, bold: true, colspan: 2 } }] : [{ text: [{ text: t, options: { bullet: { code: "2713", indent: 18 } } }], options: cell }, { text: p, options: { ...cell, align: "right", bold: true } }])), { x: cx + 0.45, y: 5.65, w: cw - 0.9, colW: [cw - 0.9 - 1.6, 1.6], border: { type: "none" }, fill: { color: on ? NAVY : PALE } });
     });
     // Monthly packages (SEO, PPC) aren't in the tiers: they sit underneath as an extra on top of any option.
     const extras = [...new Map(plan.monthly.map((l) => packagesOf(l, picked)[0]).filter(Boolean).map((g) => [g.id, [`${g.name} package`, priceOf(g)]])).values()];
