@@ -65,7 +65,7 @@ export async function POST(request) {
     const month = `ai-research:${new Date().toISOString().slice(0, 7)}`;
     if ((await counterGet(month)) >= RESEARCH_CAP) return Response.json({ error: `Monthly AI research cap reached (${RESEARCH_CAP}). Raise CLIENT_IDEAS_AI_CAP in Vercel for more.` }, { status: 429 });
     try {
-      const r = await researchClient({ name: String(b.name || ""), websites: (b.websites || []).map(clean).filter(Boolean), notes: String(b.notes || "").slice(0, 600), ideasFromUs: String(b.ideasFromUs || "").slice(0, 2000), findings: b.findings || null, quick: !!b.quick });
+      const r = await researchClient({ name: String(b.name || ""), websites: (b.websites || []).map(clean).filter(Boolean), notes: String(b.notes || "").slice(0, 600), findings: b.findings || null, quick: !!b.quick });
       await counterIncr(month, 40 * 86400);
       return Response.json({ research: { ...r, cost: Math.round(researchCost(r.usage, r.model) * 100) / 100 } });
     } catch (e) {

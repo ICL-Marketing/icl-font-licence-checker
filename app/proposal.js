@@ -167,7 +167,7 @@ function BlockList({ label, items, onChange, hidden, onToggle }) {
   );
 }
 
-export function ProposalModal({ group, onClose, onLink, onRetitle, onResearch }) {
+export function ProposalModal({ group, onClose, onLink, notesPrompt }) {
   const id = group.clientId || group.name;
   const website = (group.recs.find((x) => x.website) || {}).website || "";
   // Ideas worth pitching: not declined or done, not our own internal jobs.
@@ -191,27 +191,12 @@ export function ProposalModal({ group, onClose, onLink, onRetitle, onResearch })
       .then((data) => { setImages((o) => ({ ...o, [key]: data })); setShotKind((o) => ({ ...o, [key]: src ? "stock" : "shot" })); setShotState((o) => ({ ...o, [key]: "" })); })
       .catch(() => setShotState((o) => ({ ...o, [key]: "failed" })));
   }
-  // "More detailed titles": Claude rewrites the ideas' titles; they're saved on the ideas (Client Ideas) and on this deck.
-  const [retitling, setRetitling] = useState(false);
-  const [retitleMsg, setRetitleMsg] = useState("");
-  async function retitle() {
-    setRetitling(true); setRetitleMsg("");
-    try {
-      const r = await fetch("/api/ideas/titles", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: group.name, ideas: pool.map((i) => ({ key: i.key, title: i.title, service: i.service, why: i.why, issue: i.issue, solution: i.solution })) }) });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "Failed");
-      const t = j.titles || {};
-      onRetitle?.(pool.filter((i) => t[i.key]).map((i) => ({ recId: i.recId, key: i.key, title: t[i.key] })));
-      change((d) => ({ ...d, picked: Object.fromEntries(Object.entries(d.picked).map(([k, l]) => [k, t[k] ? { ...l, title: t[k] } : l])) }));
-      setRetitleMsg(`${Object.keys(t).length} titles rewritten`);
-    } catch (e) { setRetitleMsg(e.message); } finally { setRetitling(false); }
-  }
-  const [researching, setResearching] = useState(false);
-  const [researchMsg, setResearchMsg] = useState("");
-  async function research() {
-    setResearching(true); setResearchMsg("");
-    try { const n = await onResearch(doc.claudeNotes.trim()); setResearchMsg(`${n} idea${n === 1 ? "" : "s"} added to the list above (and to Client Ideas). Tick the ones to pitch.`); }
-    catch (e) { setResearchMsg(e.message); } finally { setResearching(false); }
+  // Notes for Claude: copy the research prompt (with these notes) to Claude; the reply goes in "Paste a reply".
+  const [notesCopied, setNotesCopied] = useState(false);
+  async function copyNotes(open) {
+    const text = notesPrompt?.(doc.claudeNotes.trim()); if (!text) return;
+    try { await navigator.clipboard.writeText(text); setNotesCopied(true); setTimeout(() => setNotesCopied(false), 2500); } catch {}
+    if (open) window.open("https://claude.ai/new", "_blank", "noopener");
   }
   const [copied, setCopied] = useState(false);
   const [textCopied, setTextCopied] = useState(false);
@@ -282,7 +267,7 @@ export function ProposalModal({ group, onClose, onLink, onRetitle, onResearch })
   if (lines.map((l) => l.key).join() !== (kept || []).join()) setOrder({ scope, keys: lines.map((l) => l.key) });
   const resort = () => setOrder({ scope, keys: sorted.map((l) => l.key) });
   const unsorted = lines.some((l, n) => l.key !== sorted[n]?.key);
-  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines, notes: doc.notes, points: chosen, packages: picked, keep: copyEdits(doc.copy), prices: !doc.noPrices })) : "";
+  const prompt = doc && lines.length ? withTitle("Proposal deck", group.name, proposalPrompt({ client: group.name, website, lines: lines.map((l) => { const i = pool.find((x) => x.key === l.key); return i ? { ...l, issue: l.issue || i.issue || "", solution: l.solution || i.solution || "", links: l.links || [...new Set([...(i.links || []), i.evidenceUrl].filter(Boolean))] } : l; }), notes: doc.notes, points: chosen, packages: picked, keep: copyEdits(doc.copy), prices: !doc.noPrices })) : "";
 
   function applyReply(text) {
     const copy = parseProposalReply(text);
@@ -351,10 +336,6 @@ export function ProposalModal({ group, onClose, onLink, onRetitle, onResearch })
                     {doc.tiersOn && <span className="mt-1 block text-xs text-zinc-600">{tierPreview}{plan && " · click a price pill to move that idea to another tier"}{doc.tierOf && Object.keys(doc.tierOf).length > 0 && <> · <button type="button" onClick={(e) => { e.preventDefault(); change((d) => ({ ...d, tierOf: {} })); }} className="underline hover:text-zinc-900">reset to auto</button></>}
                       {plan && <span className="mt-1 flex flex-wrap items-center gap-3" onClick={(e) => e.preventDefault()}>{["silver", "gold"].map((t) => <span key={t} className="inline-flex items-center gap-1" title={`Leave blank for the usual saving. Price = the ${t} items' total minus this saving`}>{t[0].toUpperCase()}{t.slice(1)} saving £<input type="number" min={0} step={50} value={doc.tierSavings?.[t] ?? ""} placeholder={String(Math.round(plan[t].full - plan[t].price))} onChange={(e) => { const v = e.target.value; change((d) => ({ ...d, tierSavings: { ...d.tierSavings, [t]: v === "" ? undefined : Number(v) } })); }} className="w-20 rounded border border-zinc-300 px-1.5 py-0.5 text-xs" /></span>)}<span className="text-zinc-500">Thin out Bronze or Silver by moving their biggest ideas up a tier.</span></span>}</span>}</span>
                 </label>}
-                {pool.length > 0 && <div className="flex items-center gap-2 text-xs">
-                  <button type="button" onClick={retitle} disabled={retitling} className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1 font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50" title="Claude rewrites each idea's title as one longer line with the detail in it. Saved to Client Ideas too">{retitling ? <><SpinnerIcon className="h-3.5 w-3.5 animate-spin" /> Rewriting titles…</> : "More detailed titles"}</button>
-                  {retitleMsg && <span className="text-zinc-500">{retitleMsg}</span>}
-                </div>}
                 <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
                   {pool.length === 0 && <li className="p-3 text-sm text-zinc-500">No ideas for this client yet. Add your own below.</li>}
                   {pool.map((i) => { const l = doc.picked[i.key]; return (
@@ -378,10 +359,11 @@ export function ProposalModal({ group, onClose, onLink, onRetitle, onResearch })
                 <div className="space-y-2 rounded-lg border border-zinc-200 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Notes for Claude</div>
                   <Grow value={doc.claudeNotes || ""} onChange={(e) => change((d) => ({ ...d, claudeNotes: e.target.value }))} placeholder="Ideas you'd like Claude to look into, one per line, e.g. a members' area for investors, a German version of the energy pages" className={`${input} min-h-[4.5rem]`} />
-                  <div className="flex flex-wrap items-center gap-3">
-                    <button onClick={research} disabled={researching || !(doc.claudeNotes || "").trim() || !onResearch} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">{researching ? <><SpinnerIcon className="h-3.5 w-3.5 animate-spin" /> Claude is researching… (about a minute)</> : "Research and add ideas"}</button>
-                    <span className="text-xs text-zinc-500">{researchMsg || "Claude checks each note against their site and the web, adds the ones that hold up as full ideas, plus a few of its own."}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={() => copyNotes(true)} disabled={!(doc.claudeNotes || "").trim() || !notesPrompt} className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"><CopyIcon /> {notesCopied ? "Copied: paste it into Claude" : "Copy prompt and open Claude"}</button>
+                    <button onClick={() => copyNotes(false)} disabled={!(doc.claudeNotes || "").trim() || !notesPrompt} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-100 disabled:opacity-40">Copy only</button>
                   </div>
+                  <p className="text-xs text-zinc-500">Claude checks each note against their site and the web, writes up the ones that hold up as full ideas and adds a few of its own. Paste its reply in <b>Paste a reply</b> (top of the page): the new ideas appear in the list above and in Client Ideas.</p>
                 </div>
                 <div className="flex justify-end"><button onClick={() => change((d) => ({ ...d, step: 1 }))} className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white">Next: packages & retainer</button></div>
               </div>
