@@ -4,7 +4,8 @@
 // week so trying photos again doesn't use up searches.
 //   ?q=words&list=1  -> { photos: [{ thumb, full, from }] } for the picker
 //   ?q=words&n=2     -> the nth photo, resized for the slide (the automatic pick, and Retry)
-//   ?src=<full url>  -> that photo, resized for the slide (picked in the picker)
+//   ?src=<full url>&thumb=<preview url> -> that photo, resized for the slide (picked in the picker); the preview
+//                       when the site won't let the full-size one download
 import { cacheGet, cacheSet } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -74,7 +75,8 @@ const publicUrl = (u) => {
   try { const x = new URL(u); return /^https?:$/.test(x.protocol) && !/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|0\.|\[)/i.test(x.hostname) && !x.hostname.endsWith(".internal") ? x.href : ""; } catch { return ""; }
 };
 async function slidePhoto(u) {
-  const r = await get(u, { headers: { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36", accept: "image/*" } });
+  // Like a browser on the picture's own site: some sites refuse pictures asked for from anywhere else.
+  const r = await get(u, { headers: { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36", accept: "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8", referer: `${new URL(u).origin}/` } });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const buf = Buffer.from(await r.arrayBuffer());
   const sharp = (await import("sharp")).default;
@@ -84,10 +86,11 @@ const jpeg = (out) => new Response(out, { headers: { "content-type": "image/jpeg
 
 export async function GET(request) {
   const sp = new URL(request.url).searchParams;
-  const src = publicUrl(sp.get("src") || "");
+  const src = publicUrl(sp.get("src") || ""), thumb = publicUrl(sp.get("thumb") || "");
   if (sp.get("src")) {
     if (!src) return Response.json({ error: "Bad picture address" }, { status: 400 });
-    try { return jpeg(await slidePhoto(src)); } catch { return Response.json({ error: "That picture wouldn't download. Pick another." }, { status: 502 }); }
+    for (const u of [src, thumb].filter(Boolean)) { try { return jpeg(await slidePhoto(u)); } catch {} }
+    return Response.json({ error: "That picture wouldn't download. Pick another." }, { status: 502 });
   }
   const q = (sp.get("q") || "").trim().slice(0, 80), n = Math.max(0, Number(sp.get("n")) || 0); // n: which result (Retry moves on to the next)
   if (!q) return Response.json({ error: "q required" }, { status: 400 });
@@ -95,7 +98,7 @@ export async function GET(request) {
   if (sp.get("list")) return Response.json({ photos, google: Boolean(process.env.SERPER_API_KEY) });
   const k = n % (photos.length || 1);
   for (const p of [...photos.slice(k), ...photos.slice(0, k)].slice(0, 6)) {
-    try { return jpeg(await slidePhoto(p.full)); } catch {}
+    for (const u of [p.full, p.thumb]) { try { return jpeg(await slidePhoto(u)); } catch {} }
   }
   return Response.json({ error: stockConfigured() ? "No photo found. Add your own." : "No photo: add a free Serper key in Settings, or add your own." }, { status: 404 });
 }

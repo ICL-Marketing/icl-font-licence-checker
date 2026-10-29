@@ -158,7 +158,7 @@ function StockSearch({ q, busy, onSearch, onRetry, onPick }) {
         <button type="submit" disabled={busy} title="Try another picture (or search for the words in the box)" className="rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[11px] hover:bg-zinc-100 disabled:opacity-40">Retry</button>
         <button type="button" onClick={() => setBrowse(true)} title="See lots of photos for these words and pick one" className="rounded bg-zinc-900 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-zinc-700">Browse</button>
       </form>
-      {browse && <PhotoPicker q={text.trim() || q} onClose={() => setBrowse(false)} onPick={(full, words) => { setBrowse(false); setText(words); onPick(full, words); }} />}
+      {browse && <PhotoPicker q={text.trim() || q} onClose={() => setBrowse(false)} onPick={(full, words, thumb) => { setBrowse(false); setText(words); onPick(full, words, thumb); }} />}
     </>
   );
 }
@@ -184,7 +184,7 @@ function PhotoPicker({ q, onPick, onClose }) {
             : res.error ? <p className="text-sm text-red-700">{res.error}</p>
             : !photos.length ? <p className="text-sm text-zinc-500">No photos for those words. Try simpler ones, e.g. &quot;dentist reception&quot;.</p>
             : <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">{photos.map((p) => (
-                <button key={p.full} onClick={() => onPick(p.full, text.trim() || q)} title={`Use this photo (${p.from})`} className="group relative aspect-[16/10] overflow-hidden rounded-md bg-zinc-100 ring-blue-500 hover:ring-2">
+                <button key={p.full} onClick={() => onPick(p.full, text.trim() || q, p.thumb)} title={`Use this photo (${p.from})`} className="group relative aspect-[16/10] overflow-hidden rounded-md bg-zinc-100 ring-blue-500 hover:ring-2">
                   <img src={p.thumb} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken((b) => new Set(b).add(p.full))} className="h-full w-full object-cover" />
                   <span className="absolute bottom-0 left-0 right-0 truncate bg-black/50 px-1.5 py-0.5 text-left text-[10px] text-white opacity-0 group-hover:opacity-100">{p.from}</span>
                 </button>))}</div>}
@@ -200,6 +200,9 @@ function ImageDrop({ value, onChange, label, status, onShot, shotLabel = "Use th
   return (
     <div tabIndex={0} onPaste={(e) => take([...e.clipboardData.files][0])} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); take(e.dataTransfer.files[0]); }} className="relative flex h-32 w-48 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 text-center text-[11px] text-zinc-500 outline-none hover:border-zinc-400 focus:border-blue-500" onClick={() => ref.current?.click()} title="Click to choose, drop a file, or click then Ctrl+V to paste a screenshot">
       {value ? <img src={value} alt="" className="h-full w-full object-contain" /> : status === "loading" ? <span className="flex items-center gap-1.5 px-2"><SpinnerIcon className="h-3.5 w-3.5 animate-spin" /> Taking a screenshot…</span> : <span className="px-2">{status === "failed" ? "Screenshot didn't load. " : ""}{label}<br />click, drop or paste{onShot && <><br /><button type="button" onClick={(e) => { e.stopPropagation(); onShot(); }} className="mt-1 font-semibold text-blue-700 hover:underline">{shotLabel}</button></>}</span>}
+      {/* A new picture on its way (or one that wouldn't load) over the current one. */}
+      {value && status === "loading" && <span className="absolute inset-0 flex items-center justify-center gap-1.5 bg-white/80 font-medium text-zinc-700"><SpinnerIcon className="h-3.5 w-3.5 animate-spin" /> Loading picture…</span>}
+      {value && status === "failed" && <span className="absolute inset-x-0 bottom-0 bg-red-50/95 px-1 py-0.5 text-red-700">That picture wouldn&apos;t load. Try another.</span>}
       {value && <button onClick={(e) => { e.stopPropagation(); onChange(null); }} aria-label="Remove image" className="absolute right-1 top-1 rounded bg-white/90 p-0.5 text-zinc-500 hover:text-red-700"><TrashIcon className="h-3.5 w-3.5" /></button>}
       <input ref={ref} type="file" accept="image/*" className="hidden" onChange={(e) => take(e.target.files[0])} />
     </div>
@@ -542,7 +545,7 @@ export function ProposalModal({ group, onClose, onLink }) {
                       </div>
                       <div className="w-48 shrink-0 space-y-1.5">
                       <ImageDrop value={images[l.key]} status={shotState[l.key]} onShot={c ? () => { setIdeaCopy(l.key, { noImage: false }); if (c.shot) getShot(l.key, c.shot, c.shotSel); else getStock(l.key, c.stock || c.title); } : null} shotLabel={c?.shot ? "Use the page screenshot" : "Use a stock photo"} onChange={(v) => { setImages((o) => ({ ...o, [l.key]: v })); setShotKind((o) => ({ ...o, [l.key]: "own" })); if (!v && c) setIdeaCopy(l.key, { noImage: true }); }} label="No picture on this slide" />
-                      {c && <StockSearch q={stockAt[l.key]?.q ?? (c.stock || c.title)} busy={shotState[l.key] === "loading"} onSearch={(q) => { setIdeaCopy(l.key, { noImage: false, stock: q }); getStock(l.key, q); }} onRetry={() => { setIdeaCopy(l.key, { noImage: false }); if (shotKind[l.key] === "shot" && c.shot) getShot(l.key, c.shot, c.shotSel); else { const at = stockAt[l.key]; getStock(l.key, at?.q ?? (c.stock || c.title), at ? at.n + 1 : 0); } }} onPick={(full, q) => { setIdeaCopy(l.key, { noImage: false, stock: q }); setStockAt((o) => ({ ...o, [l.key]: { q, n: 0 } })); getShot(l.key, "", "", `/api/stock?src=${encodeURIComponent(full)}`); }} />}
+                      {c && <StockSearch q={stockAt[l.key]?.q ?? (c.stock || c.title)} busy={shotState[l.key] === "loading"} onSearch={(q) => { setIdeaCopy(l.key, { noImage: false, stock: q }); getStock(l.key, q); }} onRetry={() => { setIdeaCopy(l.key, { noImage: false }); if (shotKind[l.key] === "shot" && c.shot) getShot(l.key, c.shot, c.shotSel); else { const at = stockAt[l.key]; getStock(l.key, at?.q ?? (c.stock || c.title), at ? at.n + 1 : 0); } }} onPick={(full, q, thumb) => { setIdeaCopy(l.key, { noImage: false, stock: q }); setStockAt((o) => ({ ...o, [l.key]: { q, n: 0 } })); getShot(l.key, "", "", `/api/stock?src=${encodeURIComponent(full)}${thumb ? `&thumb=${encodeURIComponent(thumb)}` : ""}`); }} />}
                       </div>
                     </div>); })}
                 </div>
