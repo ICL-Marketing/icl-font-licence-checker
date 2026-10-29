@@ -57,8 +57,6 @@ const SUPPORT_TOPICS = [[/cookie|consent/i, "cookies"], [/alt text|alt tag|witho
 const supportTopic = (i) => (SUPPORT_TOPICS.find(([re]) => re.test(i.title || "")) || [null, String(i.title || "").toLowerCase().replace(/^(add|set up|fix|check|update)\s+(an?|the)?\s*/, "").replace(/[^a-z0-9]+/g, " ").trim()])[1];
 // Things we'd normally sort at go-live: anything broken, and Support work (cookie banner, footer year, accessibility, alt text…).
 const isSupportJob = (i) => i.status === "queued" && !i.internal && (ideaType(i) === "fix" || (i.service || serviceFor(i.title)) === "Support");
-// Who the idea came from: Claude or the automatic checks ("AI"), or ICL's own list and your team ("ICL").
-const ideaSource = (i) => (i.ai || i.internal || ideaType(i) === "fix" ? "AI" : "ICL");
 
 export default function IdeasArea({ clients: allClients = [], onRunning, onCount, onClientsChange: saveClients }) {
   // Clients deleted from Client Ideas (ideasDeleted) stay in Settings but are never shown or checked here.
@@ -504,7 +502,7 @@ export default function IdeasArea({ clients: allClients = [], onRunning, onCount
                         <button onClick={(e) => { e.stopPropagation(); updateIdea(it.recId, it.key, { starred: !it.starred }); }} aria-label={it.starred ? "Unstar" : "Star this idea"} title={it.starred ? "Starred: kept at the front. Click to unstar" : "Star a good idea to prioritise it"} className={`absolute right-2 top-2 text-lg leading-none ${it.starred ? "text-amber-500" : "text-zinc-300 hover:text-amber-400"}`}>{it.starred ? "★" : "☆"}</button>
                         <div className="flex flex-wrap items-center gap-1 text-[11px]">
                           {it.claudeCheck?.verdict === "keep" ? <span className="inline-flex items-center gap-0.5 rounded-full bg-orange-100 px-1.5 py-0.5 font-semibold text-orange-800" title={`Checked by Claude ${new Date(it.claudeCheck.at).toLocaleDateString("en-GB")}${it.claudeCheck.reason ? `: ${it.claudeCheck.reason}` : ""}`}><CheckIcon className="h-3 w-3" />Claude (check)</span> :
-                          <span className={`rounded-full px-1.5 py-0.5 font-semibold ${ideaType(it) === "fix" || it.internal ? "bg-red-600 text-white" : it.ai || ideaSource(it) === "AI" ? "bg-violet-100 text-violet-800" : "bg-zinc-100 text-zinc-700"}`} title={it.internal ? "Our own check is failing on this site: sort it, nothing to send" : ideaType(it) === "fix" ? "Something broken or wrong on the site (found by the checks)" : it.ai ? "From Claude's research" : "From ICL's own list of services"}>{ideaSource(it)} Idea</span>}
+                          null}
                           {(() => { const sv = it.service || serviceFor(it.title); return <button onClick={(e) => { e.stopPropagation(); setService(service === sv ? "" : sv); }} title={`Show only ${sv} ideas`} className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${IDEA_SERVICES[sv] || "bg-zinc-500"}`}>{sv}</button>; })()}
                           {isQuickFix(it) ? <span className="rounded-full bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-800">Quick fix</span> : it.size === "large" && <span className="rounded-full bg-zinc-900 px-1.5 py-0.5 font-semibold text-white">Large</span>}
                           <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 font-semibold text-zinc-700" title={it.hours ? "Estimated hours to deliver" : "Rough guess; research again for Claude's estimate"}>~{hoursFor(it)} hr{hoursFor(it) === 1 ? "" : "s"}</span>
@@ -547,7 +545,6 @@ export default function IdeasArea({ clients: allClients = [], onRunning, onCount
                     <li key={`${it.recId}|${it.key}`} className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm">
                       <span className="w-6 text-right text-xs text-zinc-400">{pos >= 0 ? pos + 1 : ""}</span>
                       <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold text-white ${IDEA_KINDS[it.kind]?.tone || "bg-zinc-500"}`}>{IDEA_KINDS[it.kind]?.label}</span>
-                      {it.ai && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[11px] font-semibold text-violet-800">AI</span>}
                       <button onClick={() => setOpen({ id: it.recId, key: it.key })} className="min-w-0 flex-1 truncate text-left hover:underline">{it.title}</button>
                       {pos >= 0 && <span className="flex gap-1"><button onClick={() => move(g.clientId, it, -1)} disabled={pos === 0} aria-label="Move up" className="rounded border border-zinc-200 px-1.5 text-xs disabled:opacity-30">↑</button><button onClick={() => move(g.clientId, it, 1)} disabled={pos === queuedList.length - 1} aria-label="Move down" className="rounded border border-zinc-200 px-1.5 text-xs disabled:opacity-30">↓</button></span>}
                       <select value={it.status} onChange={(e) => updateIdea(it.recId, it.key, { status: e.target.value, ...(e.target.value === "sent" && !it.sentAt ? { sentAt: new Date().toISOString(), sentMonth: month } : {}) })} className="rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-xs">{IDEA_STATUSES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>
@@ -593,7 +590,6 @@ function IdeaBoard({ cards, filtering, onOpen, onMove }) {
                   <div className="font-medium">{c.client}</div>
                   <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px]">
                     <span className={`rounded-full px-1.5 py-0.5 font-semibold text-white ${IDEA_KINDS[c.kind]?.tone || "bg-zinc-500"}`}>{IDEA_KINDS[c.kind]?.label || c.kind}</span>
-                    {c.ai && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 font-semibold text-violet-800" title="From AI research on this client">AI</span>}
                     {c.resolved && <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 font-semibold text-emerald-800" title="No longer found on the site">Fixed on site</span>}
                   </div>
                   <div className="mt-1 text-zinc-700">{c.title}</div>
@@ -638,7 +634,6 @@ function IdeaDrawer({ r, idea, onClose, onIdea, onRec, onBad }) {
               const line = first(r.ai?.business_summary) || [r.ai?.what_they_do, r.ai?.location].filter(Boolean).join(", ") || first(r.siteDescription) || first(r.title);
               return line ? <p className="mt-0.5 text-sm text-zinc-600">{r.ai?.business_summary || r.ai?.what_they_do ? <ClaudeText>{line}</ClaudeText> : line}</p> : null; })()}
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-              <span className={`rounded-full px-2 py-0.5 font-semibold ${ideaType(idea) === "fix" || idea.internal ? "bg-red-600 text-white" : ideaSource(idea) === "AI" ? "bg-violet-100 text-violet-800" : "bg-zinc-100 text-zinc-700"}`}>{ideaSource(idea)} Idea</span>
               {(() => { const sv = idea.service || serviceFor(idea.title); return <span className={`rounded-full px-2 py-0.5 font-semibold text-white ${IDEA_SERVICES[sv] || "bg-zinc-500"}`}>{sv}</span>; })()}
               {isQuickFix(idea) ? <span className="rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-800">Quick fix</span> : idea.size && <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-700">{idea.size[0].toUpperCase() + idea.size.slice(1)} project</span>}
               <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-700" title="Estimated hours to deliver">~{hoursFor(idea)} hr{hoursFor(idea) === 1 ? "" : "s"}</span>
