@@ -26,7 +26,8 @@ const fileSafe = (s) => String(s).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g,
 
 export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null, dayRate = DAY_RATE, tiers = false, savings = {}, prices = true, captions = {}, supportPlan = "", overhead = null }) {
   // overhead: project management and management hours from the cost table ({ hours, price }), a line of its own in the summary.
-  // prices: false leaves out every price, cost and hour: no estimate bars, investment summary, cost or package slides.
+  // prices: false leaves out every price, cost and hour: no estimate bars, investment summary, cost or tier slides
+  // (package slides still go in when switched on).
   const { default: PptxGenJS } = await import("pptxgenjs");
   const pres = new PptxGenJS();
   // Where each slide goes: null for one built here, or a slot name for a slide copied from the uploaded template.

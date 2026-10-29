@@ -430,7 +430,7 @@ export function ProposalModal({ group, onClose, onLink }) {
           <div className="space-y-4 px-5 py-4">
             <ol className="flex flex-wrap items-center gap-1.5">{STEPS.map((s, n) => (
               <li key={s}><button onClick={() => canGo(n) && change((d) => ({ ...d, step: n }))} disabled={!canGo(n)} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium disabled:opacity-40 ${step === n ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"}`}>{n < step ? <CheckIcon className="h-3.5 w-3.5 text-emerald-500" /> : <span className="opacity-60">{n + 1}</span>}{s}</button></li>))}
-              {/* Unticked: no prices, costs or hours anywhere in the deck (no estimate bars, summary, cost, package, support or tier slides). */}
+              {/* Unticked: no prices, costs or hours in the deck (no estimate bars, summary, cost, support or tier slides); package slides still go in when switched on. */}
               <li className="ml-auto mr-3 flex items-center"><label className="inline-flex items-center gap-1.5 text-xs leading-none text-zinc-600" title="Untick for a deck with no prices, costs or hours at all"><input type="checkbox" checked={!doc.noPrices} onChange={() => change((d) => ({ ...d, noPrices: !d.noPrices }))} className="h-3.5 w-3.5" />Include prices</label></li>
             </ol>
 
@@ -561,7 +561,7 @@ export function ProposalModal({ group, onClose, onLink }) {
                 {extrasAt("support")}
                 <SlideCard label="Our service retainer offering" {...toggle("services")}>{tplSlots.services !== undefined ? <TemplateSlidePreview text="Our service retainer offering (your own design from the template)" /> : <ServicesPreview />}</SlideCard>
                 {extrasAt("services")}
-                <SlideCard label="SEO / PPC package slides" {...toggle("packages")} note={needPrices || (!outline.packageGroups.length && "Not in this deck: no monthly packages (SEO, PPC, social media) picked.")}>
+                <SlideCard label="SEO / PPC package slides" {...toggle("packages")} note={(!outline.packageGroups.length && "Not in this deck: no monthly packages (SEO, PPC, social media) picked.")}>
                   {outline.packageGroups.map((g) => <div key={g.id}>{tplSlots[g.id] !== undefined ? <TemplateSlidePreview text={`${g.title} (your own design from the template)`} /> : <PackagePreview group={g} client={group.name} />}</div>)}
                 </SlideCard>
                 {extrasAt("packages")}
