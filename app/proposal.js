@@ -291,7 +291,7 @@ export function ProposalModal({ group, onClose, onLink }) {
     try {
       const { buildDeck } = await import("@/app/proposalDeck");
       const template = await loadTemplate().catch(() => null);
-      await buildDeck({ client: group.name, website, lines, copy: doc.copy, images, packages: pkgIds, template, dayRate, tiers: doc.tiersOn ? doc.tierOf || {} : false, savings: doc.tierSavings || {}, prices: !doc.noPrices, captions: Object.fromEntries(Object.entries(shotKind).filter(([, k]) => k === "shot").map(([key]) => [key, "Current layout"])) });
+      await buildDeck({ client: group.name, supportPlan: group.client?.plan || "", website, lines, copy: doc.copy, images, packages: pkgIds, template, dayRate, tiers: doc.tiersOn ? doc.tierOf || {} : false, savings: doc.tierSavings || {}, prices: !doc.noPrices, captions: Object.fromEntries(Object.entries(shotKind).filter(([, k]) => k === "shot").map(([key]) => [key, "Current layout"])) });
     }
     catch (e) { setErr(`Couldn't build the deck: ${e.message}`); }
     setBusy(false);

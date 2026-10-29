@@ -1,10 +1,10 @@
 import ExcelJS from "exceljs";
-import { normaliseClients, CLIENT_FIELDS } from "@/lib/clients";
+import { normaliseClients, CLIENT_FIELDS, SUPPORT_PLANS } from "@/lib/clients";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const HEADERS = { name: "Client", websites: "Website(s)", manager: "Account Manager", poc: "POC", emails: "Email Address", phone: "Contact No", type: "Type", notes: "Notes" };
+const HEADERS = { name: "Client", websites: "Website(s)", manager: "Account Manager", plan: "Support Plan", poc: "POC", emails: "Email Address", phone: "Contact No", type: "Type", notes: "Notes" };
 const cellText = (c) => { const x = c?.value; if (x == null) return ""; if (typeof x === "object") return x.text || x.result || (x.richText ? x.richText.map((r) => r.text).join("") : String(x)); return String(x); };
 
 // POST: an uploaded .xlsx (the Web Clients sheet or one exported from here) -> client rows.
@@ -26,7 +26,7 @@ export async function POST(request) {
       }
       const o = {};
       header.forEach((h, i) => { o[h] = vals[i] || ""; });
-      rows.push({ name: o.client || o["client "] || o.name, websites: o["website(s)"] || o.websites || o.website, manager: o["account manager"], poc: o.poc, emails: o["email address"] || o.emails || o.email, phone: o["contact no"] || o.phone, type: o.type, notes: [o.notes, o.notes2].filter(Boolean).join("; ") });
+      rows.push({ name: o.client || o["client "] || o.name, websites: o["website(s)"] || o.websites || o.website, manager: o["account manager"], plan: o["support plan"] || o.plan, poc: o.poc, emails: o["email address"] || o.emails || o.email, phone: o["contact no"] || o.phone, type: o.type, notes: [o.notes, o.notes2].filter(Boolean).join("; ") });
     });
     return Response.json({ clients: normaliseClients(rows), sheet: ws.name, rows: rows.length });
   } catch (e) {
@@ -44,7 +44,7 @@ export async function PUT(request) {
   ws.columns = CLIENT_FIELDS.map((k) => ({ header: HEADERS[k], key: k, width: k === "emails" ? 44 : k === "websites" ? 30 : k === "notes" ? 30 : 20 }));
   ws.getRow(1).font = { bold: true };
   ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F1F1" } };
-  for (const c of clients) ws.addRow({ ...c, websites: c.websites.join(" | "), emails: c.emails.join(" | ") });
+  for (const c of clients) ws.addRow({ ...c, plan: c.plan ? Object.fromEntries(SUPPORT_PLANS)[c.plan] : "", websites: c.websites.join(" | "), emails: c.emails.join(" | ") });
   if (clients.length) ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: clients.length + 1, column: CLIENT_FIELDS.length } };
   const buf = await wb.xlsx.writeBuffer();
   return new Response(buf, { headers: { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "content-disposition": `attachment; filename="web-clients-${new Date().toISOString().slice(0, 10)}.xlsx"` } });

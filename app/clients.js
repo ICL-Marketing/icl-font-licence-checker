@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import CLIENTS_DEFAULT from "@/data/clients.json";
-import { normaliseClients } from "@/lib/clients";
+import { normaliseClients, SUPPORT_PLANS } from "@/lib/clients";
 import { ROLES } from "@/app/team";
 import { DownloadIcon, TrashIcon, CheckIcon } from "@/app/icons";
 
@@ -43,6 +43,11 @@ function ClientRow({ c, team, onChange, onRemove }) {
           <option value="">—</option>
           {managers.map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}
           {c.manager && !known && <option value="__other">{c.manager} (not in team)</option>}
+        </select>
+      </td>
+      <td className="py-1.5 pr-2">
+        <select value={c.plan || ""} onChange={(e) => set("plan", e.target.value)} aria-label="Support plan" className={`${inputCls} ${c.plan ? "" : "text-zinc-400"}`}>
+          {SUPPORT_PLANS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
         </select>
       </td>
       <td className="py-1.5 pr-2"><textarea value={c.poc} onChange={(e) => set("poc", e.target.value)} rows={rows(c.poc)} aria-label="Point of contact" className={area} /></td>
@@ -111,7 +116,7 @@ export function ClientsEditor({ clients, team, onChange, shared }) {
       <div className="mt-2 overflow-x-auto lg:overflow-visible">{/* no inner scroll: the page scrolls, and the header stays put on wide screens */}
         <table className="w-full min-w-[760px] text-xs">
           <thead className="sticky top-0 bg-white"><tr className="text-left text-zinc-500">
-            <th className="py-1 pr-2">Client</th><th className="py-1 pr-2">Website(s)</th><th className="py-1 pr-2">Account manager</th><th className="py-1 pr-2">Contact</th><th className="py-1 pr-2">Email(s)</th><th />
+            <th className="py-1 pr-2">Client</th><th className="py-1 pr-2">Website(s)</th><th className="py-1 pr-2">Account manager</th><th className="py-1 pr-2">Support plan</th><th className="py-1 pr-2">Contact</th><th className="py-1 pr-2">Email(s)</th><th />
           </tr></thead>
           <tbody>{rows.map(({ c, i }) => <ClientRow key={c.id} c={c} team={team} onChange={(nc) => update(i, nc)} onRemove={() => remove(i)} />)}</tbody>
         </table>

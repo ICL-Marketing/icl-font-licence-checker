@@ -27,7 +27,7 @@ const teamList = (team = []) => TEAMS.filter(([k]) => team.includes(k)).map(([, 
 const hrs = (a, b) => `${range(a, b)}\u00A0hr${a === b && a === 1 ? "" : "s"}`;
 const fileSafe = (s) => String(s).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "Client";
 
-export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null, dayRate = DAY_RATE, tiers = false, savings = {}, prices = true, captions = {} }) {
+export async function buildDeck({ client, website, lines, copy, images = {}, packages = [], template = null, dayRate = DAY_RATE, tiers = false, savings = {}, prices = true, captions = {}, supportPlan = "" }) {
   // prices: false leaves out every price, cost and hour: no estimate bars, investment summary, cost or package slides.
   const { default: PptxGenJS } = await import("pptxgenjs");
   const pres = new PptxGenJS();
@@ -381,7 +381,8 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
     const val = (t) => ({ text: t, options: { color: INK } });
     const rich = (b, t) => ({ text: [{ text: b, options: { bold: true } }, { text: t }], options: { color: INK } });
     const rows = [
-      [{ text: "", options: {} }, ...["BRONZE SUPPORT", "SILVER SUPPORT", "GOLD SUPPORT"].map((t, i) => ({ text: t, options: { bold: true, fontSize: 24, color: TIER[i], border: [null, null, { type: "solid", pt: 1, color: INDIGO }, null] } }))],
+      [{ text: "", options: {} }, ...["bronze", "silver", "gold"].map((k, i) => ({ text: supportPlan === k ? "CURRENT PLAN" : `${k.toUpperCase()} SUPPORT`, // the client's own plan is labelled as theirs
+ options: { bold: true, fontSize: 24, color: TIER[i], border: [null, null, { type: "solid", pt: 1, color: INDIGO }, null] } }))],
       [lab("Included:"), val("All maintenance tasks needed to ensure your app or website is safe and secure. Plus reactive and proactive support as needed."), rich("Bronze plus:", " Weekly conference call with dedicated service delivery manager and monthly strategic meetings."), rich("Silver plus:", " half a day per month on-site visit and complimentary managed hosting.")],
       [lab("Support hours:"), val("9am – 5pm, Mon-Fri"), val("9am – 5pm, Mon-Fri"), val("9am – 5pm, Mon-Fri, plus emergency out of hours.")],
       [lab("Contractual SLA:"), val("8 Hour Resolution"), val("6 Hour Resolution"), val("4 Hour Resolution")],
