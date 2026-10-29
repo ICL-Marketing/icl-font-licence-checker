@@ -110,14 +110,15 @@ function Effort({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier, pi
     </span>
   );
 }
-// Under an idea slide's picture: search the stock libraries, or Retry for the next photo (or a fresh screenshot).
+// Under an idea slide's picture: one Retry button. With new words in the box it searches the stock libraries for
+// them; with the same words it brings the next photo (or a fresh screenshot of their site).
 function StockSearch({ q, busy, onSearch, onRetry }) {
   const [text, setText] = useState(q);
+  const go = () => (text.trim() && text.trim() !== q ? onSearch(text.trim()) : onRetry());
   return (
-    <form onSubmit={(e) => { e.preventDefault(); if (text.trim()) onSearch(text.trim()); }} className="flex items-center gap-1">
+    <form onSubmit={(e) => { e.preventDefault(); go(); }} className="flex items-center gap-1">
       <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Search photos" aria-label="Search stock photos" className="min-w-0 flex-1 rounded border border-zinc-300 px-1.5 py-0.5 text-[11px]" />
-      <button type="submit" disabled={busy || !text.trim()} className="rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[11px] hover:bg-zinc-100 disabled:opacity-40">Search</button>
-      <button type="button" onClick={onRetry} disabled={busy} title="Try another picture" className="rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[11px] hover:bg-zinc-100 disabled:opacity-40">Retry</button>
+      <button type="submit" disabled={busy} title="Try another picture (or search for the words in the box)" className="rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[11px] hover:bg-zinc-100 disabled:opacity-40">Retry</button>
     </form>
   );
 }
