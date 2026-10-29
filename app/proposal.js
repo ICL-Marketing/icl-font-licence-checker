@@ -109,6 +109,17 @@ function Effort({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier, pi
     </span>
   );
 }
+// Under an idea slide's picture: search the stock libraries, or Retry for the next photo (or a fresh screenshot).
+function StockSearch({ q, busy, onSearch, onRetry }) {
+  const [text, setText] = useState(q);
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); if (text.trim()) onSearch(text.trim()); }} className="flex items-center gap-1">
+      <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Search photos" aria-label="Search stock photos" className="min-w-0 flex-1 rounded border border-zinc-300 px-1.5 py-0.5 text-[11px]" />
+      <button type="submit" disabled={busy || !text.trim()} className="rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[11px] hover:bg-zinc-100 disabled:opacity-40">Search</button>
+      <button type="button" onClick={onRetry} disabled={busy} title="Try another picture" className="rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[11px] hover:bg-zinc-100 disabled:opacity-40">Retry</button>
+    </form>
+  );
+}
 function ImageDrop({ value, onChange, label, status, onShot, shotLabel = "Use the page screenshot" }) {
   const ref = useRef(null);
   const take = async (f) => { if (f && f.type.startsWith("image/")) onChange(await shrink(f)); };
@@ -183,7 +194,9 @@ export function ProposalModal({ group, onClose, onLink }) {
   // Where each picture came from: "shot" (their site, captioned "Current layout" in the deck), "stock" or "own".
   const [shotKind, setShotKind] = useState({});
   // A stock photo for an idea with nothing to screenshot yet (a new page or feature), so every idea slide has a picture.
-  const getStock = (key, q) => getShot(key, "", "", `/api/stock?q=${encodeURIComponent(q)}`);
+  // n: which search result (Retry asks for the next one).
+  const [stockAt, setStockAt] = useState({}); // key -> { q, n }
+  const getStock = (key, q, n = 0) => { setStockAt((o) => ({ ...o, [key]: { q, n } })); getShot(key, "", "", `/api/stock?q=${encodeURIComponent(q)}&n=${n}`); };
   function getShot(key, url, sel = "", src = "") {
     asked.current.add(key);
     setShotState((o) => ({ ...o, [key]: "loading" }));
@@ -420,7 +433,10 @@ export function ProposalModal({ group, onClose, onLink }) {
                         <div className="flex flex-wrap items-center gap-2 pt-1"><Effort picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(l.key, f)} {...tierProps(l.key)} />
                           {!doc.noPrices && c?.max && c.max !== l.max && <button onClick={() => { const th = teamHours(l), tot = Object.values(th).reduce((x, y) => x + y, 0) || 1, hrs = Object.fromEntries(Object.entries(th).map(([k, h]) => [k, snapHours((h * c.max) / tot)])); const t = Object.values(hrs).reduce((x, y) => x + y, 0); setLine(l.key, { hrs, min: t, max: t }); }} title={c.hoursNote} className="block w-full rounded-md bg-orange-50 px-2.5 py-1.5 text-left text-[11px] text-orange-800 ring-1 ring-orange-200 hover:bg-orange-100"><span className="font-semibold">Claude suggests {c.max} hrs · use</span>{c.hoursNote && <span className="mt-0.5 block">{c.hoursNote}</span>}</button>}</div>
                       </div>
+                      <div className="w-48 shrink-0 space-y-1.5">
                       <ImageDrop value={images[l.key]} status={shotState[l.key]} onShot={c ? () => { setIdeaCopy(l.key, { noImage: false }); if (c.shot) getShot(l.key, c.shot, c.shotSel); else getStock(l.key, c.stock || c.title); } : null} shotLabel={c?.shot ? "Use the page screenshot" : "Use a stock photo"} onChange={(v) => { setImages((o) => ({ ...o, [l.key]: v })); setShotKind((o) => ({ ...o, [l.key]: "own" })); if (!v && c) setIdeaCopy(l.key, { noImage: true }); }} label="No picture on this slide" />
+                      {c && <StockSearch q={stockAt[l.key]?.q ?? (c.stock || c.title)} busy={shotState[l.key] === "loading"} onSearch={(q) => { setIdeaCopy(l.key, { noImage: false, stock: q }); getStock(l.key, q); }} onRetry={() => { setIdeaCopy(l.key, { noImage: false }); if (shotKind[l.key] === "shot" && c.shot) getShot(l.key, c.shot, c.shotSel); else { const at = stockAt[l.key]; getStock(l.key, at?.q ?? (c.stock || c.title), at ? at.n + 1 : 0); } }} />}
+                      </div>
                     </div>); })}
                 </div>
                 <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Roadmap slide title<input value={doc.copy.roadmapTitle || ""} onChange={(e) => setCopy({ roadmapTitle: e.target.value })} placeholder="Too much in one go? Roadmap it over N months with a support retainer (N is worked out for you)" className={`${input} mt-0.5 font-normal normal-case tracking-normal`} /></label>

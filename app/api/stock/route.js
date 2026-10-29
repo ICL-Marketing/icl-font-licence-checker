@@ -13,39 +13,39 @@ const get = async (url, opts = {}) => {
 async function pexels(q) {
   const key = process.env.PEXELS_API_KEY;
   if (!key) return [];
-  const r = await get(`https://api.pexels.com/v1/search?query=${encodeURIComponent(q)}&orientation=landscape&per_page=5`, { headers: { authorization: key } });
+  const r = await get(`https://api.pexels.com/v1/search?query=${encodeURIComponent(q)}&orientation=landscape&per_page=12`, { headers: { authorization: key } });
   if (!r.ok) return [];
   return ((await r.json()).photos || []).map((p) => p.src?.large2x || p.src?.large).filter(Boolean);
 }
 async function pixabay(q) {
   const key = process.env.PIXABAY_API_KEY;
   if (!key) return [];
-  const r = await get(`https://pixabay.com/api/?key=${encodeURIComponent(key)}&q=${encodeURIComponent(q)}&image_type=photo&orientation=horizontal&safesearch=true&per_page=5`);
+  const r = await get(`https://pixabay.com/api/?key=${encodeURIComponent(key)}&q=${encodeURIComponent(q)}&image_type=photo&orientation=horizontal&safesearch=true&per_page=12`);
   if (!r.ok) return [];
   return ((await r.json()).hits || []).map((h) => h.largeImageURL || h.webformatURL).filter(Boolean);
 }
 async function unsplash(q) {
   const key = process.env.UNSPLASH_ACCESS_KEY;
   if (!key) return [];
-  const r = await get(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(q)}&orientation=landscape&per_page=5`, { headers: { authorization: `Client-ID ${key}` } });
+  const r = await get(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(q)}&orientation=landscape&per_page=12`, { headers: { authorization: `Client-ID ${key}` } });
   if (!r.ok) return [];
   return ((await r.json()).results || []).map((p) => p.urls?.regular).filter(Boolean);
 }
 async function openverse(q) {
-  const r = await get(`https://api.openverse.org/v1/images/?q=${encodeURIComponent(q)}&license=cc0,pdm&aspect_ratio=wide&mature=false&page_size=5`);
+  const r = await get(`https://api.openverse.org/v1/images/?q=${encodeURIComponent(q)}&license=cc0,pdm&aspect_ratio=wide&mature=false&page_size=12`);
   if (!r.ok) return [];
   return ((await r.json()).results || []).map((x) => x.url).filter(Boolean);
 }
 
 export async function GET(request) {
-  const q = (new URL(request.url).searchParams.get("q") || "").trim().slice(0, 60);
+  const sp = new URL(request.url).searchParams, q = (sp.get("q") || "").trim().slice(0, 60), n = Math.max(0, Number(sp.get("n")) || 0); // n: which result (Retry moves on to the next)
   if (!q) return Response.json({ error: "q required" }, { status: 400 });
   let urls = [];
   for (const find of [pixabay, pexels, unsplash, openverse]) {
     if (urls.length) break;
     try { urls = await find(q); } catch {}
   }
-  for (const u of urls) {
+  for (const u of [...urls.slice(n % (urls.length || 1)), ...urls.slice(0, n % (urls.length || 1))]) {
     try {
       const r = await get(u);
       if (!r.ok) continue;
