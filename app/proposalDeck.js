@@ -1,6 +1,6 @@
 // Builds the ICL proposal deck (.pptx) in the browser with pptxgenjs, in the house style:
 // dark gradient slides with the white logo, white slides with navy titles, teal accents, Obviously.
-import { TEAMS, range, split, totals, priceFor, DAY_RATE, DAY_HOURS, lineValue, tierPlan } from "@/lib/proposal";
+import { TEAMS, range, split, totals, priceFor, DAY_RATE, DAY_HOURS, lineValue, tierPlan, tierOptions } from "@/lib/proposal";
 import { pickedPackages, packageFor, packagesOf, hourTeams, isSeoLine } from "@/lib/packages";
 
 const W = 19.44, H = 12.5;
@@ -54,7 +54,10 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   const extrasAt = (anchor) => { (template?.extras || []).forEach((e, i) => { if (e.after === anchor && !NOT_IN_CLIENT_DECKS.test(e.title || "") && !hide[`extra:${i}`] && template.slots[`extra:${i}`]) order.push(`extra:${i}`); }); };
   const byKey = Object.fromEntries((copy.ideas || []).map((i) => [i.key, i]));
   const hide = copy.hide || {}; // slides taken out in the review step
-  const plan = tiers && prices ? tierPlan(lines, picked, dayRate, typeof tiers === "object" ? tiers : {}, savings) : null;
+  // Bronze / Silver / Gold: your own split when you've moved ideas between tiers, otherwise three options to choose from
+  // (one slide each: keep the one you like and delete the others).
+  const plans = !(tiers && prices) ? [] : typeof tiers === "object" && Object.keys(tiers).length ? [tierPlan(lines, picked, dayRate, tiers, savings)].filter(Boolean) : tierOptions(lines, picked, dayRate, savings);
+  const plan = plans[0] || null;
   const dark = () => { const s = pres.addSlide(); s.background = { data: bg }; s.addImage({ data: logoW, x: 0.9, y: H - 1.15, w: 2.3, h: 2.3 * (183 / 786) }); return s; };
   const light = (title) => {
     const s = pres.addSlide(); s.background = { color: WHITE };
@@ -119,7 +122,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       lines.length && "Your website ideas",
       showSummary && "Investment summary",
       showCosts && "Monthly costs",
-      plan && "Choose your package",
+      plan && "Choose your one-off package",
       showRoadmap && "Six-month roadmap",
       copy.retainer?.length && !hide.retainer && "Next: a support retainer",
       showSupport && "Support packages",
@@ -279,13 +282,14 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
   }
   extrasAt("costs");
   // 6b. Options: Bronze / Silver / Gold built from the ideas (only when switched on in the review step).
-  if (plan) {
-    const s = light("Choose your package");
+  for (const [opt, plan] of plans.entries()) {
+    const s = light("Choose your one-off package");
+    if (plans.length > 1) s.addNotes(`Option ${opt + 1} of ${plans.length}: keep the pricing you like best and delete the other option slides.`);
     const tierPrice = (l) => { const g = pkgOf(l); return g?.fixed ? String((g.tiers.find((y) => g.picked.includes(y.id)) || g.tiers[0]).price) : ""; };
     const money = (n) => `£${Math.round(n).toLocaleString("en-GB")}`, name = (l) => byKey[l.key]?.title || l.title;
     // Every tier lists all of its items (not "Everything in Bronze"), each with its own price.
     const tiers = ["bronze", "silver", "gold"].map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1), t: plan[id] }));
-    s.addText("Three ways to get started. Silver gives you the most for your budget.", { x: 0.9, y: 1.95, w: W - 1.8, h: 0.8, fontFace: FONT, fontSize: 20, color: GREY, isTextBox: true, margin: 0 });
+    s.addText("Three ways to get started. Silver gives you the most for your budget and can be split over multiple payments if needed.", { x: 0.9, y: 1.95, w: W - 1.8, h: 0.8, fontFace: FONT, fontSize: 20, color: GREY, isTextBox: true, margin: 0 });
     const gap = 0.35, cw = (W - 1.8 - gap * 2) / 3;
     const itemsOf = (x) => [...x.t.lines.map((l) => [name(l), tierPrice(l) || money(plan.costOf(l))]), ...plan.free.map((l) => [name(l), "Free"])];
     const longest = Math.max(...tiers.map((x) => itemsOf(x).length));
@@ -325,7 +329,7 @@ export async function buildDeck({ client, website, lines, copy, images = {}, pac
       s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.9, y: 9.1, w: W - 1.8, h: 0.85, rectRadius: 0.2, fill: { color: WHITE }, line: { color: TEAL, width: 1.5 } });
       s.addText([{ text: "+ MONTHLY EXTRA   ", options: { bold: true, color: TEAL, charSpacing: 1 } }, ...extras.flatMap(([n, p], k) => [{ text: `${k ? "     " : ""}${n}  ` , options: { bold: true, color: NAVY } }, { text: p, options: { color: INK } }])], { x: 1.3, y: 9.1, w: W - 2.6, h: 0.85, fontFace: FONT, fontSize: 17, valign: "middle", isTextBox: true, margin: 0 });
     }
-    s.addText(extras.length ? "Prices exclude VAT. Monthly extras can be added to any option." : "Prices exclude VAT.", { x: 0.9, y: extras.length ? 10.2 : 9.95, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 14, color: GREY, isTextBox: true, margin: 0 });
+    s.addText(extras.length ? "Prices exclude VAT. Monthly packages (such as SEO) are on top and can be added to any option." : "Prices exclude VAT.", { x: 0.9, y: extras.length ? 10.2 : 9.95, w: W - 1.8, h: 0.5, fontFace: FONT, fontSize: 14, color: GREY, isTextBox: true, margin: 0 });
   }
   // 6c. Roadmap (the template's process timeline): the ideas spread over the months, most expensive
   // first, one-off packages included, monthly packages running all the way through, a cost per month.

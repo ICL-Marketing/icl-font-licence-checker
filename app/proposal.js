@@ -4,7 +4,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CloseIcon, CopyIcon, CheckIcon, ExternalIcon, SpinnerIcon, TrashIcon, ChevronUpIcon, ChevronDownIcon } from "@/app/icons";
 import { useClaudeHandler, withTitle } from "@/app/claudeInbox";
-import { FIXED_SLIDES, TEAMS, lineFromIdea, proposalPrompt, parseProposalReply, teamHours, lineValue, priceFor, ideasText, tierPlan, copyEdits, withEdits, quarter, snapHours, rateOf, DAY_RATE, withTeam, withoutTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
+import { FIXED_SLIDES, TEAMS, lineFromIdea, proposalPrompt, parseProposalReply, teamHours, lineValue, priceFor, ideasText, tierPlan, tierOptions, copyEdits, withEdits, quarter, snapHours, rateOf, DAY_RATE, withTeam, withoutTeam, withHours, RETAINER_DEFAULTS, normalisePoints } from "@/lib/proposal";
 import Link from "next/link";
 import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY, ANCHORS } from "@/lib/deckTemplate";
 import { PACKAGE_GROUPS, PACKAGE_TEAMS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER, isSeoLine } from "@/lib/packages";
@@ -302,9 +302,12 @@ export function ProposalModal({ group, onClose, onLink }) {
   const toggle = (k) => ({ hidden: !!hidden[k], onToggle: () => setCopy({ hide: { ...hidden, [k]: !hidden[k] } }) });
   // The Bronze / Silver / Gold slide is off unless switched on (hide.tiers === false).
   const tiersToggle = { hidden: !doc?.tiersOn, onToggle: () => change((d) => ({ ...d, tiersOn: !d.tiersOn })) };
-  const plan = doc?.tiersOn ? tierPlan(lines, picked, dayRate, doc.tierOf || {}, doc.tierSavings || {}) : null;
-  const tierProps = (key) => (plan?.tierOf[key] ? { tier: plan.tierOf[key], onTier: (t) => change((d) => ({ ...d, tierOf: { ...d.tierOf, [key]: t } })) } : {});
-  const tierPreview = !plan ? "needs at least three paid ideas" : ["bronze", "silver", "gold"].map((t) => `${t[0].toUpperCase()}${t.slice(1)} £${plan[t].price.toLocaleString("en-GB")} (${plan[t].lines.length})`).join(" · ");
+  const ownSplit = Object.keys(doc?.tierOf || {}).length > 0;
+  const options = doc?.tiersOn && !doc.noPrices ? (ownSplit ? [tierPlan(lines, picked, dayRate, doc.tierOf, doc.tierSavings || {})].filter(Boolean) : tierOptions(lines, picked, dayRate, doc.tierSavings || {})) : [];
+  const plan = options[0] || null;
+  const tierProps = (key) => (plan?.tierOf[key] ? { tier: plan.tierOf[key], onTier: (t) => change((d) => ({ ...d, tierOf: { ...plan.tierOf, ...d.tierOf, [key]: t } })) } : {}); // moving one idea makes the (first) option your own split
+  const optText = (p) => ["bronze", "silver", "gold"].map((t) => `${t[0].toUpperCase()}${t.slice(1)} £${p[t].price.toLocaleString("en-GB")} (${p[t].lines.length})`).join(" · ");
+  const tierPreview = !plan ? "needs at least three paid ideas" : options.length > 1 ? `${options.length} options, one slide each (keep the best, delete the others): ${options.map((p, n) => `${n + 1}) ${optText(p)}`).join("  |  ")}` : optText(plan);
   const setIdeaCopy = (key, fields) => setCopy({ ideas: doc.copy.ideas.map((x) => (x.key === key ? { ...x, ...fields } : x)) });
   const step = doc?.step || 0;
   const canGo = (n) => n === 0 || (n <= 2 ? lines.length > 0 : !!doc?.copy);
@@ -329,7 +332,7 @@ export function ProposalModal({ group, onClose, onLink }) {
                 {!doc.noPrices && <label className="flex items-start gap-2 rounded-lg border border-zinc-200 p-3 text-sm">
                   <input type="checkbox" checked={!!doc.tiersOn} onChange={tiersToggle.onToggle} className="mt-0.5 h-4 w-4" />
                   <span><span className="font-semibold">Offer Bronze / Silver / Gold options</span> <span className="text-zinc-500">(a &quot;Choose your package&quot; slide built from these ideas; Silver is priced to be the easy choice)</span>
-                    {doc.tiersOn && <span className="mt-1 block text-xs text-zinc-600">{tierPreview}{plan && " · click a price pill to move that idea to another tier"}{doc.tierOf && Object.keys(doc.tierOf).length > 0 && <> · <button type="button" onClick={(e) => { e.preventDefault(); change((d) => ({ ...d, tierOf: {} })); }} className="underline hover:text-zinc-900">reset to auto</button></>}
+                    {doc.tiersOn && <span className="mt-1 block text-xs text-zinc-600">{tierPreview}{plan && " · click a price pill to move an idea to another tier (this makes one split of your own; reset to auto for 3 options)"}{doc.tierOf && Object.keys(doc.tierOf).length > 0 && <> · <button type="button" onClick={(e) => { e.preventDefault(); change((d) => ({ ...d, tierOf: {} })); }} className="underline hover:text-zinc-900">reset to auto</button></>}
                       {plan && <span className="mt-1 flex flex-wrap items-center gap-3" onClick={(e) => e.preventDefault()}>{["silver", "gold"].map((t) => <span key={t} className="inline-flex items-center gap-1" title={`Leave blank for the usual saving. Price = the ${t} items' total minus this saving`}>{t[0].toUpperCase()}{t.slice(1)} saving £<input type="number" min={0} step={50} value={doc.tierSavings?.[t] ?? ""} placeholder={String(Math.round(plan[t].full - plan[t].price))} onChange={(e) => { const v = e.target.value; change((d) => ({ ...d, tierSavings: { ...d.tierSavings, [t]: v === "" ? undefined : Number(v) } })); }} className="w-20 rounded border border-zinc-300 px-1.5 py-0.5 text-xs" /></span>)}<span className="text-zinc-500">Thin out Bronze or Silver by moving their biggest ideas up a tier.</span></span>}</span>}</span>
                 </label>}
                 <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
