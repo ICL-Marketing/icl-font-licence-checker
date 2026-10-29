@@ -8,7 +8,7 @@ import { FIXED_SLIDES, TEAMS, lineFromIdea, ownLine, proposalPrompt, parsePropos
 import Link from "next/link";
 import { loadTemplate, templateMeta, listSlides, TEMPLATE_KEY, ANCHORS } from "@/lib/deckTemplate";
 import { PACKAGE_GROUPS, PACKAGE_TEAMS, pickedPackages, effectivePackages, isPackageLine, packagesOf, SINGLE_TIER, isSeoLine } from "@/lib/packages";
-import { ideaType, serviceFor } from "@/lib/clientIdeas";
+import { ideaType, serviceFor, IDEA_SERVICES } from "@/lib/clientIdeas";
 
 function Grow({ value, className = "", ...rest }) {
   const ref = useRef(null);
@@ -56,13 +56,19 @@ const NEXT_TIER = { bronze: "silver", silver: "gold", gold: "bronze" };
 // The idea's price (or package), in its tier's colour when Bronze / Silver / Gold is on: click to move it to the next tier.
 // Off when the deck leaves prices out ("Include prices" unticked): no price pills anywhere in the editor either.
 const PricesShown = createContext(true);
-// Under an idea's title: links to the pages on their current site that show it, each opening in a new tab.
+// Under an idea's title: its service (Design, Development, SEO…) and links to the pages on their current site that
+// show it, each opening in a new tab.
 // The title is the one line of detail; Issue and Solution show on hover.
 function IdeaDetail({ idea }) {
   const links = [...new Set([...(idea.links || []), idea.evidenceUrl].filter((u) => /^https?:\/\//.test(u || "")))];
   const label = (u) => { try { const x = new URL(u); return x.pathname === "/" ? x.hostname.replace(/^www\./, "") : x.pathname.replace(/\/$/, ""); } catch { return u; } };
-  if (!links.length) return null;
-  return <span className="mt-0.5 flex flex-wrap gap-x-3 text-xs">{links.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-0.5 text-blue-700 hover:underline">{label(u)}<ExternalIcon className="h-3 w-3" /></a>)}</span>;
+  const sv = idea.service || serviceFor(idea.title);
+  return (
+    <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+      <span className={`whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white ${IDEA_SERVICES[sv] || "bg-zinc-500"}`}>{sv.replace(/^Web /, "").replace(/^./, (c) => c.toUpperCase())}</span>
+      {links.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-0.5 text-blue-700 hover:underline">{label(u)}<ExternalIcon className="h-3 w-3" /></a>)}
+    </span>
+  );
 }
 function PricePill({ line, onChange, picked = [], rate = DAY_RATE, tier, onTier }) {
   if (!useContext(PricesShown)) return null;
@@ -329,7 +335,7 @@ export function ProposalModal({ group, onClose, onLink }) {
                   {pool.map((i) => { const l = doc.picked[i.key]; return (
                     <li key={i.key} className={`flex flex-wrap items-start gap-2 px-3 py-2 text-sm ${l ? "bg-emerald-50/50" : ""}`}>
                       <input type="checkbox" checked={!!l} onChange={() => change((d) => { const p = { ...d.picked }; if (p[i.key]) delete p[i.key]; else p[i.key] = lineFromIdea(i); return { ...d, picked: p }; })} className="mt-0.5 h-4 w-4 shrink-0" />
-                      <span className="min-w-[16rem] flex-1 leading-snug" title={[i.issue && `Issue: ${i.issue}`, i.solution && `Solution: ${i.solution}`].filter(Boolean).join("\n") || i.why}>{i.title}{i.starred && <span className="ml-1.5 text-amber-500">★</span>}<span className={`ml-1.5 inline-block rounded-full px-1.5 py-0.5 align-[1px] text-[10px] font-semibold leading-none ${i.ai ? "bg-violet-100 text-violet-800" : "bg-zinc-100 text-zinc-700"}`}>{i.ai ? "AI" : "ICL"}</span><IdeaDetail idea={i} /></span>
+                      <span className="min-w-[16rem] flex-1 leading-snug" title={[i.issue && `Issue: ${i.issue}`, i.solution && `Solution: ${i.solution}`].filter(Boolean).join("\n") || i.why}>{i.title}{i.starred && <span className="ml-1.5 text-amber-500">★</span>}<IdeaDetail idea={i} /></span>
                       {l && <><PricePill picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(i.key, f)} {...tierProps(l.key)} /><Effort pill={false} picked={picked} rate={dayRate} line={l} onChange={(f) => setLine(i.key, f)} /></>}
                     </li>); })}
                   {Object.values(doc.picked).filter((l) => !pool.some((i) => i.key === l.key)).map((l) => (
